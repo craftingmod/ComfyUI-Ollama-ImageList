@@ -1,0 +1,1201 @@
+{
+  "id": "ff255af2-821b-4bb0-90f3-5118d33eeeb7",
+  "revision": 0,
+  "last_node_id": 29,
+  "last_link_id": 42,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [
+        450,
+        -350
+      ],
+      "size": [
+        290,
+        350
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1,
+            13
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "Architecture.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "Architecture.png",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [
+        450,
+        50
+      ],
+      "size": [
+        300,
+        350
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            2,
+            14
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "BallerinaBunny.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "BallerinaBunny.png",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 3,
+      "type": "CreateList",
+      "pos": [
+        820,
+        -90
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "input0",
+          "localized_name": "inputs.input0",
+          "name": "inputs.input0",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "label": "input1",
+          "localized_name": "inputs.input1",
+          "name": "inputs.input1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 2
+        },
+        {
+          "label": "input2",
+          "localized_name": "inputs.input2",
+          "name": "inputs.input2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "list",
+          "name": "list",
+          "shape": 6,
+          "type": "IMAGE",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CreateList"
+      }
+    },
+    {
+      "id": 4,
+      "type": "PreviewImage",
+      "pos": [
+        1100,
+        -340
+      ],
+      "size": [
+        260,
+        350
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 8,
+      "type": "PreviewAny",
+      "pos": [
+        2800,
+        -40
+      ],
+      "size": [
+        470,
+        240
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "source",
+          "name": "source",
+          "type": "*",
+          "link": 39
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {}
+    },
+    {
+      "id": 12,
+      "type": "BatchImagesNode",
+      "pos": [
+        820,
+        60
+      ],
+      "size": [
+        230,
+        100
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "image0",
+          "localized_name": "images.image0",
+          "name": "images.image0",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "label": "image1",
+          "localized_name": "images.image1",
+          "name": "images.image1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "label": "image2",
+          "localized_name": "images.image2",
+          "name": "images.image2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            17
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "BatchImagesNode"
+      }
+    },
+    {
+      "id": 13,
+      "type": "ComfySwitchNode",
+      "pos": [
+        1430,
+        0
+      ],
+      "size": [
+        270,
+        110
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "on_false",
+          "name": "on_false",
+          "type": "IMAGE",
+          "link": 18
+        },
+        {
+          "localized_name": "on_true",
+          "name": "on_true",
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "localized_name": "switch",
+          "name": "switch",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "switch"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "output",
+          "name": "output",
+          "type": "IMAGE",
+          "links": [
+            29
+          ]
+        }
+      ],
+      "title": "UseList",
+      "properties": {
+        "Node name for S&R": "ComfySwitchNode"
+      },
+      "widgets_values": [
+        true
+      ],
+      "widgets_values_named": {
+        "switch": true
+      }
+    },
+    {
+      "id": 14,
+      "type": "PreviewImage",
+      "pos": [
+        1090,
+        60
+      ],
+      "size": [
+        270,
+        370
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 17
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewImage"
+      }
+    },
+    {
+      "id": 17,
+      "type": "OllamaImageList_Connectivity",
+      "pos": [
+        1790,
+        510
+      ],
+      "size": [
+        350,
+        210
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "url",
+          "name": "url",
+          "type": "STRING",
+          "widget": {
+            "name": "url"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "available_models",
+          "name": "available_models",
+          "type": "COMBO",
+          "widget": {
+            "name": "available_models"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "STRING",
+          "widget": {
+            "name": "model"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "URL",
+          "name": "URL",
+          "type": "STRING",
+          "links": [
+            26
+          ]
+        },
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "STRING",
+          "links": [
+            27
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OllamaImageList_Connectivity"
+      },
+      "widgets_values": [
+        "http://127.0.0.1:11434",
+        "gemma4-31b-uncensored:latest",
+        "gemma4-31b-uncensored:latest"
+      ],
+      "widgets_values_named": {
+        "url": "http://127.0.0.1:11434",
+        "available_models": "gemma4-31b-uncensored:latest",
+        "model": "gemma4-31b-uncensored:latest"
+      }
+    },
+    {
+      "id": 20,
+      "type": "OllamaImageList_Options",
+      "pos": [
+        1800,
+        -340
+      ],
+      "size": [
+        300,
+        790
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "use_num_ctx",
+          "name": "use_num_ctx",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_num_ctx"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "num_ctx",
+          "name": "num_ctx",
+          "type": "INT",
+          "widget": {
+            "name": "num_ctx"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_num_predict",
+          "name": "use_num_predict",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_num_predict"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "num_predict",
+          "name": "num_predict",
+          "type": "INT",
+          "widget": {
+            "name": "num_predict"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_temperature",
+          "name": "use_temperature",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_temperature"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "temperature",
+          "name": "temperature",
+          "type": "FLOAT",
+          "widget": {
+            "name": "temperature"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_top_p",
+          "name": "use_top_p",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_top_p"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "top_p",
+          "name": "top_p",
+          "type": "FLOAT",
+          "widget": {
+            "name": "top_p"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_top_k",
+          "name": "use_top_k",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_top_k"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "top_k",
+          "name": "top_k",
+          "type": "INT",
+          "widget": {
+            "name": "top_k"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_min_p",
+          "name": "use_min_p",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_min_p"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "min_p",
+          "name": "min_p",
+          "type": "FLOAT",
+          "widget": {
+            "name": "min_p"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_repeat_penalty",
+          "name": "use_repeat_penalty",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_repeat_penalty"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "repeat_penalty",
+          "name": "repeat_penalty",
+          "type": "FLOAT",
+          "widget": {
+            "name": "repeat_penalty"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_repeat_last_n",
+          "name": "use_repeat_last_n",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_repeat_last_n"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "repeat_last_n",
+          "name": "repeat_last_n",
+          "type": "INT",
+          "widget": {
+            "name": "repeat_last_n"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_seed",
+          "name": "use_seed",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_stop",
+          "name": "use_stop",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_stop"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "stop",
+          "name": "stop",
+          "type": "STRING",
+          "widget": {
+            "name": "stop"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "use_draft_num_predict",
+          "name": "use_draft_num_predict",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "use_draft_num_predict"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "draft_num_predict",
+          "name": "draft_num_predict",
+          "type": "INT",
+          "widget": {
+            "name": "draft_num_predict"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "options",
+          "name": "options",
+          "type": "DICT",
+          "links": [
+            25
+          ]
+        },
+        {
+          "localized_name": "options_json",
+          "name": "options_json",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OllamaImageList_Options"
+      },
+      "widgets_values": [
+        true,
+        2048,
+        false,
+        -1,
+        false,
+        0.8,
+        false,
+        0.9,
+        false,
+        40,
+        false,
+        0,
+        false,
+        1.1,
+        false,
+        64,
+        true,
+        1542736930,
+        "randomize",
+        false,
+        "",
+        false,
+        4
+      ],
+      "widgets_values_named": {
+        "use_num_ctx": true,
+        "num_ctx": 2048,
+        "use_num_predict": false,
+        "num_predict": -1,
+        "use_temperature": false,
+        "temperature": 0.8,
+        "use_top_p": false,
+        "top_p": 0.9,
+        "use_top_k": false,
+        "top_k": 40,
+        "use_min_p": false,
+        "min_p": 0,
+        "use_repeat_penalty": false,
+        "repeat_penalty": 1.1,
+        "use_repeat_last_n": false,
+        "repeat_last_n": 64,
+        "use_seed": true,
+        "seed": 1542736930,
+        "control_after_generate": "randomize",
+        "use_stop": false,
+        "stop": "",
+        "use_draft_num_predict": false,
+        "draft_num_predict": 4
+      }
+    },
+    {
+      "id": 21,
+      "type": "OllamaImageList_Generate",
+      "pos": [
+        2320,
+        30
+      ],
+      "size": [
+        400,
+        500
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "showAdvanced": false,
+      "inputs": [
+        {
+          "localized_name": "options",
+          "name": "options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 25
+        },
+        {
+          "localized_name": "images",
+          "name": "images",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 29
+        },
+        {
+          "localized_name": "url",
+          "name": "url",
+          "type": "STRING",
+          "widget": {
+            "name": "url"
+          },
+          "link": 26
+        },
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "STRING",
+          "widget": {
+            "name": "model"
+          },
+          "link": 27
+        },
+        {
+          "localized_name": "system",
+          "name": "system",
+          "type": "STRING",
+          "widget": {
+            "name": "system"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "options_json",
+          "name": "options_json",
+          "type": "STRING",
+          "widget": {
+            "name": "options_json"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format_json",
+          "name": "format_json",
+          "type": "STRING",
+          "widget": {
+            "name": "format_json"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "think",
+          "name": "think",
+          "type": "COMBO",
+          "widget": {
+            "name": "think"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "unload_after_response",
+          "name": "unload_after_response",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "unload_after_response"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "keep_alive",
+          "name": "keep_alive",
+          "type": "STRING",
+          "widget": {
+            "name": "keep_alive"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "timeout_seconds",
+          "name": "timeout_seconds",
+          "type": "INT",
+          "widget": {
+            "name": "timeout_seconds"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "debug",
+          "name": "debug",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "debug"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "response",
+          "name": "response",
+          "type": "STRING",
+          "links": [
+            39
+          ]
+        },
+        {
+          "localized_name": "thinking",
+          "name": "thinking",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "localized_name": "raw JSON",
+          "name": "raw JSON",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "localized_name": "metrics",
+          "name": "metrics",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "localized_name": "image manifest",
+          "name": "image manifest",
+          "type": "STRING",
+          "links": [
+            42
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OllamaImageList_Generate"
+      },
+      "widgets_values": [
+        "http://127.0.0.1:11434",
+        "",
+        "",
+        "Describe images count and detail of images as 2~3 sentences.",
+        "",
+        "",
+        "low",
+        true,
+        "5m",
+        300,
+        false
+      ],
+      "widgets_values_named": {
+        "url": "http://127.0.0.1:11434",
+        "model": "",
+        "system": "",
+        "prompt": "Describe images count and detail of images as 2~3 sentences.",
+        "options_json": "",
+        "format_json": "",
+        "think": "low",
+        "unload_after_response": true,
+        "keep_alive": "5m",
+        "timeout_seconds": 300,
+        "debug": false
+      }
+    },
+    {
+      "id": 22,
+      "type": "Note",
+      "pos": [
+        820,
+        220
+      ],
+      "size": [
+        230,
+        190
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "Image is cutted in `Batch Images`."
+      ],
+      "widgets_values_named": {
+        "text": "Image is cutted in `Batch Images`."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 23,
+      "type": "Note",
+      "pos": [
+        820,
+        -330
+      ],
+      "size": [
+        230,
+        180
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "Image has original aspect ratio."
+      ],
+      "widgets_values_named": {
+        "text": "Image has original aspect ratio."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 29,
+      "type": "PreviewAny",
+      "pos": [
+        2800,
+        240
+      ],
+      "size": [
+        470,
+        320
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "source",
+          "name": "source",
+          "type": "*",
+          "link": 42
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {}
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      1,
+      "IMAGE"
+    ],
+    [
+      4,
+      3,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      1,
+      0,
+      12,
+      0,
+      "IMAGE"
+    ],
+    [
+      14,
+      2,
+      0,
+      12,
+      1,
+      "IMAGE"
+    ],
+    [
+      15,
+      4,
+      0,
+      13,
+      1,
+      "IMAGE"
+    ],
+    [
+      17,
+      12,
+      0,
+      14,
+      0,
+      "IMAGE"
+    ],
+    [
+      18,
+      14,
+      0,
+      13,
+      0,
+      "IMAGE"
+    ],
+    [
+      25,
+      20,
+      0,
+      21,
+      0,
+      "DICT"
+    ],
+    [
+      26,
+      17,
+      0,
+      21,
+      2,
+      "STRING"
+    ],
+    [
+      27,
+      17,
+      1,
+      21,
+      3,
+      "STRING"
+    ],
+    [
+      29,
+      13,
+      0,
+      21,
+      1,
+      "IMAGE"
+    ],
+    [
+      39,
+      21,
+      0,
+      8,
+      0,
+      "STRING"
+    ],
+    [
+      42,
+      21,
+      4,
+      29,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Prepare Image",
+      "bounding": [
+        430,
+        -420,
+        1290,
+        910
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Generate",
+      "bounding": [
+        1750,
+        -420,
+        1590,
+        1170
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.9680000000000099,
+      "offset": [
+        -1541.33030641243,
+        504.50125240856005
+      ]
+    }
+  },
+  "version": 0.4
+}

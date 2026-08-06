@@ -146,8 +146,8 @@ class OllamaImageListOptionsNode(io.ComfyNode):
                 ),
             ],
             outputs=[
-                OptionsDictType.Output("options", display_name="options dict"),
-                io.String.Output("options_json", display_name="options JSON"),
+                OptionsDictType.Output("options", display_name="options"),
+                io.String.Output("options_json", display_name="options_json"),
             ],
         )
 

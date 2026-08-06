@@ -170,6 +170,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "DICT",
         "string",
     ]
+    assert [field.name for field in options_schema.outputs] == ["options", "options_json"]
+    assert [field.options["display_name"] for field in options_schema.outputs] == [
+        "options",
+        "options_json",
+    ]
     option_values = {
         field.name: field.options["default"] for field in options_schema.inputs
     }
@@ -208,6 +213,44 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert "audio" not in generate_input_names
     assert "audio_transport" not in generate_input_names
     assert generate_input_names.index("options") < generate_input_names.index("options_json")
+    assert [field.name for field in generate_schema.outputs] == [
+        "response",
+        "thinking",
+        "raw_json",
+        "metrics_json",
+        "image_manifest_json",
+    ]
+    assert generate_schema.outputs[-1].options["display_name"] == "image manifest"
+    generate_module = importlib.import_module("backend.nodes.ollama_generate")
+    image_item = SimpleNamespace(
+        payload=b"png",
+        manifest=lambda: {
+            "kind": "image",
+            "index": 0,
+            "mime_type": "image/png",
+            "byte_size": 3,
+        },
+    )
+    image_manifest = generate_module._image_manifest(
+        SimpleNamespace(items=(image_item,)),
+        {
+            "model": "gemma3",
+            "audio_transport": "disabled",
+            "media": {"audio_count": 0},
+        },
+    )
+    assert image_manifest == {
+        "image_count": 1,
+        "total_encoded_bytes": 3,
+        "images": [
+            {
+                "index": 0,
+                "mime_type": "image/png",
+                "byte_size": 3,
+            }
+        ],
+        "request": {"model": "gemma3"},
+    }
     unload_input = generate_inputs["unload_after_response"]
     assert unload_input.data_type == "boolean"
     assert unload_input.options == {

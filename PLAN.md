@@ -244,7 +244,7 @@ MVP의 핵심 stateless 노드다.
 | `thinking` | STRING | 지원 모델의 thinking 출력 |
 | `raw_json` | STRING | Base64를 포함하지 않는 응답 JSON |
 | `metrics_json` | STRING | durations와 token counts |
-| `media_manifest_json` | STRING | 이미지 순서, 크기, MIME, byte 크기 |
+| `image_manifest_json` | STRING | 이미지 순서, 크기, MIME, byte 크기 |
 
 ### 5.2 `Ollama Image List Media Bundle`
 

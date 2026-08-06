@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 try:
     from comfy_api.v0_0_2 import io
@@ -10,6 +11,27 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 from ..backends.ollama import chat
 from ..core import normalize_images, unwrap_optional_scalar, unwrap_required_scalar
 from .ollama_options import OptionsDictType
+
+
+def _image_manifest(bundle, request_manifest=None) -> dict[str, Any]:
+    images = []
+    for item in bundle.items:
+        entry = item.manifest()
+        entry.pop("kind", None)
+        images.append(entry)
+
+    manifest: dict[str, Any] = {
+        "image_count": len(images),
+        "total_encoded_bytes": sum(len(item.payload) for item in bundle.items),
+        "images": images,
+    }
+    if request_manifest is not None:
+        manifest["request"] = {
+            key: value
+            for key, value in request_manifest.items()
+            if key not in {"audio_transport", "media"}
+        }
+    return manifest
 
 
 class OllamaImageListGenerateNode(io.ComfyNode):
@@ -114,7 +136,7 @@ class OllamaImageListGenerateNode(io.ComfyNode):
                 io.String.Output("thinking", display_name="thinking"),
                 io.String.Output("raw_json", display_name="raw JSON"),
                 io.String.Output("metrics_json", display_name="metrics"),
-                io.String.Output("media_manifest_json", display_name="media manifest"),
+                io.String.Output("image_manifest_json", display_name="image manifest"),
             ],
         )
 
@@ -156,9 +178,10 @@ class OllamaImageListGenerateNode(io.ComfyNode):
             ),
             timeout_seconds=float(unwrap_optional_scalar("timeout_seconds", timeout_seconds, 300)),
         )
-        manifest = bundle.manifest()
-        if debug_enabled:
-            manifest = {**manifest, "request": result.request_manifest}
+        manifest = _image_manifest(
+            bundle,
+            result.request_manifest if debug_enabled else None,
+        )
         return io.NodeOutput(
             result.response,
             result.thinking,
