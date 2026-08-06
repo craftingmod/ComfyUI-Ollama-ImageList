@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 512" role="img">
+  <rect width="1024" height="512" rx="64" fill="#fcfcfa"/>
+
+  <!-- Minimal llama-like line symbol -->
+  <g fill="none" stroke="#171717" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M195 155c-13-25-23-55-14-66 8-9 23 3 34 18l13 26"/>
+    <path d="M317 155c13-25 23-55 14-66-8-9-23 3-34 18l-13 26"/>
+    <path d="M177 197c-27-6-36 13-37 43l19 7"/>
+    <path d="M335 197c27-6 36 13 37 43l-19 7"/>
+    <path d="M165 381c-7-55-7-129 4-183 10-49 42-74 87-74s77 25 87 74c11 54 11 128 4 183"/>
+    <circle cx="217" cy="218" r="6" fill="#171717" stroke="none"/>
+    <circle cx="295" cy="218" r="6" fill="#171717" stroke="none"/>
+    <path d="M220 276c0-13 22-36 36-45 14 9 36 32 36 45 0 10-14 15-36 15s-36-5-36-15z"/>
+    <circle cx="256" cy="267" r="5" fill="#171717" stroke="none"/>
+  </g>
+
+  <!-- Image frames in portrait, square, and landscape ratios -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <g>
+      <rect x="508" y="125" width="160" height="254" rx="18" fill="#f1f1ed" stroke="#171717" stroke-width="14"/>
+      <circle cx="626" cy="181" r="14" fill="none" stroke="#686864" stroke-width="10"/>
+      <path d="M529 337l41-57 28 34 20-25 29 48" fill="none" stroke="#686864" stroke-width="10"/>
+    </g>
+    <g>
+      <rect x="718" y="125" width="148" height="148" rx="18" fill="#f1f1ed" stroke="#171717" stroke-width="14"/>
+      <circle cx="824" cy="165" r="11" fill="none" stroke="#686864" stroke-width="9"/>
+      <path d="M738 246l34-41 24 27 18-20 31 34" fill="none" stroke="#686864" stroke-width="9"/>
+    </g>
+    <g>
+      <rect x="718" y="320" width="238" height="126" rx="18" fill="#f1f1ed" stroke="#171717" stroke-width="14"/>
+      <circle cx="909" cy="357" r="11" fill="none" stroke="#686864" stroke-width="9"/>
+      <path d="M739 420l43-46 32 31 30-38 55 53" fill="none" stroke="#686864" stroke-width="9"/>
+    </g>
+  </g>
+</svg>

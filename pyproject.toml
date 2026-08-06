@@ -15,6 +15,6 @@ dev = [
 Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"
 
 [tool.comfy]
-PublisherId = "craftingmod"
-DisplayName = "Ollama Image List"
+PublisherId = "alyac"
+DisplayName = "Ollama-ImageList"
 requires-comfyui = ">=0.18.1"
