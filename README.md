@@ -7,7 +7,6 @@ ComfyUI V3 custom nodes that send a single stateless Ollama `/api/chat` request 
 - **Ollama Image List Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
-- **Ollama Image List Media Bundle** — normalizes and reuses image lists while exposing a payload-free manifest.
 
 ## Install
 
@@ -66,17 +65,15 @@ Model support for multiple images varies. If a model or server rejects a request
 
 Request and response fields follow Ollama's official [Chat API](https://docs.ollama.com/api/chat).
 
-## Audio status
+## Public scope
 
-ComfyUI AUDIO values are normalized into PCM16 WAV items, but Ollama currently has no documented native audio field. The default `audio_transport=disabled` therefore returns an explicit error when audio is connected.
-
-`experimental_wav_in_images` is an explicit, unofficial compatibility attempt that places WAV bytes in Ollama's `images` array. It may fail or behave unpredictably depending on the model and server. `native` remains reserved for a future documented Ollama API and currently fails clearly.
+The public Generate node accepts `images` only. The Media Bundle node is not registered, and `media`, `audio`, and `audio_transport` inputs are intentionally not exposed. Their internal experimental implementation is retained only to make a future opt-in feature possible without expanding the current project scope.
 
 ## Privacy and limits
 
-Images and experimental audio are transmitted to the configured Ollama URL. A non-loopback or remote URL can therefore receive private media. URL credentials and media payloads are excluded from manifests and backend error summaries.
+Images are transmitted to the configured Ollama URL. A non-loopback or remote URL can therefore receive private images. URL credentials and image payloads are excluded from manifests and backend error summaries.
 
-Default safeguards limit image count, pixels per image, audio duration, nesting depth, raw tensor size, and encoded payload size. Limit violations fail before the HTTP request; no automatic fallback changes request meaning.
+Default safeguards limit image count, pixels per image, nesting depth, raw tensor size, and encoded payload size. Limit violations fail before the HTTP request; no automatic fallback changes request meaning.
 
 ## Development
 
@@ -96,7 +93,7 @@ Use `-WhatIf` to inspect the fixed deployment target without replacing it. Resta
 
 ## Roadmap
 
-`v0.1.0` targets Ollama image single/batch/data-list support with non-streaming response, thinking, metrics, unit tests, and a mock-server integration test. Capability diagnostics, real-model compatibility results, stable Media Bundle workflows, experimental audio verification, and optional `llama-cpp-python` support follow in later milestones described by `PLAN.md`.
+`v0.1.0` targets Ollama image single/batch/data-list support with non-streaming response, thinking, metrics, unit tests, and a mock-server integration test. Capability diagnostics, real-model compatibility results, optional Media Bundle and audio experiments, and `llama-cpp-python` support may follow in later milestones described by `PLAN.md`.
 
 ## License
 

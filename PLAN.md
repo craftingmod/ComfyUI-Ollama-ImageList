@@ -229,13 +229,11 @@ MVP의 핵심 stateless 노드다.
 | 입력 | 타입 | 설명 |
 |---|---|---|
 | `images` | IMAGE 또는 flexible input | single/batch/list/data list |
-| `audio` | AUDIO 또는 flexible input | single/batch/list/data list |
 | `options_json` | STRING multiline | Ollama options object |
 | `format_json` | STRING multiline | 빈 문자열, `json`, 또는 JSON Schema |
 | `think` | enum | `off/on/low/medium/high/max` |
 | `keep_alive` | STRING | 예: `5m`, `0`, `-1` |
 | `timeout_seconds` | INT | 연결 및 요청 제한 시간 |
-| `audio_transport` | enum | disabled/experimental/native |
 | `debug` | BOOLEAN | payload를 제외한 진단 정보 출력 |
 
 출력:
@@ -246,11 +244,11 @@ MVP의 핵심 stateless 노드다.
 | `thinking` | STRING | 지원 모델의 thinking 출력 |
 | `raw_json` | STRING | Base64를 포함하지 않는 응답 JSON |
 | `metrics_json` | STRING | durations와 token counts |
-| `media_manifest_json` | STRING | 이미지/오디오 순서, 크기, MIME, byte 크기 |
+| `media_manifest_json` | STRING | 이미지 순서, 크기, MIME, byte 크기 |
 
 ### 5.2 `Ollama Image List Media Bundle`
 
-디버깅과 재사용을 위한 보조 노드다. 동일한 list-aware 정규화 기능을 사용하여 opaque 타입 `OLLAMA_IMAGE_LIST_MEDIA`를 출력한다.
+현재 공개 확장 등록에서는 비활성화한다. 내부 구현은 향후 명시적인 opt-in 기능을 검토할 수 있도록 유지한다. 활성화할 경우 동일한 list-aware 정규화 기능을 사용하여 opaque 타입 `OLLAMA_IMAGE_LIST_MEDIA`를 출력한다.
 
 용도:
 

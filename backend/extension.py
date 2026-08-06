@@ -8,7 +8,6 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 from .nodes import (
     OllamaImageListConnectivityNode,
     OllamaImageListGenerateNode,
-    OllamaImageListMediaBundleNode,
     OllamaImageListOptionsNode,
 )
 from .routes import register_routes
@@ -19,7 +18,6 @@ class OllamaImageListExtension(ComfyExtension):
         return [
             OllamaImageListConnectivityNode,
             OllamaImageListOptionsNode,
-            OllamaImageListMediaBundleNode,
             OllamaImageListGenerateNode,
         ]
 

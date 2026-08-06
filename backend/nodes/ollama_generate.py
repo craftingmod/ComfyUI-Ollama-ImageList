@@ -8,9 +8,7 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
     from comfy_api.latest import io
 
 from ..backends.ollama import chat
-from ..core import normalize_media, unwrap_optional_scalar, unwrap_required_scalar
-from .common import collect_bundles, combine_bundles
-from .media_bundle import OllamaImageListMediaType
+from ..core import normalize_images, unwrap_optional_scalar, unwrap_required_scalar
 from .ollama_options import OptionsDictType
 
 
@@ -99,36 +97,16 @@ class OllamaImageListGenerateNode(io.ComfyNode):
                     step=1,
                     advanced=True,
                 ),
-                io.Combo.Input(
-                    "audio_transport",
-                    options=["disabled", "experimental_wav_in_images", "native"],
-                    default="disabled",
-                    advanced=True,
-                    tooltip=(
-                        "Ollama has no documented native audio field. Experimental mode places WAV bytes "
-                        "in images and may fail depending on model/server."
-                    ),
-                ),
                 io.Boolean.Input(
                     "debug",
                     default=False,
                     advanced=True,
                     tooltip="Include a payload-free request manifest in the manifest output.",
                 ),
-                OllamaImageListMediaType.Input(
-                    "media",
-                    optional=True,
-                    tooltip="Optional pre-normalized Ollama Image List Media Bundle.",
-                ),
                 io.Image.Input(
                     "images",
                     optional=True,
                     tooltip="IMAGE single, batch, list, nested list, or ComfyUI data list.",
-                ),
-                io.Audio.Input(
-                    "audio",
-                    optional=True,
-                    tooltip="AUDIO input; transport is disabled by default because Ollama lacks a native field.",
                 ),
             ],
             outputs=[
@@ -153,15 +131,11 @@ class OllamaImageListGenerateNode(io.ComfyNode):
         unload_after_response,
         keep_alive,
         timeout_seconds,
-        audio_transport,
         debug,
-        media=None,
         images=None,
-        audio=None,
         options=None,
     ) -> io.NodeOutput:
-        normalized = normalize_media(images=images, audio=audio)
-        bundle = combine_bundles(collect_bundles(media), normalized)
+        bundle = normalize_images(images)
         debug_enabled = bool(unwrap_optional_scalar("debug", debug, False))
         resolved_options = unwrap_optional_scalar("options", options, None)
         result = chat(
@@ -181,9 +155,6 @@ class OllamaImageListGenerateNode(io.ComfyNode):
                 )
             ),
             timeout_seconds=float(unwrap_optional_scalar("timeout_seconds", timeout_seconds, 300)),
-            audio_transport=str(
-                unwrap_optional_scalar("audio_transport", audio_transport, "disabled")
-            ),
         )
         manifest = bundle.manifest()
         if debug_enabled:

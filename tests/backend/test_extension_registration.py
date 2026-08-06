@@ -118,13 +118,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert [schema.node_id for schema in schemas] == [
         "OllamaImageList_Connectivity",
         "OllamaImageList_Options",
-        "OllamaImageList_MediaBundle",
         "OllamaImageList_Generate",
     ]
     assert [schema.display_name for schema in schemas] == [
         "Ollama Image List Connectivity",
         "Ollama Image List Options",
-        "Ollama Image List Media Bundle",
         "Ollama Generate (Image List)",
     ]
     assert {schema.category for schema in schemas} == {"Ollama/Image List"}
@@ -196,7 +194,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "stop": ["END"],
     }
 
-    assert registered["OllamaImageList_MediaBundle"][1].is_input_list is True
     generate_schema = registered["OllamaImageList_Generate"][1]
     assert generate_schema.is_input_list is True
     generate_inputs = {field.name: field for field in generate_schema.inputs}
@@ -206,6 +203,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert generate_inputs["options_json"].options["default"] == ""
     assert generate_inputs["options_json"].options["advanced"] is True
     generate_input_names = [field.name for field in generate_schema.inputs]
+    assert "images" in generate_input_names
+    assert "media" not in generate_input_names
+    assert "audio" not in generate_input_names
+    assert "audio_transport" not in generate_input_names
     assert generate_input_names.index("options") < generate_input_names.index("options_json")
     unload_input = generate_inputs["unload_after_response"]
     assert unload_input.data_type == "boolean"
