@@ -1,5 +1,5 @@
 [project]
-name = "comfyui-ollama-image-list"
+name = "ollama-image-list"
 description = "Send mixed-resolution ComfyUI IMAGE data lists to Ollama in one request"
 version = "0.1.0"
 requires-python = ">=3.12"
@@ -18,3 +18,4 @@ Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"
 PublisherId = "alyac"
 DisplayName = "Ollama-ImageList"
 requires-comfyui = ">=0.18.1"
+Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Ollama-ImageList@latest/docs/icon.svg"

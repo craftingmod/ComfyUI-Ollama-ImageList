@@ -1,0 +1,17 @@
+# Development configuration and automation
+.agents/
+.github/
+tests/
+docs/
+scripts/
+
+# Development-only metadata
+AGENTS.md
+CLAUDE.md
+PLAN.md
+conftest.py
+skills-lock.json
+uv.lock
+.python-version
+.gitattributes
+.gitignore

@@ -24,10 +24,14 @@ def test_v3_entrypoint_exports_loader_and_frontend_directory():
 def test_comfy_registry_metadata_matches_the_package():
     pyproject = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
 
-    assert pyproject["project"]["name"] == "comfyui-ollama-image-list"
+    assert pyproject["project"]["name"] == "ollama-image-list"
     assert pyproject["project"]["version"] == "0.1.0"
     assert pyproject["tool"]["comfy"] == {
-        "PublisherId": "craftingmod",
-        "DisplayName": "Ollama Image List",
+        "PublisherId": "alyac",
+        "DisplayName": "Ollama-ImageList",
         "requires-comfyui": ">=0.18.1",
+        "Icon": (
+            "https://cdn.jsdelivr.net/gh/craftingmod/"
+            "ComfyUI-Ollama-ImageList@latest/docs/icon.svg"
+        ),
     }
