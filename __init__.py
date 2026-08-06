@@ -1,15 +1,7 @@
-from .backend import (
-    ExampleNormalizeTextNode,
-    NODE_CLASS_MAPPINGS,
-    NODE_DISPLAY_NAME_MAPPINGS,
-)
+async def comfy_entrypoint():
+    from .backend import comfy_entrypoint as load_extension
+
+    return await load_extension()
 
 
-WEB_DIRECTORY = "./dist"
-
-__all__ = [
-    "ExampleNormalizeTextNode",
-    "NODE_CLASS_MAPPINGS",
-    "NODE_DISPLAY_NAME_MAPPINGS",
-    "WEB_DIRECTORY",
-]
+__all__ = ["comfy_entrypoint"]

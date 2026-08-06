@@ -1,7 +1,8 @@
 node_modules/
 __pycache__/
+.pytest_cache/
 dist/
-coverage/ 
+coverage/
 .DS_Store
 .env
 .env.local
@@ -13,12 +14,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .venv/
+.uv-cache/
 .worktrees/
-node.zip
 .vscode/
 .claude/
 .changeset/
 docs/superpowers/
-.e2e/
-test-results/
-playwright-report/
