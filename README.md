@@ -1,8 +1,14 @@
 # ComfyUI Ollama Image List
 
+![JPG Banner](./docs/icon.jpg)
+
 ComfyUI V3 custom nodes that send a single stateless Ollama `/api/chat` request containing all supplied images. Image batches, ComfyUI data lists, nested lists, and lists of batches are flattened deterministically while each image keeps its original width, height, channels, and order.
 
 ## Nodes
+
+![Workflow Example](./workflows/Simple_Vision.avif)
+
+Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 
 - **Ollama Image List Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
