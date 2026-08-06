@@ -211,7 +211,7 @@ Base64 이미지 본문은 로그, raw manifest, 예외 메시지에 출력하�
 
 ## 5. 제공 노드 설계
 
-### 5.1 `Ollama Multimodal Generate`
+### 5.1 `Multimodal Ollama Generate`
 
 MVP의 핵심 stateless 노드다.
 
@@ -248,7 +248,7 @@ MVP의 핵심 stateless 노드다.
 | `metrics_json` | STRING | durations와 token counts |
 | `media_manifest_json` | STRING | 이미지/오디오 순서, 크기, MIME, byte 크기 |
 
-### 5.2 `Multimodal Media Bundle`
+### 5.2 `Multimodal Ollama Media Bundle`
 
 디버깅과 재사용을 위한 보조 노드다. 동일한 list-aware 정규화 기능을 사용하여 opaque 타입 `MULTIMODAL_MEDIA`를 출력한다.
 

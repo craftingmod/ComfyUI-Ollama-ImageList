@@ -16,5 +16,5 @@ Repository = "https://github.com/craftingmod/ComfyUI-Ollama-Multimodal"
 
 [tool.comfy]
 PublisherId = "craftingmod"
-DisplayName = "Ollama Multimodal"
+DisplayName = "Multimodal Ollama"
 requires-comfyui = ">=0.18.1"

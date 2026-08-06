@@ -1,11 +1,13 @@
-# ComfyUI Ollama Multimodal
+# ComfyUI Multimodal Ollama
 
 ComfyUI V3 custom nodes that send a single stateless Ollama `/api/chat` request containing all supplied images. Image batches, ComfyUI data lists, nested lists, and lists of batches are flattened deterministically while each image keeps its original width, height, channels, and order.
 
 ## Nodes
 
-- **Ollama Multimodal Generate** — sends the system prompt, user prompt, and all media in one non-streaming request.
-- **Multimodal Media Bundle** — normalizes and reuses media while exposing a payload-free manifest.
+- **Multimodal Ollama Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
+- **Multimodal Ollama Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
+- **Multimodal Ollama Generate** — sends the system prompt, user prompt, and all media in one non-streaming request.
+- **Multimodal Ollama Media Bundle** — normalizes and reuses media while exposing a payload-free manifest.
 
 ## Install
 
@@ -32,6 +34,18 @@ The implementation follows ComfyUI's official [data list semantics](https://docs
 
 All scalar inputs (`url`, `model`, prompts, and options) must resolve to exactly one value. Supplying a data list of multiple prompts is an error rather than silently choosing one.
 
+## Ollama connectivity
+
+The connectivity node contains `url`, `available_models`, and editable `model` widgets plus a **Fetch** button. It requests the model list when the node is created and whenever **Fetch** is pressed. Choosing an entry in `available_models` copies the exact name into `model`; the model field remains editable for names that are not currently reported by the server.
+
+Model discovery is proxied through the ComfyUI server to Ollama's `GET /api/tags` endpoint, avoiding browser CORS restrictions. The node outputs independent `URL` and `model` strings that can be connected directly to the generate node.
+
+## Ollama options
+
+The options node exposes an **Include/Ignore** toggle followed by a typed value widget for each documented parameter. Disabled parameters are omitted rather than being sent with their displayed defaults. The inputs are ordered as `num_ctx`, `num_predict`, `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `repeat_last_n`, `seed`, `stop`, and `draft_num_predict`.
+
+Connect the first `options dict` output directly to the generate node's `options` input for normal use. The second `options JSON` output is provided for debugging, manual inspection, and string-based utility nodes. A selected `stop` string is encoded as the one-item array required by Ollama's HTTP API.
+
 ## Ollama request
 
 The generate node creates one request with this logical structure:
@@ -42,7 +56,9 @@ system message + user message + images[] -> POST /api/chat -> response/thinking/
 
 `system` is placed in a system-role message and `prompt` is placed in the current user-role message without trimming or rewriting. Images belong only to that request; this node does not create a persistent session or preserve them in later history.
 
-Use `options_json` for Ollama generation options such as `temperature`, `top_p`, `top_k`, `min_p`, `seed`, `num_ctx`, `num_predict`, `repeat_penalty`, and `stop`. `format_json` accepts an empty value, the literal `json`, or a JSON Schema object.
+Use the `options` dictionary input for Ollama generation options such as `temperature`, `top_p`, `top_k`, `min_p`, `seed`, `num_ctx`, `num_predict`, `repeat_penalty`, and `stop`. The advanced `options_json` field remains available as a manual fallback. If both are supplied, the connected dictionary takes precedence, including an empty dictionary. `format_json` accepts an empty value, the literal `json`, or a JSON Schema object.
+
+Enable `unload_after_response` to send `keep_alive: 0`, which tells Ollama to unload the model as soon as the response is complete. This overrides the `keep_alive` input while enabled; when disabled, the configured keep-alive value is used as before.
 
 To verify that a data list produced one request, enable Ollama server logging and look for one `POST /api/chat`, or enable the node's `debug` option and inspect the payload-free request manifest. The manifest includes counts, dimensions, byte sizes, hashes, and prompt character counts, but never base64 payloads or prompt text.
 
@@ -69,6 +85,14 @@ uv run pytest
 ```
 
 See [testing documentation](docs/TESTING.md) and [implementation status](docs/IMPLEMENTATION_STATUS.md).
+
+To replace the node installed in the local portable ComfyUI instance with the current runtime package, run:
+
+```powershell
+./scripts/deploy-to-portable.ps1
+```
+
+Use `-WhatIf` to inspect the fixed deployment target without replacing it. Restart ComfyUI after deployment.
 
 ## Roadmap
 

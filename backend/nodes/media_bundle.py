@@ -13,13 +13,13 @@ from ..core import normalize_media
 MultimodalMediaType = io.Custom("MULTIMODAL_MEDIA")
 
 
-class MultimodalMediaBundleNode(io.ComfyNode):
+class MultimodalOllamaMediaBundleNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaMultimodal_MediaBundle",
-            display_name="Multimodal Media Bundle",
-            category="multimodal/ollama",
+            node_id="MultimodalOllama_MediaBundle",
+            display_name="Multimodal Ollama Media Bundle",
+            category="Ollama/multimodal",
             description=(
                 "Normalizes image batches/data lists and audio into an immutable media bundle "
                 "without resizing or padding."

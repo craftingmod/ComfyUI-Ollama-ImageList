@@ -10,12 +10,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from ..core import resolve_ollama_options
 from ..core.errors import BackendError, InputNormalizationError
 from ..core.media import MediaBundle
 
 
 JsonObject = dict[str, Any]
 Transport = Callable[[str, bytes, float], tuple[int, bytes]]
+ModelsTransport = Callable[[str, float], tuple[int, bytes]]
 _BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])")
 _METRIC_FIELDS = (
     "model",
@@ -66,6 +68,12 @@ def _endpoint_url(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
+def _models_url(value: str) -> str:
+    parsed = _validated_url(value)
+    path = parsed.path.rstrip("/") + "/api/tags"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
 def _safe_url(value: str) -> str:
     parsed = _validated_url(value)
     hostname = parsed.hostname or ""
@@ -75,18 +83,6 @@ def _safe_url(value: str) -> str:
     if parsed.port is not None:
         netloc += f":{parsed.port}"
     return urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))
-
-
-def parse_options_json(value: str) -> JsonObject:
-    if not value.strip():
-        return {}
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise InputNormalizationError(f"options_json is invalid JSON: {exc.msg}.") from exc
-    if not isinstance(parsed, dict):
-        raise InputNormalizationError("options_json must contain a JSON object.")
-    return parsed
 
 
 def parse_format_json(value: str) -> str | JsonObject | None:
@@ -131,6 +127,7 @@ def build_chat_request(
     format_value: str | JsonObject | None,
     think: bool | str,
     keep_alive: str,
+    unload_after_response: bool,
     audio_transport: str,
 ) -> JsonObject:
     if not model.strip():
@@ -170,7 +167,7 @@ def build_chat_request(
         "stream": False,
         "think": think,
         "options": options,
-        "keep_alive": keep_alive,
+        "keep_alive": 0 if unload_after_response else keep_alive,
     }
     if format_value is not None:
         request["format"] = format_value
@@ -219,6 +216,19 @@ def _default_transport(url: str, body: bytes, timeout: float) -> tuple[int, byte
         raise BackendError(f"Could not reach Ollama: {_redact_text(str(reason))}") from exc
 
 
+def _default_models_transport(url: str, timeout: float) -> tuple[int, bytes]:
+    request = Request(url, headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return int(response.status), response.read()
+    except HTTPError as exc:
+        detail = exc.read()
+        raise BackendError(_http_error_message(exc.code, detail)) from exc
+    except (URLError, TimeoutError, socket.timeout) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise BackendError(f"Could not reach Ollama: {_redact_text(str(reason))}") from exc
+
+
 def _http_error_message(status: int, body: bytes) -> str:
     detail = ""
     try:
@@ -231,6 +241,42 @@ def _http_error_message(status: int, body: bytes) -> str:
     return f"Ollama returned HTTP {status}" + (f": {detail}" if detail else ".")
 
 
+def list_models(
+    *,
+    url: str,
+    timeout_seconds: float = 10,
+    transport: ModelsTransport | None = None,
+) -> list[str]:
+    if timeout_seconds <= 0:
+        raise InputNormalizationError("timeout_seconds must be greater than zero.")
+
+    call = transport or _default_models_transport
+    status, response_body = call(_models_url(url), float(timeout_seconds))
+    if status < 200 or status >= 300:
+        raise BackendError(_http_error_message(status, response_body))
+
+    try:
+        parsed = json.loads(response_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BackendError("Ollama returned an invalid model-list response.") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("models"), list):
+        raise BackendError("Ollama model-list response did not contain a models array.")
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in parsed["models"]:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("model") or item.get("name")
+        if not isinstance(value, str):
+            continue
+        name = value.strip()
+        if name and name not in seen:
+            names.append(name)
+            seen.add(name)
+    return names
+
+
 def chat(
     *,
     url: str,
@@ -238,10 +284,12 @@ def chat(
     system: str,
     prompt: str,
     media: MediaBundle,
+    options: JsonObject | None = None,
     options_json: str = "",
     format_json: str = "",
     think: str = "off",
     keep_alive: str = "5m",
+    unload_after_response: bool = False,
     timeout_seconds: float = 300,
     audio_transport: str = "disabled",
     transport: Transport | None = None,
@@ -253,10 +301,11 @@ def chat(
         system=system,
         prompt=prompt,
         media=media,
-        options=parse_options_json(options_json),
+        options=resolve_ollama_options(options, options_json),
         format_value=parse_format_json(format_json),
         think=parse_think(think),
         keep_alive=keep_alive,
+        unload_after_response=unload_after_response,
         audio_transport=audio_transport,
     )
     manifest = build_request_manifest(

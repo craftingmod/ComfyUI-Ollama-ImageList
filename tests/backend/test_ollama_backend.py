@@ -6,13 +6,47 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from backend.backends.ollama import chat
+from backend.backends.ollama import chat, list_models
 from backend.core import BackendError, InputNormalizationError, normalize_images
 from tests.backend.tensor_stub import solid_image
 
 
 def png_dimensions(payload: bytes) -> tuple[int, int]:
     return struct.unpack(">II", payload[16:24])
+
+
+def test_list_models_calls_tags_endpoint_and_preserves_unique_server_order():
+    calls = []
+
+    def transport(url: str, timeout: float):
+        calls.append((url, timeout))
+        return 200, json.dumps(
+            {
+                "models": [
+                    {"model": "gemma3:latest"},
+                    {"name": "qwen3:8b"},
+                    {"model": "gemma3:latest"},
+                    {"invalid": True},
+                ]
+            }
+        ).encode()
+
+    models = list_models(
+        url="http://user:secret@localhost:11434/",
+        timeout_seconds=7,
+        transport=transport,
+    )
+
+    assert calls == [("http://user:secret@localhost:11434/api/tags", 7.0)]
+    assert models == ["gemma3:latest", "qwen3:8b"]
+
+
+def test_list_models_rejects_malformed_success_response():
+    with pytest.raises(BackendError, match="models array"):
+        list_models(
+            url="http://localhost:11434",
+            transport=lambda _url, _timeout: (200, b'{"unexpected":[]}'),
+        )
 
 
 def test_chat_sends_all_images_in_exactly_one_request_and_parses_outputs():
@@ -43,7 +77,8 @@ def test_chat_sends_all_images_in_exactly_one_request_and_parses_outputs():
         options_json='{"temperature":0.2,"seed":7}',
         format_json="json",
         think="medium",
-        keep_alive="5m",
+        keep_alive="12m",
+        unload_after_response=True,
         timeout_seconds=12,
         transport=transport,
     )
@@ -60,10 +95,12 @@ def test_chat_sends_all_images_in_exactly_one_request_and_parses_outputs():
     assert request["think"] == "medium"
     assert request["format"] == "json"
     assert request["options"] == {"temperature": 0.2, "seed": 7}
+    assert request["keep_alive"] == 0
     assert result.response == "완료"
     assert result.thinking == "검토"
     assert result.metrics["eval_count"] == 3
     assert result.request_manifest["url"] == "http://localhost:11434"
+    assert result.request_manifest["keep_alive"] == 0
     assert "시스템" not in json.dumps(result.request_manifest, ensure_ascii=False)
     assert "images" not in result.request_manifest["messages"][1]
 
@@ -128,7 +165,50 @@ def test_default_http_transport_calls_a_mock_ollama_server_once():
     assert result.response == "ok"
     assert len(received) == 1
     assert received[0]["path"] == "/api/chat"
+    assert received[0]["body"]["keep_alive"] == "5m"
     assert len(received[0]["body"]["messages"][1]["images"]) == 1
+
+
+def test_configured_keep_alive_is_used_when_unload_is_disabled():
+    requests: list[dict] = []
+
+    def transport(_url: str, body: bytes, _timeout: float):
+        requests.append(json.loads(body))
+        return 200, b'{"message":{"content":"ok"}}'
+
+    chat(
+        url="http://localhost:11434",
+        model="gemma3",
+        system="",
+        prompt="prompt",
+        media=normalize_images(None),
+        keep_alive="12m",
+        unload_after_response=False,
+        transport=transport,
+    )
+
+    assert requests[0]["keep_alive"] == "12m"
+
+
+def test_options_dict_takes_precedence_over_options_json():
+    requests: list[dict] = []
+
+    def transport(_url: str, body: bytes, _timeout: float):
+        requests.append(json.loads(body))
+        return 200, b'{"message":{"content":"ok"}}'
+
+    chat(
+        url="http://localhost:11434",
+        model="gemma3",
+        system="",
+        prompt="prompt",
+        media=normalize_images(None),
+        options={"temperature": 0.25},
+        options_json='{"temperature":0.9,"seed":7}',
+        transport=transport,
+    )
+
+    assert requests[0]["options"] == {"temperature": 0.25}
 
 
 def test_audio_is_rejected_by_default_instead_of_changing_request_meaning():

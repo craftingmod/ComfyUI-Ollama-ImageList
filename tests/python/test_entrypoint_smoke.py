@@ -9,7 +9,7 @@ ENTRYPOINT_PATH = REPO_ROOT / "__init__.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 
-def test_v3_entrypoint_exports_only_the_loader():
+def test_v3_entrypoint_exports_loader_and_frontend_directory():
     module = load_package_from_path(
         "ollama_multimodal_entrypoint",
         ENTRYPOINT_PATH,
@@ -17,8 +17,8 @@ def test_v3_entrypoint_exports_only_the_loader():
     )
 
     assert callable(module.comfy_entrypoint)
-    assert module.__all__ == ["comfy_entrypoint"]
-    assert not hasattr(module, "WEB_DIRECTORY")
+    assert module.WEB_DIRECTORY == "./js"
+    assert module.__all__ == ["WEB_DIRECTORY", "comfy_entrypoint"]
 
 
 def test_comfy_registry_metadata_matches_the_package():
@@ -28,6 +28,6 @@ def test_comfy_registry_metadata_matches_the_package():
     assert pyproject["project"]["version"] == "0.1.0"
     assert pyproject["tool"]["comfy"] == {
         "PublisherId": "craftingmod",
-        "DisplayName": "Ollama Multimodal",
+        "DisplayName": "Multimodal Ollama",
         "requires-comfyui": ">=0.18.1",
     }
