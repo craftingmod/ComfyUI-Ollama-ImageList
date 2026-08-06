@@ -10,17 +10,17 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 from ..backends.ollama import chat
 from ..core import normalize_media, unwrap_optional_scalar, unwrap_required_scalar
 from .common import collect_bundles, combine_bundles
-from .media_bundle import MultimodalMediaType
+from .media_bundle import OllamaImageListMediaType
 from .ollama_options import OptionsDictType
 
 
-class MultimodalOllamaGenerateNode(io.ComfyNode):
+class OllamaImageListGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="MultimodalOllama_Generate",
-            display_name="Multimodal Ollama Generate",
-            category="Ollama/multimodal",
+            node_id="OllamaImageList_Generate",
+            display_name="Ollama Generate (Image List)",
+            category="Ollama/Image List",
             description=(
                 "Sends one stateless /api/chat request containing all normalized images. "
                 "Original image dimensions and list order are preserved."
@@ -115,10 +115,10 @@ class MultimodalOllamaGenerateNode(io.ComfyNode):
                     advanced=True,
                     tooltip="Include a payload-free request manifest in the manifest output.",
                 ),
-                MultimodalMediaType.Input(
+                OllamaImageListMediaType.Input(
                     "media",
                     optional=True,
-                    tooltip="Optional pre-normalized Multimodal Ollama Media Bundle.",
+                    tooltip="Optional pre-normalized Ollama Image List Media Bundle.",
                 ),
                 io.Image.Input(
                     "images",

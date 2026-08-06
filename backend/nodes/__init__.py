@@ -1,11 +1,11 @@
-from .media_bundle import MultimodalOllamaMediaBundleNode
-from .ollama_connectivity import MultimodalOllamaConnectivityNode
-from .ollama_generate import MultimodalOllamaGenerateNode
-from .ollama_options import MultimodalOllamaOptionsNode
+from .media_bundle import OllamaImageListMediaBundleNode
+from .ollama_connectivity import OllamaImageListConnectivityNode
+from .ollama_generate import OllamaImageListGenerateNode
+from .ollama_options import OllamaImageListOptionsNode
 
 __all__ = [
-    "MultimodalOllamaMediaBundleNode",
-    "MultimodalOllamaConnectivityNode",
-    "MultimodalOllamaGenerateNode",
-    "MultimodalOllamaOptionsNode",
+    "OllamaImageListMediaBundleNode",
+    "OllamaImageListConnectivityNode",
+    "OllamaImageListGenerateNode",
+    "OllamaImageListOptionsNode",
 ]

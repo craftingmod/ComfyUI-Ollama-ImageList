@@ -25,13 +25,13 @@ def _use_option(option_name: str) -> io.Boolean.Input:
     )
 
 
-class MultimodalOllamaOptionsNode(io.ComfyNode):
+class OllamaImageListOptionsNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="MultimodalOllama_Options",
-            display_name="Multimodal Ollama Options",
-            category="Ollama/multimodal",
+            node_id="OllamaImageList_Options",
+            display_name="Ollama Image List Options",
+            category="Ollama/Image List",
             description=(
                 "Builds an Ollama options dictionary and JSON string from individually enabled "
                 "runtime parameters. Disabled parameters are omitted."
@@ -182,4 +182,4 @@ class MultimodalOllamaOptionsNode(io.ComfyNode):
         return io.NodeOutput(options, options_json)
 
 
-__all__ = ["MultimodalOllamaOptionsNode", "OptionsDictType"]
+__all__ = ["OllamaImageListOptionsNode", "OptionsDictType"]

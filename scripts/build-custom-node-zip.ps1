@@ -27,7 +27,7 @@ Replaces an archive that already exists.
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = "dist",
-    [string]$PackageName = "ComfyUI-Ollama-Multimodal",
+    [string]$PackageName = "ComfyUI-Ollama-ImageList",
     [switch]$Force
 )
 

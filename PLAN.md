@@ -1,8 +1,8 @@
-# ComfyUI Multimodal LLM Nodes 구현 계획
+# ComfyUI Ollama Image List Nodes 구현 계획
 
 ## 1. 프로젝트 개요
 
-가칭 프로젝트명은 `ComfyUI-Ollama-Multimodal`로 한다. 이 프로젝트는 ComfyUI의 이미지 배치와 data list를 혼동하지 않고, 서로 다른 해상도의 이미지 여러 장을 하나의 멀티모달 LLM 요청으로 전달하는 데 목적이 있다.
+프로젝트명은 `ComfyUI-Ollama-ImageList`로 한다. 이 프로젝트는 ComfyUI의 이미지 배치와 data list를 혼동하지 않고, 서로 다른 해상도의 이미지 여러 장을 하나의 Ollama 요청으로 전달하는 데 목적이 있다.
 
 1차 백엔드는 Ollama REST API이며, 2차 백엔드로 `llama-cpp-python` 네이티브 실행을 선택적으로 제공할 수 있도록 코어와 백엔드 계층을 분리한다.
 
@@ -211,7 +211,7 @@ Base64 이미지 본문은 로그, raw manifest, 예외 메시지에 출력하�
 
 ## 5. 제공 노드 설계
 
-### 5.1 `Multimodal Ollama Generate`
+### 5.1 `Ollama Generate (Image List)`
 
 MVP의 핵심 stateless 노드다.
 
@@ -248,9 +248,9 @@ MVP의 핵심 stateless 노드다.
 | `metrics_json` | STRING | durations와 token counts |
 | `media_manifest_json` | STRING | 이미지/오디오 순서, 크기, MIME, byte 크기 |
 
-### 5.2 `Multimodal Ollama Media Bundle`
+### 5.2 `Ollama Image List Media Bundle`
 
-디버깅과 재사용을 위한 보조 노드다. 동일한 list-aware 정규화 기능을 사용하여 opaque 타입 `MULTIMODAL_MEDIA`를 출력한다.
+디버깅과 재사용을 위한 보조 노드다. 동일한 list-aware 정규화 기능을 사용하여 opaque 타입 `OLLAMA_IMAGE_LIST_MEDIA`를 출력한다.
 
 용도:
 
@@ -260,7 +260,7 @@ MVP의 핵심 stateless 노드다.
 
 Bundle에는 raw tensor를 유지할지 즉시 bytes로 인코딩할지 선택할 수 있지만, MVP에서는 실행 시점 메모리 사용과 직렬화 안정성을 위해 bytes 기반 immutable bundle을 우선한다. ComfyUI workflow JSON에는 payload 자체를 저장하지 않는다.
 
-### 5.3 `Llama.cpp Multimodal Generate` (선택 기능)
+### 5.3 `Llama.cpp Image List Generate` (선택 기능)
 
 Ollama MVP가 안정화된 후 추가한다. 인터페이스는 Ollama 노드와 최대한 동일하게 유지하되 다음 입력이 추가된다.
 
@@ -324,7 +324,7 @@ MediaItem(image/png bytes)
 ## 7. 제안 디렉터리 구조
 
 ```text
-ComfyUI-Ollama-Multimodal/
+ComfyUI-Ollama-ImageList/
 ├─ __init__.py
 ├─ pyproject.toml
 ├─ requirements.txt
@@ -603,7 +603,7 @@ example workflow에는 최소 다음 5개를 포함한다.
 권장 초기 결정은 다음과 같다.
 
 ```text
-프로젝트명: ComfyUI-Ollama-Multimodal
+프로젝트명: ComfyUI-Ollama-ImageList
 백엔드 우선순위: Ollama REST → llama-cpp-python optional
 ComfyUI list 처리: INPUT_IS_LIST=True
 Ollama endpoint: /api/chat

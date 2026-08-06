@@ -116,26 +116,26 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
 
     assert isinstance(extension, ComfyExtension)
     assert [schema.node_id for schema in schemas] == [
-        "MultimodalOllama_Connectivity",
-        "MultimodalOllama_Options",
-        "MultimodalOllama_MediaBundle",
-        "MultimodalOllama_Generate",
+        "OllamaImageList_Connectivity",
+        "OllamaImageList_Options",
+        "OllamaImageList_MediaBundle",
+        "OllamaImageList_Generate",
     ]
     assert [schema.display_name for schema in schemas] == [
-        "Multimodal Ollama Connectivity",
-        "Multimodal Ollama Options",
-        "Multimodal Ollama Media Bundle",
-        "Multimodal Ollama Generate",
+        "Ollama Image List Connectivity",
+        "Ollama Image List Options",
+        "Ollama Image List Media Bundle",
+        "Ollama Generate (Image List)",
     ]
-    assert {schema.category for schema in schemas} == {"Ollama/multimodal"}
-    assert routes.handlers.keys() == {"/ollama_multimodal/models"}
+    assert {schema.category for schema in schemas} == {"Ollama/Image List"}
+    assert routes.handlers.keys() == {"/ollama_image_list/models"}
 
     registered = {
         schema.node_id: (node_class, schema)
         for node_class, schema in zip(node_classes, schemas, strict=True)
     }
 
-    connectivity_class, connectivity_schema = registered["MultimodalOllama_Connectivity"]
+    connectivity_class, connectivity_schema = registered["OllamaImageList_Connectivity"]
     connectivity_inputs = connectivity_schema.inputs
     assert [(field.name, field.data_type) for field in connectivity_inputs] == [
         ("url", "string"),
@@ -149,7 +149,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "http://127.0.0.1:11434", "arbitrary:model", "manual:model"
     ) == ("http://127.0.0.1:11434", "manual:model")
 
-    options_class, options_schema = registered["MultimodalOllama_Options"]
+    options_class, options_schema = registered["OllamaImageList_Options"]
     option_names = [
         "num_ctx",
         "num_predict",
@@ -196,8 +196,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "stop": ["END"],
     }
 
-    assert registered["MultimodalOllama_MediaBundle"][1].is_input_list is True
-    generate_schema = registered["MultimodalOllama_Generate"][1]
+    assert registered["OllamaImageList_MediaBundle"][1].is_input_list is True
+    generate_schema = registered["OllamaImageList_Generate"][1]
     assert generate_schema.is_input_list is True
     generate_inputs = {field.name: field for field in generate_schema.inputs}
     assert generate_inputs["options"].data_type == "DICT"

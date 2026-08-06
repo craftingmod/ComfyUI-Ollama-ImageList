@@ -6,24 +6,24 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
     from comfy_api.latest import ComfyExtension, io
 
 from .nodes import (
-    MultimodalOllamaMediaBundleNode,
-    MultimodalOllamaConnectivityNode,
-    MultimodalOllamaGenerateNode,
-    MultimodalOllamaOptionsNode,
+    OllamaImageListConnectivityNode,
+    OllamaImageListGenerateNode,
+    OllamaImageListMediaBundleNode,
+    OllamaImageListOptionsNode,
 )
 from .routes import register_routes
 
 
-class MultimodalOllamaExtension(ComfyExtension):
+class OllamaImageListExtension(ComfyExtension):
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
-            MultimodalOllamaConnectivityNode,
-            MultimodalOllamaOptionsNode,
-            MultimodalOllamaMediaBundleNode,
-            MultimodalOllamaGenerateNode,
+            OllamaImageListConnectivityNode,
+            OllamaImageListOptionsNode,
+            OllamaImageListMediaBundleNode,
+            OllamaImageListGenerateNode,
         ]
 
 
-async def comfy_entrypoint() -> MultimodalOllamaExtension:
+async def comfy_entrypoint() -> OllamaImageListExtension:
     register_routes()
-    return MultimodalOllamaExtension()
+    return OllamaImageListExtension()

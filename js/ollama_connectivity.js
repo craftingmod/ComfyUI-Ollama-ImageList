@@ -1,8 +1,8 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-const NODE_CLASS = "MultimodalOllama_Connectivity";
-const MODELS_ROUTE = "/ollama_multimodal/models";
+const NODE_CLASS = "OllamaImageList_Connectivity";
+const MODELS_ROUTE = "/ollama_image_list/models";
 const requestSequence = Symbol("ollamaModelsRequestSequence");
 
 function getWidget(node, name) {
@@ -98,7 +98,7 @@ async function refreshModels(node, buttonWidget) {
 }
 
 app.registerExtension({
-    name: "ComfyUI.MultimodalOllama.Connectivity",
+    name: "ComfyUI.OllamaImageList.Connectivity",
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== NODE_CLASS) {

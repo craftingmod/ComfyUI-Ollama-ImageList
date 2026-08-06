@@ -6,13 +6,13 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
     from comfy_api.latest import io
 
 
-class MultimodalOllamaConnectivityNode(io.ComfyNode):
+class OllamaImageListConnectivityNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="MultimodalOllama_Connectivity",
-            display_name="Multimodal Ollama Connectivity",
-            category="Ollama/multimodal",
+            node_id="OllamaImageList_Connectivity",
+            display_name="Ollama Image List Connectivity",
+            category="Ollama/Image List",
             description=(
                 "Fetches the models available from an Ollama server and outputs the selected "
                 "server URL and model name."
@@ -54,4 +54,4 @@ class MultimodalOllamaConnectivityNode(io.ComfyNode):
         return io.NodeOutput(str(url), str(model))
 
 
-__all__ = ["MultimodalOllamaConnectivityNode"]
+__all__ = ["OllamaImageListConnectivityNode"]

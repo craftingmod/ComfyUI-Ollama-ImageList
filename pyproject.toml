@@ -1,6 +1,6 @@
 [project]
-name = "comfyui-ollama-multimodal"
-description = "ComfyUI V3 nodes for one-shot Ollama multimodal requests with heterogeneous image lists"
+name = "comfyui-ollama-image-list"
+description = "Send mixed-resolution ComfyUI IMAGE data lists to Ollama in one request"
 version = "0.1.0"
 requires-python = ">=3.12"
 readme = "README.md"
@@ -12,9 +12,9 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/craftingmod/ComfyUI-Ollama-Multimodal"
+Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"
 
 [tool.comfy]
 PublisherId = "craftingmod"
-DisplayName = "Multimodal Ollama"
+DisplayName = "Ollama Image List"
 requires-comfyui = ">=0.18.1"

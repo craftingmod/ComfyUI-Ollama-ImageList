@@ -7,7 +7,7 @@ from .backends.ollama import list_models
 from .core.errors import BackendError, InputNormalizationError
 
 
-MODELS_ROUTE = "/ollama_multimodal/models"
+MODELS_ROUTE = "/ollama_image_list/models"
 _routes_registered = False
 
 

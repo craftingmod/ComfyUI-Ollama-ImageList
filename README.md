@@ -1,13 +1,13 @@
-# ComfyUI Multimodal Ollama
+# ComfyUI Ollama Image List
 
 ComfyUI V3 custom nodes that send a single stateless Ollama `/api/chat` request containing all supplied images. Image batches, ComfyUI data lists, nested lists, and lists of batches are flattened deterministically while each image keeps its original width, height, channels, and order.
 
 ## Nodes
 
-- **Multimodal Ollama Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
-- **Multimodal Ollama Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
-- **Multimodal Ollama Generate** — sends the system prompt, user prompt, and all media in one non-streaming request.
-- **Multimodal Ollama Media Bundle** — normalizes and reuses media while exposing a payload-free manifest.
+- **Ollama Image List Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
+- **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
+- **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
+- **Ollama Image List Media Bundle** — normalizes and reuses image lists while exposing a payload-free manifest.
 
 ## Install
 

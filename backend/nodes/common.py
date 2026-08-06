@@ -22,7 +22,7 @@ def collect_bundles(values: Any) -> MediaBundle:
                 visit(child)
             return
         raise InputNormalizationError(
-            f"media must contain MULTIMODAL_MEDIA bundles, received {type(value).__name__}."
+            f"media must contain OLLAMA_IMAGE_LIST_MEDIA bundles, received {type(value).__name__}."
         )
 
     for candidate in candidates:

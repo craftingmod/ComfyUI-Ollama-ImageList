@@ -1,4 +1,4 @@
-from .errors import BackendError, InputNormalizationError, MultimodalError
+from .errors import BackendError, ImageListError, InputNormalizationError
 from .media import DEFAULT_MEDIA_LIMITS, MediaBundle, MediaItem, MediaLimits
 from .normalize import (
     normalize_audio,
@@ -21,7 +21,7 @@ __all__ = [
     "MediaBundle",
     "MediaItem",
     "MediaLimits",
-    "MultimodalError",
+    "ImageListError",
     "OLLAMA_OPTION_NAMES",
     "build_ollama_options",
     "normalize_audio",

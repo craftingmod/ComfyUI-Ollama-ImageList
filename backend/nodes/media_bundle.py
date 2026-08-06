@@ -10,16 +10,16 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 from ..core import normalize_media
 
 
-MultimodalMediaType = io.Custom("MULTIMODAL_MEDIA")
+OllamaImageListMediaType = io.Custom("OLLAMA_IMAGE_LIST_MEDIA")
 
 
-class MultimodalOllamaMediaBundleNode(io.ComfyNode):
+class OllamaImageListMediaBundleNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="MultimodalOllama_MediaBundle",
-            display_name="Multimodal Ollama Media Bundle",
-            category="Ollama/multimodal",
+            node_id="OllamaImageList_MediaBundle",
+            display_name="Ollama Image List Media Bundle",
+            category="Ollama/Image List",
             description=(
                 "Normalizes image batches/data lists and audio into an immutable media bundle "
                 "without resizing or padding."
@@ -38,7 +38,7 @@ class MultimodalOllamaMediaBundleNode(io.ComfyNode):
                 ),
             ],
             outputs=[
-                MultimodalMediaType.Output("media", display_name="media"),
+                OllamaImageListMediaType.Output("media", display_name="media"),
                 io.String.Output("manifest_json", display_name="manifest"),
             ],
         )
