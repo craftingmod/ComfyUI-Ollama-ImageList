@@ -1,6 +1,6 @@
-![JPG Banner](./docs/icon.jpg)
-
 # ComfyUI Ollama Image List
+
+![JPG Banner](./docs/icon.jpg)
 
 ComfyUI V3 custom nodes that send a single stateless Ollama `/api/chat` request containing all supplied images. Image batches, ComfyUI data lists, nested lists, and lists of batches are flattened deterministically while each image keeps its original width, height, channels, and order.
 
