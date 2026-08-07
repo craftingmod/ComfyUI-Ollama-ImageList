@@ -203,6 +203,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     "gpu_layers",
                     options=["all", "auto", "cpu"],
                     default="all",
+                    advanced=True,
                     tooltip="Offload all layers, let llama.cpp decide, or use CPU only.",
                 ),
                 io.Float.Input(
@@ -211,6 +212,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     min=0.0,
                     max=5.0,
                     step=0.01,
+                    advanced=True,
                 ),
                 io.Float.Input(
                     "top_p",
@@ -218,14 +220,23 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     min=0.0,
                     max=1.0,
                     step=0.01,
+                    advanced=True,
                 ),
-                io.Int.Input("top_k", default=40, min=0, max=10_000, step=1),
+                io.Int.Input(
+                    "top_k",
+                    default=40,
+                    min=0,
+                    max=10_000,
+                    step=1,
+                    advanced=True,
+                ),
                 io.Float.Input(
                     "min_p",
                     default=0.05,
                     min=0.0,
                     max=1.0,
                     step=0.01,
+                    advanced=True,
                 ),
                 io.Float.Input(
                     "repeat_penalty",
@@ -233,6 +244,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     min=0.0,
                     max=5.0,
                     step=0.01,
+                    advanced=True,
                 ),
                 io.Int.Input(
                     "seed",

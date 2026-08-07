@@ -351,6 +351,20 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "qwen3_asr",
     ]
     assert llama_inputs["gpu_layers"].options["default"] == "all"
+    assert all(
+        llama_inputs[name].options["advanced"] is True
+        for name in (
+            "gpu_layers",
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "repeat_penalty",
+        )
+    )
+    assert "advanced" not in llama_inputs["n_ctx"].options
+    assert "advanced" not in llama_inputs["max_tokens"].options
+    assert "advanced" not in llama_inputs["seed"].options
     assert llama_inputs["images"].options["optional"] is True
     assert llama_inputs["audio"].data_type == "audio"
     assert llama_inputs["audio"].options["optional"] is True
