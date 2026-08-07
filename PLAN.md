@@ -1,5 +1,7 @@
 # ComfyUI Ollama Image List Nodes 구현 계획
 
+> 이 문서는 초기 설계 기록을 포함한다. 현재 구현과 운영 방법은 [`README.md`](README.md), [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md), [`docs/LLAMA_CPP.md`](docs/LLAMA_CPP.md)를 기준으로 한다.
+
 ## 1. 프로젝트 개요
 
 프로젝트명은 `ComfyUI-Ollama-ImageList`로 한다. 이 프로젝트는 ComfyUI의 이미지 배치와 data list를 혼동하지 않고, 서로 다른 해상도의 이미지 여러 장을 하나의 Ollama 요청으로 전달하는 데 목적이 있다.
@@ -258,29 +260,31 @@ MVP의 핵심 stateless 노드다.
 
 Bundle에는 raw tensor를 유지할지 즉시 bytes로 인코딩할지 선택할 수 있지만, MVP에서는 실행 시점 메모리 사용과 직렬화 안정성을 위해 bytes 기반 immutable bundle을 우선한다. ComfyUI workflow JSON에는 payload 자체를 저장하지 않는다.
 
-### 5.3 `Llama.cpp Image List Generate` (선택 기능)
+### 5.3 `Llama.cpp Generate (Multimodal)` (선택 기능)
 
-Ollama MVP가 안정화된 후 추가한다. 인터페이스는 Ollama 노드와 최대한 동일하게 유지하되 다음 입력이 추가된다.
+Ollama와 독립된 선택적 네이티브 실행 노드로 구현되었다. 주요 입력은 다음과 같다.
 
 - `model_path`
 - `mmproj_path`
-- `chat_format` 또는 handler 선택
+- handler 선택과 `thinking`
 - `n_ctx`
-- `n_gpu_layers`
+- `max_tokens`
+- `gpu_layers`
 - `main_gpu`
-- `tensor_split`
-- `flash_attn`
-- `model_cache_policy`
+- `n_batch`, 선택적 `n_ubatch`, 선택적 `image_max_tokens`
+- `flash_attention`, `use_mmap`, `verbose`
+- IMAGE, AUDIO, VIDEO list 입력
+- typed sampling 및 Gemma 4 runtime preset 입력
 
-### 5.4 `Unload Native Model` (선택 기능)
+### 5.4 네이티브 모델 언로드 정책
 
-`llama-cpp-python` 모델을 ComfyUI 프로세스에 유지하는 경우 VRAM과 RAM을 명시적으로 해제하기 위한 출력 노드를 별도로 제공한다.
+별도 Unload 노드는 제공하지 않는다. Generate가 모델 출력이나 캐시를 유지하지 않고, 성공과 실패 모두에서 한 번의 completion 직후 모델과 handler를 닫는다.
 
 ## 6. `llama-cpp-python` 네이티브 구현 가능성
 
 ### 결론
 
-이미지 입력은 구현 가능하다. 오디오는 backend build, 모델, mmproj/MTMD handler에 강하게 의존하므로 실험 기능으로만 구현 가능하다.
+이미지, 오디오, 비디오 입력 경로가 구현되었다. 실제 지원 여부는 설치한 fork build, 모델, mmproj, MTMD handler와 template에 강하게 의존한다.
 
 공식 `llama-cpp-python`은 모델별 chat handler와 OpenAI 스타일 `image_url` content part를 이용한 Vision API를 제공하며, local image를 Base64 data URI로 전달할 수 있다. 기준 자료는 [`llama-cpp-python` multimodal 문서](https://github.com/abetlen/llama-cpp-python#multi-modal-models)로 한다.
 
@@ -309,15 +313,14 @@ MediaItem(image/png bytes)
 - 모델별 mmproj와 chat handler 선택이 필요하다.
 - 일부 최신 Vision/Audio 모델은 공식 PyPI build보다 특정 fork가 먼저 지원할 수 있다.
 - native crash나 OOM이 ComfyUI 프로세스 전체에 영향을 줄 수 있다.
-- 모델 캐시, unload, VRAM 회수, 동시 실행 잠금까지 구현 범위가 넓어진다.
+- 모델 unload, VRAM 회수, 동시 실행 잠금까지 구현 범위가 넓어진다.
 
 ### 권장 배포 방식
 
 - 기본 설치에는 `llama-cpp-python`을 포함하지 않는다.
-- `pip install package[llama-cpp]` 형태의 optional extra로 분리한다.
 - import가 실패하면 ComfyUI 시작 자체를 막지 않고 native 노드만 설명 가능한 오류를 표시한다.
-- 초기에는 공식 `llama-cpp-python`만 지원하고, JamePeng 등 fork는 별도 compatibility 문서로 분리한다.
-- 안정성이 우선이면 in-process native 실행보다 별도 llama-cpp-python server adapter를 먼저 제공하는 방안도 검토한다.
+- generic MTMD와 audio/video 기능을 제공하는 호환 fork wheel은 사용자가 ComfyUI Python 환경에 직접 설치한다.
+- wheel 선택과 모델 호환성은 [`docs/LLAMA_CPP.md`](docs/LLAMA_CPP.md)에 문서화한다.
 
 ## 7. 제안 디렉터리 구조
 
@@ -443,14 +446,14 @@ GPL 프로젝트의 구현 코드를 복사하지 않고 공개 API와 동작을
 - 실험 모드에서 전송된 bytes가 올바른 RIFF/WAVE 파일이다.
 - 지원 확인 모델에서 최소 한 번의 audio-to-text 응답을 통합 테스트한다.
 
-### Phase 5 — llama-cpp-python 이미지 PoC
+### Phase 5 — llama-cpp-python 멀티모달 실행
 
 - optional dependency와 lazy import 구현
 - GGUF, mmproj, chat handler 로딩 구현
 - 공통 MediaItem을 복수 `image_url` content part로 변환
 - system/prompt와 generation options 전달
-- 모델 인스턴스 잠금과 단순 캐시 구현
-- unload 노드 구현
+- 모델 인스턴스 실행 잠금과 completion 직후 무조건 cleanup 구현
+- sampling/runtime preset과 MTMD diagnostics 구현
 
 완료 조건:
 
@@ -458,15 +461,16 @@ GPL 프로젝트의 구현 코드를 복사하지 않고 공개 API와 동작을
 - Ollama backend와 동일한 입력 workflow를 media bundle 교체 없이 사용할 수 있다.
 - llama-cpp-python이 없는 환경에서도 Ollama 노드는 정상 작동한다.
 
-### Phase 6 — llama.cpp 오디오 및 확장 기능 검토
+### Phase 6 — llama.cpp 오디오·비디오 및 확장 기능 검토
 
 - 공식 build와 선택 fork의 audio content part/MTMD 지원 조사
 - 지원 handler에 한해서 `input_audio` 또는 해당 native API adapter 구현
+- ComfyUI VIDEO 원본 stream을 fork의 internal `video` content part로 전달
 - capability matrix 작성
 - native crash 격리가 필요하면 subprocess worker 설계
 - streaming, explicit history, structured output 개선 검토
 
-오디오가 안정적으로 지원되지 않으면 정식 기능으로 승격하지 않고 experimental 상태를 유지한다.
+오디오와 비디오 전송 경로는 구현되었지만 호환성은 model/mmproj/template/build 조합별로 검증한다.
 
 ## 9. 테스트 매트릭스
 
@@ -575,8 +579,8 @@ example workflow에는 최소 다음 5개를 포함한다.
 
 ### v0.4.0-experimental
 
-- llama-cpp-python native image backend
-- model cache와 unload
+- llama-cpp-python native IMAGE, AUDIO, VIDEO backend
+- 요청 단위 즉시 unload와 MTMD diagnostics
 
 ### v1.0.0
 

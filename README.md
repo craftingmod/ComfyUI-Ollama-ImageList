@@ -10,9 +10,16 @@ ComfyUI V3 custom nodes that analyze image lists through either one stateless Ol
 
 Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 
+Nodes are grouped by backend in ComfyUI's Add Node menu.
+
+### Ollama / Image List
+
 - **Ollama Image List Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
+
+### Ollama / llama_cpp
+
 - **Llama.cpp Sampling Preset** — supplies image-analysis, Gemma 4, or llama.cpp-default sampling values through one typed connection.
 - **Llama.cpp Gemma 4 Runtime Preset** — supplies Gemma 4 context and output-length integers plus a typed physical-batch and image-token profile.
 - **Llama.cpp Generate (Multimodal)** — loads a local GGUF and optional multimodal projector, analyzes optional IMAGE, AUDIO, and VIDEO inputs in one request, and immediately closes the model and handler.
@@ -30,7 +37,9 @@ uv sync --locked --group dev
 
 The Ollama nodes require no additional Python package. They use Python's standard HTTP client and expect an Ollama server, which defaults to `http://127.0.0.1:11434`.
 
-The llama.cpp node is optional. Install a compatible `llama-cpp-python` wheel into the exact Python environment that runs ComfyUI, then restart ComfyUI. This project does not declare it as a package dependency because automatic installation could compile an incompatible CPU-only or CUDA build. The JamePeng fork supplies current multimodal handlers and prebuilt Windows CUDA wheels: [JamePeng/llama-cpp-python releases](https://github.com/JamePeng/llama-cpp-python/releases).
+The llama.cpp backend is optional. Its nodes still register when `llama-cpp-python` is absent, but executing Generate reports that the optional dependency is unavailable. Install a compatible wheel into the exact Python environment that runs ComfyUI, then restart ComfyUI. This project deliberately does not declare it as a package dependency because automatic installation could compile or select an incompatible CPU-only or CUDA build. The MTMD-enabled fork used during development publishes Windows CUDA wheels at [JamePeng/llama-cpp-python releases](https://github.com/JamePeng/llama-cpp-python/releases). VIDEO additionally requires FFmpeg on `PATH`.
+
+See [Native llama.cpp backend](docs/LLAMA_CPP.md) for installation constraints, model layout, node wiring, preset values, modality behavior, and troubleshooting.
 
 ## Input semantics
 
@@ -44,6 +53,16 @@ The nodes declare V3 `is_input_list=True`, so ComfyUI passes the complete data l
 The implementation follows ComfyUI's official [data list semantics](https://docs.comfy.org/custom-nodes/backend/lists) and [V3 migration/schema reference](https://docs.comfy.org/custom-nodes/v3_migration).
 
 All scalar inputs (`url`, `model`, prompts, and options) must resolve to exactly one value. Supplying a data list of multiple prompts is an error rather than silently choosing one.
+
+## llama.cpp quick start
+
+1. Install a compatible optional `llama-cpp-python` build in ComfyUI's Python environment.
+2. Put the main model GGUF and its matching multimodal projector under `ComfyUI/models/LLM`, or register an `LLM` directory through `extra_model_paths.yaml`.
+3. Add **Llama.cpp Generate (Multimodal)** from `Ollama / llama_cpp`, select the main GGUF and `mmproj`, and connect any IMAGE, AUDIO, or VIDEO inputs.
+4. Optionally connect **Llama.cpp Sampling Preset**. For Gemma 4, connect the Runtime Preset's `n_ctx`, `max_tokens`, and `runtime` outputs to the matching Generate inputs.
+5. Connect `media_diagnostics` to **Llama.cpp Media Diagnostics** when verifying native ingestion.
+
+All connected media lists are normalized into one user message and one chat completion. The node does not map one prompt over each list item. The model and projector are closed after that completion, including on failure.
 
 ## Ollama connectivity
 
@@ -146,7 +165,7 @@ Use `-WhatIf` to inspect the fixed deployment target without replacing it. Resta
 
 ## Roadmap
 
-`v0.1.0` established Ollama image single/batch/data-list support. Native `llama-cpp-python` image and audio generation is now available as an optional, explicitly unloaded backend with typed MTMD ingestion diagnostics. Broader real-model multimodal compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
+`v0.1.0` established Ollama image single/batch/data-list support. Native `llama-cpp-python` image, audio, and video generation is now available as an optional, explicitly unloaded backend with typed MTMD ingestion diagnostics. Broader real-model multimodal compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
 
 ## License
 
