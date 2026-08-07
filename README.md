@@ -1,4 +1,4 @@
-# ComfyUI Ollama Image List
+# ComfyUI-Ollama-ImageList
 
 ![JPG Banner](./docs/icon.jpg)
 
