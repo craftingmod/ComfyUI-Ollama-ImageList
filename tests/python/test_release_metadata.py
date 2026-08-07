@@ -29,3 +29,6 @@ def test_release_identity_and_archive_defaults_are_stable():
     assert "gh release create" in publish_workflow
     assert "--verify-tag" in publish_workflow
     assert "--generate-notes" in publish_workflow
+    assert "windows-latest" not in publish_workflow
+    assert publish_workflow.count("runs-on: ubuntu-latest") == 2
+    assert publish_workflow.count("shell: pwsh") == 2

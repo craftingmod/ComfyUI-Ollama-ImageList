@@ -23,6 +23,7 @@ All notable changes to this project are documented in this file.
 - The Gemma 4 Runtime Preset output order is `runtime`, `n_ctx`, then `max_tokens`.
 - VIDEO uses the fork's native `libmtmd` path and requires a wheel built with `MTMD_VIDEO`; no separately installed FFmpeg executable is required by this node.
 - Workflow preview images use WebP to reduce repository and release-archive size.
+- Tag releases build on Ubuntu while reusing the cross-platform PowerShell archive script.
 
 ### Compatibility
 
