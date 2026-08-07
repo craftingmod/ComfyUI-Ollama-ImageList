@@ -89,6 +89,7 @@ def install_comfy_api_stub(monkeypatch):
         NodeOutput=NodeOutput,
         Schema=Schema,
         String=field_type("string"),
+        Video=field_type("video"),
     )
     comfy_api = ModuleType("comfy_api")
     versioned_api = ModuleType("comfy_api.v0_0_2")
@@ -146,6 +147,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_Generate",
         "OllamaImageList_LlamaCppSamplingPreset",
         "OllamaImageList_LlamaCppGenerate",
+        "OllamaImageList_LlamaCppMediaDiagnostics",
     ]
     assert [schema.display_name for schema in schemas] == [
         "Ollama Image List Connectivity",
@@ -153,6 +155,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama Generate (Image List)",
         "Llama.cpp Sampling Preset",
         "Llama.cpp Generate (Multimodal)",
+        "Llama.cpp Media Diagnostics",
     ]
     assert {schema.category for schema in schemas} == {"Ollama/Image List"}
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
@@ -351,32 +354,20 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_inputs["images"].options["optional"] is True
     assert llama_inputs["audio"].data_type == "audio"
     assert llama_inputs["audio"].options["optional"] is True
+    assert llama_inputs["video"].data_type == "video"
+    assert llama_inputs["video"].options["optional"] is True
     assert [field.name for field in llama_schema.outputs] == [
         "response",
         "thinking",
         "raw_json",
         "metrics_json",
-        "media_manifest_json",
+        "media_diagnostics",
     ]
+    assert llama_schema.outputs[-1].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
+    )
 
     llama_module = importlib.import_module("backend.nodes.llama_cpp_generate")
-    media_bundle = SimpleNamespace(
-        manifest=lambda: {
-            "media_count": 2,
-            "image_count": 1,
-            "audio_count": 1,
-            "total_encoded_bytes": 7,
-            "items": [],
-        }
-    )
-    assert llama_module._media_manifest(media_bundle) == {
-        "media_count": 2,
-        "image_count": 1,
-        "audio_count": 1,
-        "total_encoded_bytes": 7,
-        "items": [],
-        "model_unloaded_after_response": True,
-    }
     assert llama_module._resolve_sampling_values(
         temperature=[0.1],
         top_p=[0.8],
@@ -415,6 +406,65 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         llama_module._resolve_gguf_selection(
             "[no GGUF models found]", label="model GGUF", required=True
         )
+
+    diagnostics_class, diagnostics_schema = registered[
+        "OllamaImageList_LlamaCppMediaDiagnostics"
+    ]
+    assert diagnostics_schema.inputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
+    )
+    assert [field.name for field in diagnostics_schema.outputs] == [
+        "all_media_evaluated",
+        "vision_available",
+        "audio_available",
+        "video_available",
+        "audio_count",
+        "image_count",
+        "video_count",
+        "json",
+        "formatted_text",
+    ]
+    diagnostics = {
+        "schema_version": 1,
+        "handler": "GenericMTMDChatHandler",
+        "capabilities": {"vision": True, "audio": True, "video": False},
+        "requested": {
+            "media_count": 2,
+            "image_count": 1,
+            "audio_count": 1,
+            "video_count": 0,
+        },
+        "evaluated": {
+            "media_count": 2,
+            "image_count": 1,
+            "audio_count": 1,
+            "video_count": 0,
+        },
+        "mtmd": {
+            "strict_pipeline": True,
+            "completion_succeeded": True,
+            "all_media_evaluated": True,
+            "verification": "mtmd_evaluated",
+        },
+        "model_unloaded_after_response": True,
+    }
+    diagnostics_outputs = diagnostics_class.execute(diagnostics)
+    assert diagnostics_outputs[:7] == (True, True, True, False, 1, 1, 0)
+    assert json.loads(diagnostics_outputs[7]) == diagnostics
+    assert diagnostics_outputs[8] == (
+        "MTMD MEDIA INGESTION: PASS\n\n"
+        "Capabilities\n"
+        "  Vision: available\n"
+        "  Audio:  available\n"
+        "  Video:  unavailable\n\n"
+        "Evaluated\n"
+        "  Images: 1/1\n"
+        "  Audio:  1/1\n"
+        "  Video:  0/0\n\n"
+        "Handler: GenericMTMDChatHandler\n"
+        "Verification: mtmd_evaluated\n"
+        "Model unloaded: yes"
+    )
 
     registered_model_folder = sys.modules["folder_paths"].folder_names_and_paths[
         "ollama_image_list_llm"

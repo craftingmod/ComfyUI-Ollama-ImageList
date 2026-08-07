@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from fractions import Fraction
+from io import BytesIO
 from typing import Any
 
 
@@ -35,3 +37,40 @@ def silent_audio(batch: int, channels: int, samples: int) -> TensorStub:
         for _ in range(batch)
     ]
     return TensorStub(data, (batch, channels, samples))
+
+
+class VideoInputStub:
+    def __init__(
+        self,
+        payload: bytes,
+        *,
+        container: str = "mp4",
+        duration: float = 1.0,
+        frame_count: int = 24,
+        frame_rate: Fraction = Fraction(24, 1),
+        dimensions: tuple[int, int] = (640, 360),
+    ):
+        self.stream = BytesIO(payload)
+        self.container = container
+        self.duration = duration
+        self.frame_count = frame_count
+        self.frame_rate = frame_rate
+        self.dimensions = dimensions
+
+    def get_stream_source(self):
+        return self.stream
+
+    def get_container_format(self):
+        return self.container
+
+    def get_duration(self):
+        return self.duration
+
+    def get_frame_count(self):
+        return self.frame_count
+
+    def get_frame_rate(self):
+        return self.frame_rate
+
+    def get_dimensions(self):
+        return self.dimensions

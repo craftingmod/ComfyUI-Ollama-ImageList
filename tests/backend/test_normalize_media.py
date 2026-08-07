@@ -7,10 +7,12 @@ from backend.core import (
     MediaLimits,
     normalize_audio,
     normalize_images,
+    normalize_media,
+    normalize_video,
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
-from tests.backend.tensor_stub import silent_audio, solid_image
+from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 
 
 def png_dimensions(payload: bytes) -> tuple[int, int]:
@@ -60,6 +62,36 @@ def test_audio_batch_becomes_independent_pcm16_wav_items():
     assert all(item.payload.startswith(b"RIFF") for item in bundle.items)
     assert all(item.payload[8:12] == b"WAVE" for item in bundle.items)
     assert [item.metadata["duration_seconds"] for item in bundle.items] == [0.005, 0.005]
+
+
+def test_video_input_preserves_encoded_stream_and_metadata():
+    video = VideoInputStub(b"fake-mp4-payload")
+    video.stream.seek(4)
+
+    bundle = normalize_video([video])
+
+    assert video.stream.tell() == 4
+    assert len(bundle.items) == 1
+    item = bundle.items[0]
+    assert item.kind == "video"
+    assert item.mime_type == "video/mp4"
+    assert item.payload == b"fake-mp4-payload"
+    assert item.metadata["duration_seconds"] == 1.0
+    assert item.metadata["frame_count"] == 24
+    assert item.metadata["frame_rate"] == 24.0
+    assert (item.metadata["width"], item.metadata["height"]) == (640, 360)
+    assert bundle.manifest()["video_count"] == 1
+
+
+def test_combined_media_keeps_existing_order_and_appends_video():
+    bundle = normalize_media(
+        images=solid_image(1, 1, 1, 3, 0.5),
+        audio={"waveform": silent_audio(1, 1, 8), "sample_rate": 8_000},
+        video=VideoInputStub(b"video"),
+    )
+
+    assert [item.kind for item in bundle.items] == ["image", "audio", "video"]
+    assert bundle.manifest()["video_count"] == 1
 
 
 def test_scalar_unwrapping_never_silently_selects_from_a_data_list():

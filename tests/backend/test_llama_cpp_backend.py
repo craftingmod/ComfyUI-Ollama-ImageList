@@ -9,8 +9,27 @@ from backend.core import (
     normalize_audio,
     normalize_images,
     normalize_media,
+    normalize_video,
 )
-from tests.backend.tensor_stub import silent_audio, solid_image
+from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
+
+
+class FakeMTMDHandler:
+    is_support_vision = True
+    is_support_audio = True
+    is_support_video = False
+
+    def _get_media_items(self):
+        pass
+
+    def _mtmd_tokenize(self):
+        pass
+
+    def _process_mtmd_prompt(self):
+        pass
+
+    def close(self):
+        self.closed = True
 
 
 class FakeLlama:
@@ -25,6 +44,13 @@ class FakeLlama:
         self.kwargs = kwargs
         self.completion_kwargs = None
         self.closed = False
+        if "chat_handler" in kwargs:
+            self.chat_handler = kwargs["chat_handler"]
+        elif "mmproj_path" in kwargs:
+            self.chat_handler = FakeMTMDHandler()
+            self.chat_handler.closed = False
+        else:
+            self.chat_handler = None
         type(self).instances.append(self)
 
     def create_chat_completion(self, **kwargs):
@@ -35,9 +61,11 @@ class FakeLlama:
 
     def close(self):
         self.closed = True
+        if self.chat_handler is not None:
+            self.chat_handler.close()
 
 
-class FakeHandler:
+class FakeHandler(FakeMTMDHandler):
     instances = []
 
     def __init__(self, **kwargs):
@@ -47,6 +75,10 @@ class FakeHandler:
 
     def close(self):
         self.closed = True
+
+
+class FakeVideoHandler(FakeHandler):
+    is_support_video = True
 
 
 @pytest.fixture(autouse=True)
@@ -118,6 +150,24 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
     assert result.response == "done"
     assert result.metrics["usage"]["total_tokens"] == 12
     assert result.metrics["model_unloaded"] is True
+    assert result.media_diagnostics["capabilities"] == {
+        "vision": True,
+        "audio": True,
+        "video": False,
+    }
+    assert result.media_diagnostics["evaluated"] == {
+        "media_count": 2,
+        "image_count": 2,
+        "audio_count": 0,
+        "video_count": 0,
+    }
+    assert result.media_diagnostics["mtmd"] == {
+        "strict_pipeline": True,
+        "completion_succeeded": True,
+        "all_media_evaluated": True,
+        "verification": "mtmd_evaluated",
+    }
+    assert result.media_diagnostics["model_unloaded_after_response"] is True
 
 
 def test_run_chat_sends_audio_as_base64_pcm16_wav(tmp_path):
@@ -126,7 +176,7 @@ def test_run_chat_sends_audio_as_base64_pcm16_wav(tmp_path):
         {"waveform": silent_audio(1, 1, 80), "sample_rate": 16_000}
     )
 
-    run_chat(
+    result = run_chat(
         model_path=str(model),
         mmproj_path=str(mmproj),
         handler="auto",
@@ -152,7 +202,7 @@ def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
         audio={"waveform": silent_audio(1, 2, 160), "sample_rate": 16_000},
     )
 
-    run_chat(
+    result = run_chat(
         model_path=str(model),
         mmproj_path=str(mmproj),
         handler="auto",
@@ -169,6 +219,35 @@ def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
         "input_audio",
     ]
     assert base64.b64decode(content[2]["input_audio"]["data"]) == bundle.items[1].payload
+    assert result.media_diagnostics["requested"]["image_count"] == 1
+    assert result.media_diagnostics["requested"]["audio_count"] == 1
+    assert result.media_diagnostics["evaluated"]["image_count"] == 1
+    assert result.media_diagnostics["evaluated"]["audio_count"] == 1
+
+
+def test_run_chat_sends_comfy_video_as_internal_video_data_uri(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    bundle = normalize_video(VideoInputStub(b"fake-video-stream"))
+
+    result = run_chat(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="generic",
+        system="",
+        prompt="describe the video",
+        media=bundle,
+        bindings=make_bindings(generic=FakeVideoHandler),
+    )
+
+    content = FakeLlama.instances[0].completion_kwargs["messages"][-1]["content"]
+    assert [part["type"] for part in content] == ["text", "video"]
+    video_uri = content[1]["video"]["url"]
+    assert video_uri.startswith("data:video/mp4;base64,")
+    assert base64.b64decode(video_uri.split(",", 1)[1]) == b"fake-video-stream"
+    assert result.media_diagnostics["capabilities"]["video"] is True
+    assert result.media_diagnostics["requested"]["video_count"] == 1
+    assert result.media_diagnostics["evaluated"]["video_count"] == 1
+    assert result.media_diagnostics["mtmd"]["all_media_evaluated"] is True
 
 
 def test_specific_handler_is_created_and_owned_by_llama(tmp_path):

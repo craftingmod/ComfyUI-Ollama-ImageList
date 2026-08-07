@@ -43,6 +43,7 @@ class LlamaCppResult:
     thinking: str
     raw: dict[str, Any]
     metrics: dict[str, Any]
+    media_diagnostics: dict[str, Any]
 
 
 def _import_bindings() -> LlamaCppBindings:
@@ -129,7 +130,16 @@ def _build_messages(system: str, prompt: str, media: MediaBundle) -> list[dict[s
                         },
                     }
                 )
-            else:  # pragma: no cover - MediaKind currently prevents this
+            elif item.kind == "video":
+                content.append(
+                    {
+                        "type": "video",
+                        "video": {
+                            "url": _data_uri(item.mime_type, item.payload),
+                        },
+                    }
+                )
+            else:  # pragma: no cover - MediaKind prevents this
                 raise InputNormalizationError(
                     f"The llama.cpp multimodal node does not support {item.kind} media."
                 )
@@ -195,6 +205,86 @@ def _extract_response(raw: dict[str, Any]) -> tuple[str, str]:
     return response, thinking
 
 
+def _capture_media_diagnostics(
+    *,
+    llm: Any,
+    fallback_handler: Any,
+    media: MediaBundle,
+    model_path: str,
+    mmproj_path: str | None,
+) -> dict[str, Any]:
+    """Copy fork MTMD state while the native handler is still alive."""
+    active_handler = getattr(llm, "chat_handler", None) or fallback_handler
+    handler_name = type(active_handler).__name__ if active_handler is not None else "none"
+    vision_available = bool(getattr(active_handler, "is_support_vision", False))
+    audio_available = bool(getattr(active_handler, "is_support_audio", False))
+    video_available = bool(getattr(active_handler, "is_support_video", False))
+    strict_mtmd_pipeline = active_handler is not None and all(
+        callable(getattr(active_handler, method_name, None))
+        for method_name in (
+            "_get_media_items",
+            "_mtmd_tokenize",
+            "_process_mtmd_prompt",
+        )
+    )
+
+    manifest = media.manifest()
+    requested_image_count = int(manifest["image_count"])
+    requested_audio_count = int(manifest["audio_count"])
+    requested_video_count = int(manifest["video_count"])
+    modalities_available = (
+        (requested_image_count == 0 or vision_available)
+        and (requested_audio_count == 0 or audio_available)
+        and (requested_video_count == 0 or video_available)
+    )
+    verified = strict_mtmd_pipeline and modalities_available
+    evaluated_image_count = requested_image_count if verified else 0
+    evaluated_audio_count = requested_audio_count if verified else 0
+    evaluated_video_count = requested_video_count if verified else 0
+    requested_media_count = (
+        requested_image_count + requested_audio_count + requested_video_count
+    )
+    evaluated_media_count = (
+        evaluated_image_count + evaluated_audio_count + evaluated_video_count
+    )
+
+    if requested_media_count == 0:
+        verification = "no_media"
+        all_media_evaluated = True
+    elif verified and evaluated_media_count == requested_media_count:
+        verification = "mtmd_evaluated"
+        all_media_evaluated = True
+    else:
+        verification = "unavailable"
+        all_media_evaluated = False
+
+    return {
+        "schema_version": 1,
+        "backend": "llama-cpp-python",
+        "model": Path(model_path).name,
+        "mmproj": Path(mmproj_path).name if mmproj_path else None,
+        "handler": handler_name,
+        "capabilities": {
+            "vision": vision_available,
+            "audio": audio_available,
+            "video": video_available,
+        },
+        "requested": manifest,
+        "evaluated": {
+            "media_count": evaluated_media_count,
+            "image_count": evaluated_image_count,
+            "audio_count": evaluated_audio_count,
+            "video_count": evaluated_video_count,
+        },
+        "mtmd": {
+            "strict_pipeline": strict_mtmd_pipeline,
+            "completion_succeeded": True,
+            "all_media_evaluated": all_media_evaluated,
+            "verification": verification,
+        },
+    }
+
+
 def run_chat(
     *,
     model_path: str,
@@ -225,7 +315,7 @@ def run_chat(
     resolved_mmproj = _resolve_file(mmproj_path, label="mmproj_path", required=False)
     if media.items and resolved_mmproj is None:
         raise InputNormalizationError(
-            "mmproj_path is required when image or audio media are supplied."
+            "mmproj_path is required when image, audio, or video media are supplied."
         )
     if flash_attention not in _FLASH_ATTN_TYPES:
         raise InputNormalizationError("flash_attention must be auto, enabled, or disabled.")
@@ -240,6 +330,7 @@ def run_chat(
     llm = None
     chat_handler = None
     raw: dict[str, Any] | None = None
+    media_diagnostics: dict[str, Any] | None = None
     execution_error: Exception | None = None
     cleanup_error: Exception | None = None
 
@@ -294,6 +385,13 @@ def run_chat(
                     "llama-cpp-python returned a streaming or non-object response unexpectedly."
                 )
             raw = completion
+            media_diagnostics = _capture_media_diagnostics(
+                llm=llm,
+                fallback_handler=chat_handler,
+                media=media,
+                model_path=resolved_model,
+                mmproj_path=resolved_mmproj,
+            )
         except Exception as exc:  # preserve cleanup while presenting a stable node error
             execution_error = exc
         finally:
@@ -321,6 +419,8 @@ def run_chat(
         ) from cleanup_error
     if raw is None:  # pragma: no cover - defensive invariant
         raise BackendError("llama-cpp-python did not return a response.")
+    if media_diagnostics is None:  # pragma: no cover - defensive invariant
+        raise BackendError("llama-cpp-python did not produce media diagnostics.")
 
     response, thinking = _extract_response(raw)
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
@@ -332,7 +432,14 @@ def run_chat(
         "usage": usage,
         "model_unloaded": True,
     }
-    return LlamaCppResult(response=response, thinking=thinking, raw=raw, metrics=metrics)
+    media_diagnostics["model_unloaded_after_response"] = True
+    return LlamaCppResult(
+        response=response,
+        thinking=thinking,
+        raw=raw,
+        metrics=metrics,
+        media_diagnostics=media_diagnostics,
+    )
 
 
 __all__ = [

@@ -4,6 +4,7 @@ from .normalize import (
     normalize_audio,
     normalize_images,
     normalize_media,
+    normalize_video,
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "normalize_audio",
     "normalize_images",
     "normalize_media",
+    "normalize_video",
     "parse_ollama_options_json",
     "resolve_ollama_options",
     "unwrap_optional_scalar",

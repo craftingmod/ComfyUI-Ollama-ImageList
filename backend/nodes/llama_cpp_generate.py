@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
 
 try:
     from comfy_api.v0_0_2 import io
@@ -16,6 +15,7 @@ from ..core import (
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
+from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_sampling import LlamaCppSamplingType, normalize_sampling
 
 
@@ -118,12 +118,6 @@ def _resolve_sampling_values(
     return values if connected is None else normalize_sampling(connected)
 
 
-def _media_manifest(bundle) -> dict[str, Any]:
-    manifest = bundle.manifest()
-    manifest["model_unloaded_after_response"] = True
-    return manifest
-
-
 class LlamaCppImageListGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -133,7 +127,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             display_name="Llama.cpp Generate (Multimodal)",
             category="Ollama/Image List",
             description=(
-                "Loads one local GGUF model, analyzes optional image and audio inputs in "
+                "Loads one local GGUF model, analyzes optional image, audio, and video inputs in "
                 "one llama-cpp-python chat request, then closes and releases the model "
                 "immediately. No model cache is retained."
             ),
@@ -313,13 +307,25 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                         "is encoded as lossless PCM16 WAV and requires an audio-capable mmproj."
                     ),
                 ),
+                io.Video.Input(
+                    "video",
+                    optional=True,
+                    tooltip=(
+                        "Optional ComfyUI VIDEO input. The original encoded stream is passed to "
+                        "llama.cpp for FFmpeg frame extraction and requires a video-capable build "
+                        "and mmproj. Embedded audio is not ingested; connect AUDIO separately."
+                    ),
+                ),
             ],
             outputs=[
                 io.String.Output("response", display_name="response"),
                 io.String.Output("thinking", display_name="thinking"),
                 io.String.Output("raw_json", display_name="raw JSON"),
                 io.String.Output("metrics_json", display_name="metrics"),
-                io.String.Output("media_manifest_json", display_name="media manifest"),
+                LlamaCppMediaDiagnosticsType.Output(
+                    "media_diagnostics",
+                    display_name="media diagnostics",
+                ),
             ],
         )
 
@@ -349,9 +355,10 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         verbose,
         images=None,
         audio=None,
+        video=None,
         sampling=None,
     ) -> io.NodeOutput:
-        bundle = normalize_media(images=images, audio=audio)
+        bundle = normalize_media(images=images, audio=audio, video=video)
         model_selection = str(unwrap_required_scalar("model_path", model_path))
         mmproj_selection = str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION))
         sampling_values = _resolve_sampling_values(
@@ -401,7 +408,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             result.thinking,
             json.dumps(result.raw, ensure_ascii=False, indent=2),
             json.dumps(result.metrics, ensure_ascii=False, indent=2),
-            json.dumps(_media_manifest(bundle), ensure_ascii=False, indent=2),
+            result.media_diagnostics,
         )
 
 
