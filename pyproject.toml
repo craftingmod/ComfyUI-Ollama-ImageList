@@ -1,6 +1,6 @@
 [project]
 name = "ollama-image-list"
-description = "Send mixed-resolution ComfyUI IMAGE data lists to Ollama in one request"
+description = "Analyze mixed-resolution ComfyUI IMAGE data lists with Ollama or llama.cpp"
 version = "0.1.0"
 requires-python = ">=3.12"
 readme = "README.md"
@@ -10,6 +10,9 @@ license = { file = "LICENSE" }
 dev = [
   "pytest>=8.4.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [project.urls]
 Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"

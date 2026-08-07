@@ -1,9 +1,14 @@
 import asyncio
 import importlib
 import json
+import os
 import sys
 from dataclasses import dataclass
 from types import ModuleType, SimpleNamespace
+
+import pytest
+
+from backend.core import InputNormalizationError
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,26 @@ def install_comfy_api_stub(monkeypatch):
     monkeypatch.setitem(sys.modules, "comfy_api", comfy_api)
     monkeypatch.setitem(sys.modules, "comfy_api.v0_0_2", versioned_api)
 
+    folder_paths = ModuleType("folder_paths")
+    folder_paths.models_dir = "C:/ComfyUI/models"
+    folder_paths.folder_names_and_paths = {
+        "LLM": (["D:/SharedModels/LLM"], set()),
+    }
+    folder_paths.get_filename_list = lambda _folder_name: [
+        "external/model-a.gguf",
+        "local/model-b.gguf",
+        "external/mmproj-model-a-f16.gguf",
+        "external/mtp-model-a.gguf",
+    ]
+
+    def get_full_path_or_raise(_folder_name, filename):
+        if filename.startswith("external/"):
+            return f"D:/SharedModels/LLM/{filename}"
+        return f"C:/ComfyUI/models/LLM/{filename}"
+
+    folder_paths.get_full_path_or_raise = get_full_path_or_raise
+    monkeypatch.setitem(sys.modules, "folder_paths", folder_paths)
+
     routes = Routes()
     server = ModuleType("server")
     server.PromptServer = SimpleNamespace(instance=SimpleNamespace(routes=routes))
@@ -119,11 +144,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_Connectivity",
         "OllamaImageList_Options",
         "OllamaImageList_Generate",
+        "OllamaImageList_LlamaCppSamplingPreset",
+        "OllamaImageList_LlamaCppGenerate",
     ]
     assert [schema.display_name for schema in schemas] == [
         "Ollama Image List Connectivity",
         "Ollama Image List Options",
         "Ollama Generate (Image List)",
+        "Llama.cpp Sampling Preset",
+        "Llama.cpp Generate (Image List)",
     ]
     assert {schema.category for schema in schemas} == {"Ollama/Image List"}
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
@@ -266,4 +295,114 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert generate_inputs["keep_alive"].data_type == "string"
     assert generate_input_names.index("unload_after_response") + 1 == generate_input_names.index(
         "keep_alive"
+    )
+
+    sampling_class, sampling_schema = registered[
+        "OllamaImageList_LlamaCppSamplingPreset"
+    ]
+    assert sampling_schema.inputs[0].name == "preset"
+    assert sampling_schema.inputs[0].options["options"] == [
+        "Image analysis",
+        "Gemma 4",
+        "Gemma 4 Uncensored",
+        "llama.cpp default",
+    ]
+    assert sampling_schema.outputs[0].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
+    assert sampling_class.execute("Gemma 4") == (
+        {
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "top_k": 64,
+            "min_p": 0.0,
+            "repeat_penalty": 1.0,
+        },
+    )
+
+    llama_schema = registered["OllamaImageList_LlamaCppGenerate"][1]
+    assert llama_schema.is_input_list is True
+    assert llama_schema.not_idempotent is True
+    llama_inputs = {field.name: field for field in llama_schema.inputs}
+    assert llama_inputs["model_path"].data_type == "combo"
+    assert llama_inputs["model_path"].options["options"] == [
+        "external/model-a.gguf",
+        "local/model-b.gguf",
+        "external/mmproj-model-a-f16.gguf",
+        "external/mtp-model-a.gguf",
+    ]
+    assert llama_inputs["mmproj_path"].data_type == "combo"
+    assert llama_inputs["mmproj_path"].options["options"] == [
+        "[none]",
+        "external/mmproj-model-a-f16.gguf",
+        "external/model-a.gguf",
+        "local/model-b.gguf",
+        "external/mtp-model-a.gguf",
+    ]
+    assert llama_inputs["sampling"].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
+    assert llama_inputs["sampling"].options["optional"] is True
+    assert llama_inputs["handler"].options["options"] == [
+        "auto",
+        "generic",
+        "gemma4",
+        "qwen3_vl",
+        "qwen25_vl",
+    ]
+    assert llama_inputs["gpu_layers"].options["default"] == "all"
+    assert llama_inputs["images"].options["optional"] is True
+    assert [field.name for field in llama_schema.outputs] == [
+        "response",
+        "thinking",
+        "raw_json",
+        "metrics_json",
+        "image_manifest_json",
+    ]
+
+    llama_module = importlib.import_module("backend.nodes.llama_cpp_generate")
+    assert llama_module._resolve_sampling_values(
+        temperature=[0.1],
+        top_p=[0.8],
+        top_k=[20],
+        min_p=[0.1],
+        repeat_penalty=[1.1],
+        sampling=None,
+    ) == {
+        "temperature": 0.1,
+        "top_p": 0.8,
+        "top_k": 20,
+        "min_p": 0.1,
+        "repeat_penalty": 1.1,
+    }
+    assert llama_module._resolve_sampling_values(
+        temperature=[0.1],
+        top_p=[0.8],
+        top_k=[20],
+        min_p=[0.1],
+        repeat_penalty=[1.1],
+        sampling=[sampling_class.execute("Gemma 4")[0]],
+    ) == {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 64,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    }
+    assert llama_module._resolve_gguf_selection(
+        "external/model-a.gguf", label="model GGUF", required=True
+    ) == "D:/SharedModels/LLM/external/model-a.gguf"
+    assert llama_module._resolve_gguf_selection(
+        "[none]", label="mmproj GGUF", required=False
+    ) == ""
+    with pytest.raises(InputNormalizationError, match="No model GGUF is selected"):
+        llama_module._resolve_gguf_selection(
+            "[no GGUF models found]", label="model GGUF", required=True
+        )
+
+    registered_model_folder = sys.modules["folder_paths"].folder_names_and_paths[
+        "ollama_image_list_llm"
+    ]
+    assert registered_model_folder == (
+        [
+            os.path.abspath(os.path.normpath("D:/SharedModels/LLM")),
+            os.path.abspath(os.path.normpath(os.path.join("C:/ComfyUI/models", "LLM"))),
+        ],
+        {".gguf"},
     )

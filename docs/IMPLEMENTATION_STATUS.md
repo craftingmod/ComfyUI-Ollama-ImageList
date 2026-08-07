@@ -8,7 +8,7 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 | --- | --- |
 | Node API | V3 schema via `comfy_api.v0_0_2`, with `latest` fallback |
 | Minimum tested ComfyUI | 0.18.1 |
-| Backend priority | Ollama REST first; native llama.cpp optional later |
+| Backend priority | Ollama REST plus optional native llama.cpp |
 | List handling | Node-level `is_input_list=True` |
 | Ollama endpoint | `/api/chat`, stateless, `stream=false` |
 | Model discovery | ComfyUI route proxy to Ollama `/api/tags` |
@@ -27,8 +27,9 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 - Ollama options builder: individually enabled documented runtime options with JSON and typed dictionary outputs — implemented.
 - Phase 3: live Ollama capability and multi-model validation — pending.
 - Phase 4: optional Media Bundle and experimental audio compatibility validation — disabled for the initial public scope.
-- Phase 5–6: per-request Ollama unload is implemented through `unload_after_response`; optional `llama-cpp-python`, dedicated unload controls, and native audio research remain pending.
+- Phase 5: optional `llama-cpp-python` image-list generation is implemented with lazy dependency import, GGUF Combo discovery from ComfyUI's registered `LLM` paths (including `extra_model_paths.yaml`) plus the local `models/LLM` fallback, a typed sampling-preset connection, selectable MTMD handlers, serialized execution, and unconditional per-request model cleanup.
+- Phase 6: per-request Ollama unload is implemented through `unload_after_response`; native llama.cpp audio research remains pending. A dedicated native unload node is unnecessary because native models are never cached.
 
-The initial release intentionally exposes no audio input and does not claim that any native llama.cpp backend is stable.
+The public nodes intentionally expose no audio input. Native llama.cpp support depends on a separately installed platform/Python/CUDA-compatible wheel and model-specific GGUF/mmproj compatibility.
 
 Full `/api/object_info` discovery in a started ComfyUI process remains a manual release check until there is an end-to-end workflow test worth the additional harness cost.
