@@ -6,19 +6,23 @@ ComfyUI V3 custom nodes that analyze image lists through either one stateless Ol
 
 ## Nodes
 
-![Workflow Example](./workflows/Simple_Vision.avif)
-
-Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
-
 Nodes are grouped by backend in ComfyUI's Add Node menu.
 
 ### Ollama / Image List
+
+![Ollama Workflow Example](./workflows/Simple_Vision.png)
+
+Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 
 - **Ollama Image List Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
 
 ### Ollama / llama_cpp
+
+![Native Workflow Example](./workflows/Native_Vision.png)
+
+Workflow example: [Native_Vision.json](./workflows/Native_Vision.json)
 
 - **Llama.cpp Sampling Preset** — supplies image-analysis, Gemma 4, or llama.cpp-default sampling values through one typed connection.
 - **Llama.cpp Gemma 4 Runtime Preset** — supplies Gemma 4 context and output-length integers plus a typed physical-batch and image-token profile.
