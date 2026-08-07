@@ -8,6 +8,7 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 | --- | --- |
 | Node API | V3 schema via `comfy_api.v0_0_2`, with `latest` fallback |
 | Minimum tested ComfyUI | 0.18.1 |
+| Current package release | 0.2.0 |
 | Backend priority | Ollama REST plus optional native llama.cpp |
 | List handling | Node-level `is_input_list=True` |
 | Ollama endpoint | `/api/chat`, stateless, `stream=false` |

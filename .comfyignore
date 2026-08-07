@@ -2,7 +2,6 @@
 .agents/
 .github/
 tests/
-docs/
 scripts/
 
 # Development-only metadata

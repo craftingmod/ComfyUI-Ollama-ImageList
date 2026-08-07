@@ -1,10 +1,17 @@
-name: Publish to Comfy registry
+name: Publish releases
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
 
 jobs:
-  publish:
+  publish_registry:
+    if: github.event_name == 'workflow_dispatch'
     name: Publish Custom Node to registry
     runs-on: ubuntu-latest
     steps:
@@ -14,3 +21,54 @@ jobs:
         uses: Comfy-Org/publish-node-action@main
         with:
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+
+  github_release:
+    if: github.event_name == 'push'
+    name: Build and publish GitHub Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Validate tag and build custom-node ZIP
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pyproject = Get-Content -LiteralPath "pyproject.toml" -Raw
+          $versionMatch = [regex]::Match(
+              $pyproject,
+              '(?m)^\s*version\s*=\s*"([^"]+)"\s*$'
+          )
+          if (-not $versionMatch.Success) {
+              throw "Could not read the project version from pyproject.toml."
+          }
+
+          $version = $versionMatch.Groups[1].Value
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+              throw "Tag $env:GITHUB_REF_NAME does not match project version $expectedTag."
+          }
+
+          & ./scripts/build-custom-node-zip.ps1
+          $archive = "dist/ComfyUI-Ollama-ImageList-$version.zip"
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+              throw "Expected release archive was not created: $archive"
+          }
+
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release and upload ZIP
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE_PATH: ${{ steps.build.outputs.archive }}
+        run: |
+          gh release create `
+              $env:GITHUB_REF_NAME `
+              $env:ARCHIVE_PATH `
+              --verify-tag `
+              --generate-notes `
+              --title $env:GITHUB_REF_NAME

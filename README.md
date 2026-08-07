@@ -10,7 +10,7 @@ Nodes are grouped by backend in ComfyUI's Add Node menu.
 
 ### Ollama / Image List
 
-![Ollama Workflow Example](./workflows/Simple_Vision.png)
+![Ollama Workflow Example](./workflows/Simple_Vision.webp)
 
 Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 
@@ -20,7 +20,7 @@ Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 
 ### Ollama / llama_cpp
 
-![Native Workflow Example](./workflows/Native_Vision.png)
+![Native Workflow Example](./workflows/Native_Vision.webp)
 
 Workflow example: [Native_Vision.json](./workflows/Native_Vision.json)
 
@@ -31,9 +31,11 @@ Workflow example: [Native_Vision.json](./workflows/Native_Vision.json)
 
 ## Install
 
-Search `ollama-imagelist` in `ComfyUI Manager's nodes manager` and install `Ollama-ImageList`.
+Search `ollama-image-list` in `ComfyUI Manager's nodes manager` and install `Ollama-ImageList`.
 
 Also you can clone this repository into `ComfyUI/custom_nodes`. Runtime dependencies are provided by ComfyUI.
+
+The Comfy Registry package ID is `ollama-image-list`. Manual release archives use `ComfyUI-Ollama-ImageList-<version>.zip` and contain one top-level `ComfyUI-Ollama-ImageList` folder.
 
 To run the development tests, sync the development environment:
 
@@ -165,6 +167,14 @@ uv run pytest
 
 See [testing documentation](docs/TESTING.md) and [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
+Build the versioned manual-install archive with:
+
+```powershell
+./scripts/build-custom-node-zip.ps1
+```
+
+The default output is `dist/ComfyUI-Ollama-ImageList-<version>.zip`; the Registry ID remains `ollama-image-list`.
+
 To replace the node installed in the local portable ComfyUI instance with the current runtime package, run:
 
 ```powershell
@@ -175,7 +185,9 @@ Use `-WhatIf` to inspect the fixed deployment target without replacing it. Resta
 
 ## Roadmap
 
-`v0.1.0` established Ollama image single/batch/data-list support. Native `llama-cpp-python` image, audio, and video generation is now available as an optional, explicitly unloaded backend with typed MTMD ingestion diagnostics. Broader real-model multimodal compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
+`v0.1.0` established Ollama image single/batch/data-list support. `v0.2.0` adds optional native `llama-cpp-python` image, audio, and video generation with explicit per-request unload, thinking control, typed presets, and MTMD ingestion diagnostics. Broader real-model compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
+
+See [CHANGELOG.md](CHANGELOG.md) for release details and workflow compatibility notes.
 
 ## License
 

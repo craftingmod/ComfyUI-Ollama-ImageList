@@ -567,20 +567,19 @@ example workflow에는 최소 다음 5개를 포함한다.
 
 ### v0.2.0
 
-- 실제 모델 compatibility matrix
-- Media Bundle 노드
-- JSON Schema 개선
-- 연결 및 capability 진단
+- optional JamePeng `llama-cpp-python` native backend
+- IMAGE, AUDIO, VIDEO list 입력을 한 completion으로 처리
+- sampling preset과 Gemma 4 runtime preset
+- thinking 제어와 response/thinking 분리
+- MTMD capability/evaluated-count diagnostics
+- 요청 단위 즉시 unload와 native 실행 직렬화
 
-### v0.3.0-experimental
+### v0.3.0 이후 검토
 
-- ComfyUI AUDIO 정규화
-- Ollama 실험적 audio transport
-
-### v0.4.0-experimental
-
-- llama-cpp-python native IMAGE, AUDIO, VIDEO backend
-- 요청 단위 즉시 unload와 MTMD diagnostics
+- 실제 모델 및 운영체제별 compatibility matrix 확대
+- optional Media Bundle 노드
+- JSON Schema와 structured output 개선
+- streaming, explicit history, subprocess 격리 검토
 
 ### v1.0.0
 

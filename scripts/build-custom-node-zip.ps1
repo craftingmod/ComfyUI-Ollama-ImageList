@@ -75,6 +75,7 @@ $rootFiles = @(
     "__init__.py",
     "pyproject.toml",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
 )
 
@@ -87,7 +88,9 @@ $packageDirectories = @(
     "web",
     "js",
     "assets",
-    "locales"
+    "locales",
+    "docs",
+    "workflows"
 )
 
 $stagingRoot = Join-Path (
