@@ -121,10 +121,10 @@ class LlamaCppGemma4RuntimePresetNode(io.ComfyNode):
             node_id="OllamaImageList_LlamaCppGemma4RuntimePreset",
             display_name="Llama.cpp Gemma 4 Runtime Preset",
             category="Ollama/llama_cpp",
-        description=(
-            "Outputs separate Gemma 4-tuned context and generation-length integers "
-            "plus one typed multimodal batch configuration."
-        ),
+            description=(
+                "Outputs one typed multimodal batch configuration plus separate "
+                "Gemma 4-tuned context and generation-length integers."
+            ),
             inputs=[
                 io.Combo.Input(
                     "preset",
@@ -138,9 +138,9 @@ class LlamaCppGemma4RuntimePresetNode(io.ComfyNode):
                 ),
             ],
             outputs=[
+                LlamaCppGemma4RuntimeType.Output("runtime", display_name="runtime"),
                 io.Int.Output("n_ctx", display_name="n_ctx"),
                 io.Int.Output("max_tokens", display_name="max_tokens"),
-                LlamaCppGemma4RuntimeType.Output("runtime", display_name="runtime"),
             ],
         )
 
@@ -158,9 +158,9 @@ class LlamaCppGemma4RuntimePresetNode(io.ComfyNode):
             if name not in {"n_ctx", "max_tokens"}
         }
         return io.NodeOutput(
+            advanced_runtime,
             int(runtime["n_ctx"]),
             int(runtime["max_tokens"]),
-            advanced_runtime,
         )
 
 

@@ -17,7 +17,7 @@ The CUDA tag on a PyTorch build does not select the llama.cpp wheel. PyTorch and
 
 This implementation targets the fork API used by the multimodal wheels published at [JamePeng/llama-cpp-python releases](https://github.com/JamePeng/llama-cpp-python/releases). The [ComfyUI-ThinkingLLM installation notes](https://github.com/goodguy1963/ComfyUI-ThinkingLLM/blob/main/docs/LLAMA_CPP_PYTHON_VISION_INSTALL.md) provide a practical fork-wheel installation reference. Other builds may omit the generic MTMD handler, audio/video capability flags, handler arguments, or diagnostics used here.
 
-The custom node package and all Ollama nodes still load when this dependency is missing. Only an attempted llama.cpp Generate execution fails with an optional-dependency error.
+The custom node package and all Ollama nodes still load when this dependency is missing. Only an attempted llama.cpp Generate execution fails with an optional-dependency error, which includes the installation guide and JamePeng wheel-release links above.
 
 VIDEO input also requires an FFmpeg executable available on `PATH` to the ComfyUI process.
 
@@ -133,9 +133,9 @@ Connect `sampling` to override all five sampling widgets together.
 The Runtime Preset has three outputs. Connect them explicitly:
 
 ```text
+Preset.runtime    -> Generate.runtime
 Preset.n_ctx      -> Generate.n_ctx
 Preset.max_tokens -> Generate.max_tokens
-Preset.runtime    -> Generate.runtime
 ```
 
 The typed `runtime` connection carries only `n_batch`, `override_n_ubatch`, `n_ubatch`, `override_image_max_tokens`, and `image_max_tokens`. Context and output length remain visible as ordinary integer connections.

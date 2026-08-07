@@ -30,6 +30,19 @@ _HANDLER_CLASSES = {
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
 _DEFAULT_N_UBATCH = 512
 _NATIVE_EXECUTION_LOCK = Lock()
+_JAMEPENG_RELEASES_URL = "https://github.com/JamePeng/llama-cpp-python/releases/"
+_VISION_INSTALL_GUIDE_URL = (
+    "https://github.com/goodguy1963/ComfyUI-ThinkingLLM/blob/main/docs/"
+    "LLAMA_CPP_PYTHON_VISION_INSTALL.md"
+)
+
+
+def _fork_install_hint() -> str:
+    return (
+        "This node targets JamePeng's multimodal llama-cpp-python fork.\n"
+        f"Installation guide: {_VISION_INSTALL_GUIDE_URL}\n"
+        f"Prebuilt wheels: {_JAMEPENG_RELEASES_URL}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +66,8 @@ def _import_bindings() -> LlamaCppBindings:
     except (ImportError, OSError) as exc:
         raise BackendError(
             "llama-cpp-python could not be imported. Install a wheel compatible with "
-            "ComfyUI's Python, platform, and CUDA runtime, then restart ComfyUI."
+            "ComfyUI's Python, platform, and native backend, then restart ComfyUI. "
+            + _fork_install_hint()
         ) from exc
 
     handler_module = None
@@ -76,7 +90,10 @@ def _import_bindings() -> LlamaCppBindings:
 
     llama_class = getattr(llama_cpp, "Llama", None)
     if llama_class is None:
-        raise BackendError("The installed llama-cpp-python package does not expose Llama.")
+        raise BackendError(
+            "The installed llama-cpp-python package does not expose Llama. "
+            + _fork_install_hint()
+        )
     return LlamaCppBindings(llama_class=llama_class, handlers=handlers)
 
 
@@ -171,7 +188,8 @@ def _create_handler(
     if handler_class is None:
         class_name = _HANDLER_CLASSES[handler]
         raise BackendError(
-            f"The installed llama-cpp-python build does not provide {class_name}."
+            f"The installed llama-cpp-python build does not provide {class_name}. "
+            + _fork_install_hint()
         )
     handler_kwargs: dict[str, Any] = {
         "mmproj_path": mmproj_path,

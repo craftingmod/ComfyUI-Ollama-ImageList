@@ -59,7 +59,7 @@ All scalar inputs (`url`, `model`, prompts, and options) must resolve to exactly
 1. Install a compatible optional `llama-cpp-python` build in ComfyUI's Python environment.
 2. Put the main model GGUF and its matching multimodal projector under `ComfyUI/models/LLM`, or register an `LLM` directory through `extra_model_paths.yaml`.
 3. Add **Llama.cpp Generate (Multimodal)** from `Ollama / llama_cpp`, select the main GGUF and `mmproj`, and connect any IMAGE, AUDIO, or VIDEO inputs.
-4. Optionally connect **Llama.cpp Sampling Preset**. For Gemma 4, connect the Runtime Preset's `n_ctx`, `max_tokens`, and `runtime` outputs to the matching Generate inputs.
+4. Optionally connect **Llama.cpp Sampling Preset**. For Gemma 4, connect the Runtime Preset's `runtime`, `n_ctx`, and `max_tokens` outputs to the matching Generate inputs.
 5. Connect `media_diagnostics` to **Llama.cpp Media Diagnostics** when verifying native ingestion.
 
 All connected media lists are normalized into one user message and one chat completion. The node does not map one prompt over each list item. The model and projector are closed after that completion, including on failure.
@@ -108,7 +108,7 @@ For image, audio, or video requests, choose the `mmproj` GGUF built for the exac
 
 Connect `Llama.cpp Sampling Preset` to the optional `sampling` input to override `temperature`, `top_p`, `top_k`, `min_p`, and `repeat_penalty` together. When no preset is connected, the five widgets on the Generate node remain authoritative, preserving existing workflows.
 
-`Llama.cpp Gemma 4 Runtime Preset` exposes separate `n_ctx` and `max_tokens` integer outputs for direct connections to the Generate node's always-visible inputs. Its typed `runtime` output overrides only the Advanced `n_batch`, `n_ubatch`, `image_max_tokens`, and two override switches. This keeps context and output-length changes visible as graph connections while retaining one compact connection for the related multimodal batch settings. The profiles are named for Gemma 4 because their image-token and physical-batch values were selected for Gemma 4's dynamic-resolution vision encoder; other model families may need different values. `Vision Long / Thinking` reserves enough output room for reasoning but deliberately does not change the Generate node's explicit `thinking` Boolean.
+`Llama.cpp Gemma 4 Runtime Preset` places its typed `runtime` output first, followed by separate `n_ctx` and `max_tokens` integer outputs for direct connections to the Generate node's always-visible inputs. `runtime` overrides only the Advanced `n_batch`, `n_ubatch`, `image_max_tokens`, and two override switches. This keeps context and output-length changes visible as graph connections while retaining one compact connection for the related multimodal batch settings. The profiles are named for Gemma 4 because their image-token and physical-batch values were selected for Gemma 4's dynamic-resolution vision encoder; other model families may need different values. `Vision Long / Thinking` reserves enough output room for reasoning but deliberately does not change the Generate node's explicit `thinking` Boolean.
 
 The node intentionally has no model-loader output and no cache policy. Every execution follows this lifecycle:
 

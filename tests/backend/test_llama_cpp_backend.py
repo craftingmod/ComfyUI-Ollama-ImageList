@@ -2,6 +2,7 @@ import base64
 
 import pytest
 
+import backend.backends.llama_cpp as llama_cpp_backend
 from backend.backends.llama_cpp import LlamaCppBindings, run_chat
 from backend.core import (
     BackendError,
@@ -102,6 +103,21 @@ def gguf_files(tmp_path):
     model.write_bytes(b"model")
     mmproj.write_bytes(b"projector")
     return model, mmproj
+
+
+def test_missing_optional_dependency_points_to_supported_fork(monkeypatch):
+    def missing_import(_module_name):
+        raise ModuleNotFoundError("No module named 'llama_cpp'")
+
+    monkeypatch.setattr(llama_cpp_backend.importlib, "import_module", missing_import)
+
+    with pytest.raises(BackendError) as error:
+        llama_cpp_backend._import_bindings()
+
+    message = str(error.value)
+    assert "JamePeng's multimodal llama-cpp-python fork" in message
+    assert "LLAMA_CPP_PYTHON_VISION_INSTALL.md" in message
+    assert "https://github.com/JamePeng/llama-cpp-python/releases/" in message
 
 
 def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):

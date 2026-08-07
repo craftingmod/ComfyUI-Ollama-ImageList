@@ -344,17 +344,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert runtime_schema.inputs[0].options["default"] == "Vision Standard"
     assert [field.name for field in runtime_schema.outputs] == [
+        "runtime",
         "n_ctx",
         "max_tokens",
-        "runtime",
     ]
-    assert [field.data_type for field in runtime_schema.outputs[:2]] == ["int", "int"]
-    assert runtime_schema.outputs[2].data_type == (
+    assert runtime_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
     )
+    assert [field.data_type for field in runtime_schema.outputs[1:]] == ["int", "int"]
     assert runtime_class.execute("Vision Standard") == (
-        16384,
-        1024,
         {
             "n_batch": 512,
             "override_n_ubatch": True,
@@ -362,6 +360,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
             "override_image_max_tokens": True,
             "image_max_tokens": 512,
         },
+        16384,
+        1024,
     )
     runtime_module = importlib.import_module("backend.nodes.llama_cpp_runtime")
     for runtime_preset in runtime_module.GEMMA4_RUNTIME_PRESETS.values():
@@ -371,7 +371,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
             if name not in {"n_ctx", "max_tokens"}
         }
         assert runtime_module.normalize_gemma4_runtime(advanced_runtime) == advanced_runtime
-    invalid_runtime = dict(runtime_class.execute("Vision Standard")[2])
+    invalid_runtime = dict(runtime_class.execute("Vision Standard")[0])
     invalid_runtime["n_batch"] = 2048
     invalid_runtime["image_max_tokens"] = 1120
     with pytest.raises(InputNormalizationError, match="effective runtime.n_ubatch"):
@@ -501,7 +501,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         n_ubatch=[512],
         override_image_max_tokens=[False],
         image_max_tokens=[1120],
-        runtime=[runtime_class.execute("Vision Long / Thinking")[2]],
+        runtime=[runtime_class.execute("Vision Long / Thinking")[0]],
     ) == {
         "n_batch": 512,
         "override_n_ubatch": True,
