@@ -9,7 +9,7 @@ replacement fails after the existing directory is moved aside, the script restor
 the previous installation.
 
 The fixed destination is:
-V:\ComfyUI\portable_260711\ComfyUI\custom_nodes\ComfyUI-Ollama-ImageList
+V:\ComfyUI\portable_260711\ComfyUI\custom_nodes\ollama-image-list
 
 .EXAMPLE
 ./scripts/deploy-to-portable.ps1
@@ -23,10 +23,10 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$packageName = "ComfyUI-Ollama-ImageList"
+$packageName = "ollama-image-list"
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $targetDirectory = [System.IO.Path]::GetFullPath(
-    "V:\ComfyUI\portable_260711\ComfyUI\custom_nodes\ComfyUI-Ollama-ImageList"
+    "V:\ComfyUI\portable_260711\ComfyUI\custom_nodes\ollama-image-list"
 )
 $targetParent = [System.IO.Path]::GetDirectoryName($targetDirectory)
 $buildScript = Join-Path $PSScriptRoot "build-custom-node-zip.ps1"
