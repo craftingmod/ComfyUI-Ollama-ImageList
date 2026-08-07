@@ -146,6 +146,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_Options",
         "OllamaImageList_Generate",
         "OllamaImageList_LlamaCppSamplingPreset",
+        "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppGenerate",
         "OllamaImageList_LlamaCppMediaDiagnostics",
     ]
@@ -154,10 +155,19 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama Image List Options",
         "Ollama Generate (Image List)",
         "Llama.cpp Sampling Preset",
+        "Llama.cpp Gemma 4 Runtime Preset",
         "Llama.cpp Generate (Multimodal)",
         "Llama.cpp Media Diagnostics",
     ]
-    assert {schema.category for schema in schemas} == {"Ollama/Image List"}
+    assert [schema.category for schema in schemas] == [
+        "Ollama/Image List",
+        "Ollama/Image List",
+        "Ollama/Image List",
+        "Ollama/llama_cpp",
+        "Ollama/llama_cpp",
+        "Ollama/llama_cpp",
+        "Ollama/llama_cpp",
+    ]
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
 
     registered = {
@@ -321,6 +331,52 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         },
     )
 
+    runtime_class, runtime_schema = registered[
+        "OllamaImageList_LlamaCppGemma4RuntimePreset"
+    ]
+    assert runtime_schema.inputs[0].name == "preset"
+    assert runtime_schema.inputs[0].options["options"] == [
+        "Text / Audio",
+        "Vision Standard",
+        "Vision Long / Thinking",
+        "Multi-image / Video",
+        "High Detail / OCR (Experimental)",
+    ]
+    assert runtime_schema.inputs[0].options["default"] == "Vision Standard"
+    assert [field.name for field in runtime_schema.outputs] == [
+        "n_ctx",
+        "max_tokens",
+        "runtime",
+    ]
+    assert [field.data_type for field in runtime_schema.outputs[:2]] == ["int", "int"]
+    assert runtime_schema.outputs[2].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
+    )
+    assert runtime_class.execute("Vision Standard") == (
+        16384,
+        1024,
+        {
+            "n_batch": 512,
+            "override_n_ubatch": True,
+            "n_ubatch": 512,
+            "override_image_max_tokens": True,
+            "image_max_tokens": 512,
+        },
+    )
+    runtime_module = importlib.import_module("backend.nodes.llama_cpp_runtime")
+    for runtime_preset in runtime_module.GEMMA4_RUNTIME_PRESETS.values():
+        advanced_runtime = {
+            name: value
+            for name, value in runtime_preset.items()
+            if name not in {"n_ctx", "max_tokens"}
+        }
+        assert runtime_module.normalize_gemma4_runtime(advanced_runtime) == advanced_runtime
+    invalid_runtime = dict(runtime_class.execute("Vision Standard")[2])
+    invalid_runtime["n_batch"] = 2048
+    invalid_runtime["image_max_tokens"] = 1120
+    with pytest.raises(InputNormalizationError, match="effective runtime.n_ubatch"):
+        runtime_module.normalize_gemma4_runtime(invalid_runtime)
+
     llama_schema = registered["OllamaImageList_LlamaCppGenerate"][1]
     assert llama_schema.is_input_list is True
     assert llama_schema.not_idempotent is True
@@ -342,6 +398,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert llama_inputs["sampling"].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
     assert llama_inputs["sampling"].options["optional"] is True
+    assert llama_inputs["runtime"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
+    )
+    assert llama_inputs["runtime"].options["optional"] is True
     assert llama_inputs["handler"].options["options"] == [
         "auto",
         "generic",
@@ -350,6 +410,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "qwen25_vl",
         "qwen3_asr",
     ]
+    assert llama_inputs["thinking"].data_type == "boolean"
+    assert llama_inputs["thinking"].options["default"] is False
+    assert "advanced" not in llama_inputs["thinking"].options
     assert llama_inputs["gpu_layers"].options["default"] == "all"
     assert all(
         llama_inputs[name].options["advanced"] is True
@@ -365,6 +428,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert "advanced" not in llama_inputs["n_ctx"].options
     assert "advanced" not in llama_inputs["max_tokens"].options
     assert "advanced" not in llama_inputs["seed"].options
+    assert llama_inputs["override_n_ubatch"].options["default"] is False
+    assert llama_inputs["override_n_ubatch"].options["advanced"] is True
+    assert llama_inputs["n_ubatch"].options["default"] == 512
+    assert llama_inputs["n_ubatch"].options["advanced"] is True
+    assert llama_inputs["override_image_max_tokens"].options["default"] is False
+    assert llama_inputs["override_image_max_tokens"].options["advanced"] is True
+    assert llama_inputs["image_max_tokens"].options["default"] == 1120
+    assert llama_inputs["image_max_tokens"].options["advanced"] is True
     assert llama_inputs["images"].options["optional"] is True
     assert llama_inputs["audio"].data_type == "audio"
     assert llama_inputs["audio"].options["optional"] is True
@@ -409,6 +480,34 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "top_k": 64,
         "min_p": 0.0,
         "repeat_penalty": 1.0,
+    }
+    assert llama_module._resolve_runtime_values(
+        n_batch=[512],
+        override_n_ubatch=[False],
+        n_ubatch=[2048],
+        override_image_max_tokens=[False],
+        image_max_tokens=[2048],
+        runtime=None,
+    ) == {
+        "n_batch": 512,
+        "override_n_ubatch": False,
+        "n_ubatch": 2048,
+        "override_image_max_tokens": False,
+        "image_max_tokens": 2048,
+    }
+    assert llama_module._resolve_runtime_values(
+        n_batch=[512],
+        override_n_ubatch=[False],
+        n_ubatch=[512],
+        override_image_max_tokens=[False],
+        image_max_tokens=[1120],
+        runtime=[runtime_class.execute("Vision Long / Thinking")[2]],
+    ) == {
+        "n_batch": 512,
+        "override_n_ubatch": True,
+        "n_ubatch": 512,
+        "override_image_max_tokens": True,
+        "image_max_tokens": 512,
     }
     assert llama_module._resolve_gguf_selection(
         "external/model-a.gguf", label="model GGUF", required=True

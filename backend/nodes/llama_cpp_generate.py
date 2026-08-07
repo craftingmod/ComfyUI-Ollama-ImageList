@@ -16,6 +16,7 @@ from ..core import (
     unwrap_required_scalar,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
+from .llama_cpp_runtime import LlamaCppGemma4RuntimeType, normalize_gemma4_runtime
 from .llama_cpp_sampling import LlamaCppSamplingType, normalize_sampling
 
 
@@ -118,6 +119,34 @@ def _resolve_sampling_values(
     return values if connected is None else normalize_sampling(connected)
 
 
+def _resolve_runtime_values(
+    *,
+    n_batch,
+    override_n_ubatch,
+    n_ubatch,
+    override_image_max_tokens,
+    image_max_tokens,
+    runtime,
+) -> dict[str, bool | int]:
+    values: dict[str, bool | int] = {
+        "n_batch": int(unwrap_optional_scalar("n_batch", n_batch, 512)),
+        "override_n_ubatch": bool(
+            unwrap_optional_scalar("override_n_ubatch", override_n_ubatch, False)
+        ),
+        "n_ubatch": int(unwrap_optional_scalar("n_ubatch", n_ubatch, 512)),
+        "override_image_max_tokens": bool(
+            unwrap_optional_scalar(
+                "override_image_max_tokens", override_image_max_tokens, False
+            )
+        ),
+        "image_max_tokens": int(
+            unwrap_optional_scalar("image_max_tokens", image_max_tokens, 1120)
+        ),
+    }
+    connected = unwrap_optional_scalar("runtime", runtime, None)
+    return values if connected is None else normalize_gemma4_runtime(connected)
+
+
 class LlamaCppImageListGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -125,7 +154,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppGenerate",
             display_name="Llama.cpp Generate (Multimodal)",
-            category="Ollama/Image List",
+            category="Ollama/llama_cpp",
             description=(
                 "Loads one local GGUF model, analyzes optional image, audio, and video inputs in "
                 "one llama-cpp-python chat request, then closes and releases the model "
@@ -161,12 +190,34 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                         "Select a model-specific handler when its template requires one."
                     ),
                 ),
+                io.Boolean.Input(
+                    "thinking",
+                    default=False,
+                    label_on="Enabled",
+                    label_off="Disabled",
+                    tooltip=(
+                        "Explicitly request thinking through the selected handler's template "
+                        "control. Gemma 4 uses enable_thinking and Qwen 3 VL uses "
+                        "force_reasoning. A checkpoint that does not support switching may "
+                        "ignore this value."
+                    ),
+                ),
                 LlamaCppSamplingType.Input(
                     "sampling",
                     optional=True,
                     tooltip=(
                         "Optional output from Llama.cpp Sampling Preset. When connected, "
                         "it overrides temperature, top_p, top_k, min_p, and repeat_penalty."
+                    ),
+                ),
+                LlamaCppGemma4RuntimeType.Input(
+                    "runtime",
+                    optional=True,
+                    tooltip=(
+                        "Optional output from Llama.cpp Gemma 4 Runtime Preset. When connected, "
+                        "it overrides the Advanced n_batch, n_ubatch, image_max_tokens, and "
+                        "both override switches. Connect the preset's separate n_ctx and "
+                        "max_tokens outputs to apply those visible values."
                     ),
                 ),
                 io.String.Input(
@@ -267,6 +318,57 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     max=65_536,
                     step=1,
                     advanced=True,
+                    tooltip=(
+                        "Logical prompt batch size. When image_max_tokens is overridden, this "
+                        "must be at least that value."
+                    ),
+                ),
+                io.Boolean.Input(
+                    "override_n_ubatch",
+                    default=False,
+                    label_on="Override",
+                    label_off="Use backend default",
+                    advanced=True,
+                    tooltip=(
+                        "Pass n_ubatch explicitly. Leave disabled to use llama-cpp-python's "
+                        "default."
+                    ),
+                ),
+                io.Int.Input(
+                    "n_ubatch",
+                    default=512,
+                    min=1,
+                    max=65_536,
+                    step=1,
+                    advanced=True,
+                    tooltip=(
+                        "Physical batch size used only when override_n_ubatch is enabled. "
+                        "Gemma 4 vision requires it to cover the selected image token chunk."
+                    ),
+                ),
+                io.Boolean.Input(
+                    "override_image_max_tokens",
+                    default=False,
+                    label_on="Override",
+                    label_off="Use mmproj default",
+                    advanced=True,
+                    tooltip=(
+                        "Pass an explicit dynamic-resolution image token ceiling to the MTMD "
+                        "handler. Leave disabled to read the projector's default."
+                    ),
+                ),
+                io.Int.Input(
+                    "image_max_tokens",
+                    default=1120,
+                    min=1,
+                    max=65_536,
+                    step=1,
+                    advanced=True,
+                    tooltip=(
+                        "Per-image or per-video-frame token ceiling used only when its "
+                        "override is enabled. n_batch and effective n_ubatch must be at least "
+                        "this value."
+                    ),
                 ),
                 io.Int.Input(
                     "main_gpu",
@@ -347,6 +449,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         model_path,
         mmproj_path,
         handler,
+        thinking,
         system,
         prompt,
         n_ctx,
@@ -360,6 +463,10 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         seed,
         stop,
         n_batch,
+        override_n_ubatch,
+        n_ubatch,
+        override_image_max_tokens,
+        image_max_tokens,
         main_gpu,
         n_threads,
         flash_attention,
@@ -369,6 +476,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         audio=None,
         video=None,
         sampling=None,
+        runtime=None,
     ) -> io.NodeOutput:
         bundle = normalize_media(images=images, audio=audio, video=video)
         model_selection = str(unwrap_required_scalar("model_path", model_path))
@@ -380,6 +488,14 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             min_p=min_p,
             repeat_penalty=repeat_penalty,
             sampling=sampling,
+        )
+        runtime_values = _resolve_runtime_values(
+            n_batch=n_batch,
+            override_n_ubatch=override_n_ubatch,
+            n_ubatch=n_ubatch,
+            override_image_max_tokens=override_image_max_tokens,
+            image_max_tokens=image_max_tokens,
+            runtime=runtime,
         )
         result = run_chat(
             model_path=_resolve_gguf_selection(
@@ -393,11 +509,18 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                 required=False,
             ),
             handler=str(unwrap_optional_scalar("handler", handler, "auto")),
+            thinking=bool(unwrap_optional_scalar("thinking", thinking, False)),
             system=str(unwrap_required_scalar("system", system)),
             prompt=str(unwrap_required_scalar("prompt", prompt)),
             media=bundle,
             n_ctx=int(unwrap_optional_scalar("n_ctx", n_ctx, 8192)),
-            n_batch=int(unwrap_optional_scalar("n_batch", n_batch, 512)),
+            n_batch=int(runtime_values["n_batch"]),
+            override_n_ubatch=bool(runtime_values["override_n_ubatch"]),
+            n_ubatch=int(runtime_values["n_ubatch"]),
+            override_image_max_tokens=bool(
+                runtime_values["override_image_max_tokens"]
+            ),
+            image_max_tokens=int(runtime_values["image_max_tokens"]),
             gpu_layers=str(unwrap_optional_scalar("gpu_layers", gpu_layers, "all")),
             main_gpu=int(unwrap_optional_scalar("main_gpu", main_gpu, 0)),
             n_threads=int(unwrap_optional_scalar("n_threads", n_threads, 0)),

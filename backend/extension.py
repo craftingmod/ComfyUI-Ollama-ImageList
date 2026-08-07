@@ -7,6 +7,7 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 
 from .nodes import (
     LlamaCppImageListGenerateNode,
+    LlamaCppGemma4RuntimePresetNode,
     LlamaCppMediaDiagnosticsNode,
     LlamaCppSamplingPresetNode,
     OllamaImageListConnectivityNode,
@@ -23,6 +24,7 @@ class OllamaImageListExtension(ComfyExtension):
             OllamaImageListOptionsNode,
             OllamaImageListGenerateNode,
             LlamaCppSamplingPresetNode,
+            LlamaCppGemma4RuntimePresetNode,
             LlamaCppImageListGenerateNode,
             LlamaCppMediaDiagnosticsNode,
         ]

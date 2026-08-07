@@ -14,6 +14,7 @@ Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
 - **Llama.cpp Sampling Preset** — supplies image-analysis, Gemma 4, or llama.cpp-default sampling values through one typed connection.
+- **Llama.cpp Gemma 4 Runtime Preset** — supplies Gemma 4 context and output-length integers plus a typed physical-batch and image-token profile.
 - **Llama.cpp Generate (Multimodal)** — loads a local GGUF and optional multimodal projector, analyzes optional IMAGE, AUDIO, and VIDEO inputs in one request, and immediately closes the model and handler.
 - **Llama.cpp Media Diagnostics** — expands the Generate node's typed MTMD receipt into capability flags, evaluated media counts, JSON, and formatted text.
 
@@ -82,7 +83,13 @@ Request and response fields follow Ollama's official [Chat API](https://docs.oll
 
 For image, audio, or video requests, choose the `mmproj` GGUF built for the exact main-model family and modality. `handler=auto` uses the fork's metadata-driven generic MTMD handler. Model-specific `gemma4`, `qwen3_vl`, `qwen25_vl`, and `qwen3_asr` handlers are available when a model requires specialized template or stop-token behavior.
 
+`thinking` is an explicit Boolean request rather than a model-default mode. It maps to `enable_thinking` for Gemma 4, `force_reasoning` for Qwen 3 VL, and both template arguments for the generic MTMD path. A model or checkpoint without a compatible template switch may ignore it; in particular, the option cannot turn an Instruct-only checkpoint into a Thinking checkpoint.
+
+`override_n_ubatch` and `override_image_max_tokens` control whether their adjacent integer widgets are passed to llama-cpp-python. With an override disabled, the integer is ignored and the backend or mmproj default remains authoritative. For image and video requests with an explicit image-token ceiling, the node validates `n_ctx`, `n_batch`, and the effective physical batch before loading the model. This prevents Gemma 4's non-causal vision encoder from reaching a native assertion when the image token chunk is larger than `n_ubatch`. A Gemma 4 ceiling of 1120 therefore also requires `n_batch>=1120` and an enabled `n_ubatch` override of at least 1120.
+
 Connect `Llama.cpp Sampling Preset` to the optional `sampling` input to override `temperature`, `top_p`, `top_k`, `min_p`, and `repeat_penalty` together. When no preset is connected, the five widgets on the Generate node remain authoritative, preserving existing workflows.
+
+`Llama.cpp Gemma 4 Runtime Preset` exposes separate `n_ctx` and `max_tokens` integer outputs for direct connections to the Generate node's always-visible inputs. Its typed `runtime` output overrides only the Advanced `n_batch`, `n_ubatch`, `image_max_tokens`, and two override switches. This keeps context and output-length changes visible as graph connections while retaining one compact connection for the related multimodal batch settings. The profiles are named for Gemma 4 because their image-token and physical-batch values were selected for Gemma 4's dynamic-resolution vision encoder; other model families may need different values. `Vision Long / Thinking` reserves enough output room for reasoning but deliberately does not change the Generate node's explicit `thinking` Boolean.
 
 The node intentionally has no model-loader output and no cache policy. Every execution follows this lifecycle:
 

@@ -28,6 +28,7 @@ _HANDLER_CLASSES = {
     "qwen3_asr": "Qwen3ASRChatHandler",
 }
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
+_DEFAULT_N_UBATCH = 512
 _NATIVE_EXECUTION_LOCK = Lock()
 
 
@@ -155,6 +156,8 @@ def _create_handler(
     handler: str,
     mmproj_path: str | None,
     verbose: bool,
+    thinking: bool,
+    image_max_tokens: int | None,
 ) -> Any | None:
     if handler == "auto":
         return None
@@ -170,9 +173,70 @@ def _create_handler(
         raise BackendError(
             f"The installed llama-cpp-python build does not provide {class_name}."
         )
+    handler_kwargs: dict[str, Any] = {
+        "mmproj_path": mmproj_path,
+        "verbose": verbose,
+    }
+    if image_max_tokens is not None:
+        handler_kwargs["image_max_tokens"] = image_max_tokens
+    if handler == "gemma4":
+        handler_kwargs["enable_thinking"] = thinking
+    elif handler == "qwen3_vl":
+        handler_kwargs["force_reasoning"] = thinking
+    else:
+        handler_kwargs["extra_template_arguments"] = {
+            "enable_thinking": thinking,
+            "force_reasoning": thinking,
+        }
     if handler == "generic":
-        return handler_class(chat_format=None, mmproj_path=mmproj_path, verbose=verbose)
-    return handler_class(mmproj_path=mmproj_path, verbose=verbose)
+        handler_kwargs["chat_format"] = None
+    return handler_class(**handler_kwargs)
+
+
+def _optional_positive_override(name: str, enabled: bool, value: int) -> int | None:
+    if not enabled:
+        return None
+    normalized = int(value)
+    if normalized < 1:
+        raise InputNormalizationError(f"{name} must be at least 1 when its override is enabled.")
+    return normalized
+
+
+def _validate_multimodal_batch_settings(
+    *,
+    media: MediaBundle,
+    n_ctx: int,
+    n_batch: int,
+    n_ubatch: int | None,
+    image_max_tokens: int | None,
+) -> None:
+    if n_ubatch is not None and n_ubatch > min(n_ctx, n_batch):
+        raise InputNormalizationError(
+            "n_ubatch cannot exceed n_batch or n_ctx because llama-cpp-python clamps the "
+            "physical batch to both values."
+        )
+    if image_max_tokens is None or not any(
+        item.kind in {"image", "video"} for item in media.items
+    ):
+        return
+
+    if image_max_tokens > n_ctx:
+        raise InputNormalizationError(
+            "image_max_tokens cannot exceed n_ctx for an image or video request."
+        )
+    if image_max_tokens > n_batch:
+        raise InputNormalizationError(
+            "n_batch must be at least image_max_tokens for an image or video request."
+        )
+    effective_n_ubatch = n_ubatch
+    if effective_n_ubatch is None:
+        effective_n_ubatch = min(n_ctx, n_batch, _DEFAULT_N_UBATCH)
+    if image_max_tokens > effective_n_ubatch:
+        raise InputNormalizationError(
+            "The effective n_ubatch must be at least image_max_tokens for an image or video "
+            "request. Enable the n_ubatch override and raise its value to avoid a native "
+            "non-causal attention assertion."
+        )
 
 
 def _extract_response(raw: dict[str, Any]) -> tuple[str, str]:
@@ -295,12 +359,17 @@ def run_chat(
     media: MediaBundle,
     n_ctx: int = 8192,
     n_batch: int = 512,
+    override_n_ubatch: bool = False,
+    n_ubatch: int = _DEFAULT_N_UBATCH,
     gpu_layers: str = "all",
     main_gpu: int = 0,
     n_threads: int = 0,
     flash_attention: str = "auto",
     use_mmap: bool = True,
     max_tokens: int = 512,
+    thinking: bool = False,
+    override_image_max_tokens: bool = False,
+    image_max_tokens: int = 1120,
     temperature: float = 0.2,
     top_p: float = 0.95,
     top_k: int = 40,
@@ -322,6 +391,20 @@ def run_chat(
     if gpu_layers not in {"auto", "all", "cpu"}:
         raise InputNormalizationError("gpu_layers must be auto, all, or cpu.")
 
+    n_ubatch_override = _optional_positive_override(
+        "n_ubatch", override_n_ubatch, n_ubatch
+    )
+    image_max_tokens_override = _optional_positive_override(
+        "image_max_tokens", override_image_max_tokens, image_max_tokens
+    )
+    _validate_multimodal_batch_settings(
+        media=media,
+        n_ctx=int(n_ctx),
+        n_batch=int(n_batch),
+        n_ubatch=n_ubatch_override,
+        image_max_tokens=image_max_tokens_override,
+    )
+
     messages = _build_messages(system, prompt, media)
     native = bindings or _import_bindings()
     load_seconds = 0.0
@@ -342,6 +425,8 @@ def run_chat(
                 handler=handler,
                 mmproj_path=resolved_mmproj,
                 verbose=verbose,
+                thinking=bool(thinking),
+                image_max_tokens=image_max_tokens_override,
             )
             model_kwargs: dict[str, Any] = {
                 "model_path": resolved_model,
@@ -354,13 +439,23 @@ def run_chat(
                 "use_mmap": bool(use_mmap),
                 "verbose": bool(verbose),
             }
+            if n_ubatch_override is not None:
+                model_kwargs["n_ubatch"] = n_ubatch_override
             if chat_handler is not None:
                 model_kwargs["chat_handler"] = chat_handler
             elif resolved_mmproj is not None:
                 model_kwargs["mmproj_path"] = resolved_mmproj
                 model_kwargs["chat_handler_kwargs"] = {
                     "verbose": bool(verbose),
+                    "extra_template_arguments": {
+                        "enable_thinking": bool(thinking),
+                        "force_reasoning": bool(thinking),
+                    },
                 }
+                if image_max_tokens_override is not None:
+                    model_kwargs["chat_handler_kwargs"]["image_max_tokens"] = (
+                        image_max_tokens_override
+                    )
 
             llm = native.llama_class(**model_kwargs)
             load_seconds = time.perf_counter() - load_started
@@ -422,7 +517,7 @@ def run_chat(
     if media_diagnostics is None:  # pragma: no cover - defensive invariant
         raise BackendError("llama-cpp-python did not produce media diagnostics.")
 
-    response, thinking = _extract_response(raw)
+    response, thinking_output = _extract_response(raw)
     usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
     metrics = {
         "load_seconds": load_seconds,
@@ -431,11 +526,18 @@ def run_chat(
         "total_seconds": load_seconds + generation_seconds + cleanup_seconds,
         "usage": usage,
         "model_unloaded": True,
+        "configuration": {
+            "thinking": bool(thinking),
+            "n_ctx": int(n_ctx),
+            "n_batch": int(n_batch),
+            "n_ubatch_override": n_ubatch_override,
+            "image_max_tokens_override": image_max_tokens_override,
+        },
     }
     media_diagnostics["model_unloaded_after_response"] = True
     return LlamaCppResult(
         response=response,
-        thinking=thinking,
+        thinking=thinking_output,
         raw=raw,
         metrics=metrics,
         media_diagnostics=media_diagnostics,
