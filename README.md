@@ -2,7 +2,7 @@
 
 ![JPG Banner](./docs/icon.jpg)
 
-ComfyUI V3 custom nodes that analyze an image list through either one stateless Ollama `/api/chat` request or one directly loaded `llama-cpp-python` GGUF model. Image batches, ComfyUI data lists, nested lists, and lists of batches are flattened deterministically while each image keeps its original width, height, channels, and order.
+ComfyUI V3 custom nodes that analyze image lists through either one stateless Ollama `/api/chat` request or one directly loaded `llama-cpp-python` GGUF model. The llama.cpp node additionally accepts ComfyUI AUDIO and can submit images and audio together when the selected model and projector support those modalities. Batches, data lists, nested lists, and lists of batches are flattened deterministically while their traversal order is preserved.
 
 ## Nodes
 
@@ -14,7 +14,7 @@ Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
 - **Llama.cpp Sampling Preset** — supplies image-analysis, Gemma 4, or llama.cpp-default sampling values through one typed connection.
-- **Llama.cpp Generate (Image List)** — loads a local GGUF and optional multimodal projector, runs one request, and immediately closes the model and handler.
+- **Llama.cpp Generate (Multimodal)** — loads a local GGUF and optional multimodal projector, analyzes optional IMAGE and AUDIO inputs in one request, and immediately closes the model and handler.
 
 ## Install
 
@@ -77,21 +77,21 @@ Request and response fields follow Ollama's official [Chat API](https://docs.oll
 
 ## llama.cpp request and unload behavior
 
-`Llama.cpp Generate (Image List)` lists `.gguf` files recursively from every path registered under ComfyUI's `LLM` model category, including `LLM` entries loaded from `extra_model_paths.yaml`. The local `ComfyUI/models/LLM` directory is appended as a fallback. Duplicate absolute paths are removed while preserving ComfyUI's registered order. Both the main-model Combo and projector Combo expose the complete, unfiltered `.gguf` list; the projector Combo additionally provides `[none]` and stably prioritizes filenames containing `mmproj`. The selected relative names are resolved again through ComfyUI's `folder_paths` API at execution time, so a workflow cannot escape the registered model directories with a crafted relative path.
+`Llama.cpp Generate (Multimodal)` lists `.gguf` files recursively from every path registered under ComfyUI's `LLM` model category, including `LLM` entries loaded from `extra_model_paths.yaml`. The local `ComfyUI/models/LLM` directory is appended as a fallback. Duplicate absolute paths are removed while preserving ComfyUI's registered order. Both the main-model Combo and projector Combo expose the complete, unfiltered `.gguf` list; the projector Combo additionally provides `[none]` and stably prioritizes filenames containing `mmproj`. The selected relative names are resolved again through ComfyUI's `folder_paths` API at execution time, so a workflow cannot escape the registered model directories with a crafted relative path.
 
-For image requests, choose the `mmproj` GGUF built for the exact main-model family. `handler=auto` uses the fork's metadata-driven generic MTMD handler. Model-specific `gemma4`, `qwen3_vl`, and `qwen25_vl` handlers are available when a model requires their specialized template or stop-token behavior.
+For image or audio requests, choose the `mmproj` GGUF built for the exact main-model family and modality. `handler=auto` uses the fork's metadata-driven generic MTMD handler. Model-specific `gemma4`, `qwen3_vl`, `qwen25_vl`, and `qwen3_asr` handlers are available when a model requires specialized template or stop-token behavior.
 
 Connect `Llama.cpp Sampling Preset` to the optional `sampling` input to override `temperature`, `top_p`, `top_k`, `min_p`, and `repeat_penalty` together. When no preset is connected, the five widgets on the Generate node remain authoritative, preserving existing workflows.
 
 The node intentionally has no model-loader output and no cache policy. Every execution follows this lifecycle:
 
 ```text
-normalize images -> load GGUF/mmproj -> one chat completion -> Llama.close() -> garbage collection
+normalize media -> load GGUF/mmproj -> one chat completion -> Llama.close() -> garbage collection
 ```
 
 Native executions are serialized so two ComfyUI branches cannot load separate llama.cpp models concurrently. Cleanup runs in `finally`, including when loading or generation raises an exception. `metrics_json.model_unloaded` confirms that explicit cleanup completed. The model, context, KV cache, and multimodal projector are not retained by this node; the loaded CUDA driver context and native DLLs may keep a small process-level baseline allocation until ComfyUI exits.
 
-The input images are embedded as independent lossless PNG data URIs in one OpenAI-style multimodal user message. `mmproj_path` is mandatory when images are connected but may be `[none]` for text-only GGUF models. Use `gpu_layers=all` for normal GPU offload, and start with the context size recommended by the selected model.
+Input images are embedded as independent lossless PNG data URIs. ComfyUI AUDIO tensors are encoded as lossless PCM16 WAV payloads and attached as `input_audio`. The prompt, images, and audio are placed in one OpenAI-style multimodal user message, with all images followed by all audio items. `mmproj_path` is mandatory whenever image or audio media are connected but may be `[none]` for text-only GGUF models. Use `gpu_layers=all` for normal GPU offload, and start with the context size recommended by the selected model.
 
 ### Supported model format
 
@@ -101,19 +101,21 @@ The input images are embedded as independent lossless PNG data URIs in one OpenA
 | Text-only chat | GGUF with a usable embedded chat template, or a format recognized by llama-cpp-python |
 | Vision with `auto`/`generic` | Main GGUF plus matching MTMD-compatible `mmproj` GGUF whose template uses media markers understood by the fork |
 | Explicit Vision handlers | Gemma 4, Qwen 3 VL, and Qwen 2.5 VL |
+| Audio with `auto`/`generic` | Audio-capable main GGUF plus its matching multimodal projector and template |
+| Explicit audio handler | Qwen 3 ASR through `qwen3_asr` when provided by the installed llama-cpp-python build |
 | Not accepted | Safetensors/Transformers directories, PyTorch checkpoints, ONNX, Ollama model names, and arbitrary non-GGUF files |
 
-GGUF is a container, not a guarantee that every model is compatible. The main model, projector, handler, and context size must agree. A file named `mtp-*.gguf` is a speculative-decoding MTP/draft model, not a multimodal projector, and must not be selected as `mmproj_path`. Audio is not exposed by this node.
+GGUF is a container, not a guarantee that every model is compatible. The main model, projector, handler, requested modalities, and context size must agree. A file named `mtp-*.gguf` is a speculative-decoding MTP/draft model, not a multimodal projector, and must not be selected as `mmproj_path`.
 
 ## Public scope
 
-The public Generate node accepts `images` only. The Media Bundle node is not registered, and `media`, `audio`, and `audio_transport` inputs are intentionally not exposed. Their internal experimental implementation is retained only to make a future opt-in feature possible without expanding the current project scope.
+The Ollama Generate node remains image-only. `Llama.cpp Generate (Multimodal)` exposes separate optional IMAGE and AUDIO inputs. The experimental Media Bundle node and `audio_transport` option are still not registered; llama.cpp performs its own local WAV message construction without routing audio through Ollama.
 
 ## Privacy and limits
 
-Images are transmitted to the configured Ollama URL. A non-loopback or remote URL can therefore receive private images. URL credentials and image payloads are excluded from manifests and backend error summaries.
+Images connected to the Ollama node are transmitted to its configured URL. A non-loopback or remote URL can therefore receive private images. Media connected to the llama.cpp node remains in the local process. URL credentials and media payloads are excluded from manifests and backend error summaries.
 
-Default safeguards limit image count, pixels per image, nesting depth, raw tensor size, and encoded payload size. Limit violations fail before the HTTP request; no automatic fallback changes request meaning.
+Default safeguards limit image and audio item counts, pixels per image, audio duration, nesting depth, raw tensor size, and encoded payload size. Limit violations fail before inference; no automatic fallback changes request meaning.
 
 ## Development
 
@@ -133,7 +135,7 @@ Use `-WhatIf` to inspect the fixed deployment target without replacing it. Resta
 
 ## Roadmap
 
-`v0.1.0` established Ollama image single/batch/data-list support. Native `llama-cpp-python` image-list generation is now available as an optional, explicitly unloaded backend. Capability diagnostics, broader real-model compatibility results, optional Media Bundle, and audio experiments remain later milestones described by `PLAN.md`.
+`v0.1.0` established Ollama image single/batch/data-list support. Native `llama-cpp-python` image and audio generation is now available as an optional, explicitly unloaded backend. Capability diagnostics, broader real-model multimodal compatibility results, and the optional Media Bundle remain later milestones described by `PLAN.md`.
 
 ## License
 

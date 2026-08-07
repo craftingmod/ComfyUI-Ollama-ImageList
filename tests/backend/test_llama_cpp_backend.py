@@ -3,8 +3,14 @@ import base64
 import pytest
 
 from backend.backends.llama_cpp import LlamaCppBindings, run_chat
-from backend.core import BackendError, InputNormalizationError, normalize_images
-from tests.backend.tensor_stub import solid_image
+from backend.core import (
+    BackendError,
+    InputNormalizationError,
+    normalize_audio,
+    normalize_images,
+    normalize_media,
+)
+from tests.backend.tensor_stub import silent_audio, solid_image
 
 
 class FakeLlama:
@@ -114,6 +120,57 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
     assert result.metrics["model_unloaded"] is True
 
 
+def test_run_chat_sends_audio_as_base64_pcm16_wav(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    bundle = normalize_audio(
+        {"waveform": silent_audio(1, 1, 80), "sample_rate": 16_000}
+    )
+
+    run_chat(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="auto",
+        system="",
+        prompt="transcribe",
+        media=bundle,
+        bindings=make_bindings(),
+    )
+
+    content = FakeLlama.instances[0].completion_kwargs["messages"][-1]["content"]
+    assert [part["type"] for part in content] == ["text", "input_audio"]
+    audio = content[1]["input_audio"]
+    assert audio["format"] == "wav"
+    assert base64.b64decode(audio["data"]) == bundle.items[0].payload
+    assert base64.b64decode(audio["data"]).startswith(b"RIFF")
+    assert FakeLlama.instances[0].closed is True
+
+
+def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    bundle = normalize_media(
+        images=solid_image(1, 2, 3, 3, 0.5),
+        audio={"waveform": silent_audio(1, 2, 160), "sample_rate": 16_000},
+    )
+
+    run_chat(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="auto",
+        system="system",
+        prompt="analyze both",
+        media=bundle,
+        bindings=make_bindings(),
+    )
+
+    content = FakeLlama.instances[0].completion_kwargs["messages"][-1]["content"]
+    assert [part["type"] for part in content] == [
+        "text",
+        "image_url",
+        "input_audio",
+    ]
+    assert base64.b64decode(content[2]["input_audio"]["data"]) == bundle.items[1].payload
+
+
 def test_specific_handler_is_created_and_owned_by_llama(tmp_path):
     model, mmproj = gguf_files(tmp_path)
 
@@ -125,6 +182,27 @@ def test_specific_handler_is_created_and_owned_by_llama(tmp_path):
         prompt="describe",
         media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
         bindings=make_bindings(gemma4=FakeHandler),
+    )
+
+    handler = FakeHandler.instances[0]
+    assert handler.kwargs == {"mmproj_path": str(mmproj.resolve()), "verbose": False}
+    assert FakeLlama.instances[0].kwargs["chat_handler"] is handler
+    assert FakeLlama.instances[0].closed is True
+
+
+def test_qwen3_asr_handler_is_available_for_audio_models(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+
+    run_chat(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="qwen3_asr",
+        system="",
+        prompt="transcribe",
+        media=normalize_audio(
+            {"waveform": silent_audio(1, 1, 80), "sample_rate": 16_000}
+        ),
+        bindings=make_bindings(qwen3_asr=FakeHandler),
     )
 
     handler = FakeHandler.instances[0]
@@ -177,6 +255,23 @@ def test_images_require_mmproj_before_native_import(tmp_path):
             system="",
             prompt="describe",
             media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
+            bindings=make_bindings(),
+        )
+
+    assert FakeLlama.instances == []
+
+
+def test_audio_requires_mmproj_before_native_import(tmp_path):
+    model, _ = gguf_files(tmp_path)
+
+    with pytest.raises(InputNormalizationError, match="mmproj_path is required"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="transcribe",
+            media=normalize_audio(
+                {"waveform": silent_audio(1, 1, 80), "sample_rate": 16_000}
+            ),
             bindings=make_bindings(),
         )
 

@@ -152,7 +152,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama Image List Options",
         "Ollama Generate (Image List)",
         "Llama.cpp Sampling Preset",
-        "Llama.cpp Generate (Image List)",
+        "Llama.cpp Generate (Multimodal)",
     ]
     assert {schema.category for schema in schemas} == {"Ollama/Image List"}
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
@@ -345,18 +345,38 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "gemma4",
         "qwen3_vl",
         "qwen25_vl",
+        "qwen3_asr",
     ]
     assert llama_inputs["gpu_layers"].options["default"] == "all"
     assert llama_inputs["images"].options["optional"] is True
+    assert llama_inputs["audio"].data_type == "audio"
+    assert llama_inputs["audio"].options["optional"] is True
     assert [field.name for field in llama_schema.outputs] == [
         "response",
         "thinking",
         "raw_json",
         "metrics_json",
-        "image_manifest_json",
+        "media_manifest_json",
     ]
 
     llama_module = importlib.import_module("backend.nodes.llama_cpp_generate")
+    media_bundle = SimpleNamespace(
+        manifest=lambda: {
+            "media_count": 2,
+            "image_count": 1,
+            "audio_count": 1,
+            "total_encoded_bytes": 7,
+            "items": [],
+        }
+    )
+    assert llama_module._media_manifest(media_bundle) == {
+        "media_count": 2,
+        "image_count": 1,
+        "audio_count": 1,
+        "total_encoded_bytes": 7,
+        "items": [],
+        "model_unloaded_after_response": True,
+    }
     assert llama_module._resolve_sampling_values(
         temperature=[0.1],
         top_p=[0.8],

@@ -12,12 +12,20 @@ from typing import Any
 from ..core import BackendError, InputNormalizationError, MediaBundle
 
 
-HANDLER_NAMES = ("auto", "generic", "gemma4", "qwen3_vl", "qwen25_vl")
+HANDLER_NAMES = (
+    "auto",
+    "generic",
+    "gemma4",
+    "qwen3_vl",
+    "qwen25_vl",
+    "qwen3_asr",
+)
 _HANDLER_CLASSES = {
     "generic": "GenericMTMDChatHandler",
     "gemma4": "Gemma4ChatHandler",
     "qwen3_vl": "Qwen3VLChatHandler",
     "qwen25_vl": "Qwen25VLChatHandler",
+    "qwen3_asr": "Qwen3ASRChatHandler",
 }
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
 _NATIVE_EXECUTION_LOCK = Lock()
@@ -89,7 +97,7 @@ def _resolve_file(value: str, *, label: str, required: bool) -> str | None:
     return str(path)
 
 
-def _image_data_uri(mime_type: str, payload: bytes) -> str:
+def _data_uri(mime_type: str, payload: bytes) -> str:
     encoded = base64.b64encode(payload).decode("ascii")
     return f"data:{mime_type};base64,{encoded}"
 
@@ -102,18 +110,29 @@ def _build_messages(system: str, prompt: str, media: MediaBundle) -> list[dict[s
     if media.items:
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         for item in media.items:
-            if item.kind != "image":
-                raise InputNormalizationError(
-                    "The llama.cpp image-list node currently accepts image media only."
+            if item.kind == "image":
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": _data_uri(item.mime_type, item.payload),
+                        },
+                    }
                 )
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": _image_data_uri(item.mime_type, item.payload),
-                    },
-                }
-            )
+            elif item.kind == "audio":
+                content.append(
+                    {
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": base64.b64encode(item.payload).decode("ascii"),
+                            "format": "wav",
+                        },
+                    }
+                )
+            else:  # pragma: no cover - MediaKind currently prevents this
+                raise InputNormalizationError(
+                    f"The llama.cpp multimodal node does not support {item.kind} media."
+                )
         messages.append({"role": "user", "content": content})
     else:
         messages.append({"role": "user", "content": prompt})
@@ -205,7 +224,9 @@ def run_chat(
     resolved_model = _resolve_file(model_path, label="model_path", required=True)
     resolved_mmproj = _resolve_file(mmproj_path, label="mmproj_path", required=False)
     if media.items and resolved_mmproj is None:
-        raise InputNormalizationError("mmproj_path is required when images are supplied.")
+        raise InputNormalizationError(
+            "mmproj_path is required when image or audio media are supplied."
+        )
     if flash_attention not in _FLASH_ATTN_TYPES:
         raise InputNormalizationError("flash_attention must be auto, enabled, or disabled.")
     if gpu_layers not in {"auto", "all", "cpu"}:

@@ -1,6 +1,6 @@
 [project]
 name = "ollama-image-list"
-description = "Analyze mixed-resolution ComfyUI IMAGE data lists with Ollama or llama.cpp"
+description = "Analyze ComfyUI image lists and audio with Ollama or llama.cpp"
 version = "0.1.0"
 requires-python = ">=3.12"
 readme = "README.md"

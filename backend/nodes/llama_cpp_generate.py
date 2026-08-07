@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 from ..backends.llama_cpp import HANDLER_NAMES, run_chat
 from ..core import (
     InputNormalizationError,
-    normalize_images,
+    normalize_media,
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
@@ -118,18 +118,10 @@ def _resolve_sampling_values(
     return values if connected is None else normalize_sampling(connected)
 
 
-def _image_manifest(bundle) -> dict[str, Any]:
-    images = []
-    for item in bundle.items:
-        entry = item.manifest()
-        entry.pop("kind", None)
-        images.append(entry)
-    return {
-        "image_count": len(images),
-        "total_encoded_bytes": sum(len(item.payload) for item in bundle.items),
-        "images": images,
-        "model_unloaded_after_response": True,
-    }
+def _media_manifest(bundle) -> dict[str, Any]:
+    manifest = bundle.manifest()
+    manifest["model_unloaded_after_response"] = True
+    return manifest
 
 
 class LlamaCppImageListGenerateNode(io.ComfyNode):
@@ -138,11 +130,12 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         model_options, mmproj_options = _gguf_options()
         return io.Schema(
             node_id="OllamaImageList_LlamaCppGenerate",
-            display_name="Llama.cpp Generate (Image List)",
+            display_name="Llama.cpp Generate (Multimodal)",
             category="Ollama/Image List",
             description=(
-                "Loads one local GGUF model, performs one llama-cpp-python chat request, "
-                "then closes and releases the model immediately. No model cache is retained."
+                "Loads one local GGUF model, analyzes optional image and audio inputs in "
+                "one llama-cpp-python chat request, then closes and releases the model "
+                "immediately. No model cache is retained."
             ),
             is_input_list=True,
             not_idempotent=True,
@@ -202,7 +195,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     min=512,
                     max=1_048_576,
                     step=512,
-                    tooltip="Context window in tokens, including image tokens and output.",
+                    tooltip="Context window in tokens, including media tokens and output.",
                 ),
                 io.Int.Input(
                     "max_tokens",
@@ -312,13 +305,21 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     optional=True,
                     tooltip="IMAGE single, batch, list, nested list, or ComfyUI data list.",
                 ),
+                io.Audio.Input(
+                    "audio",
+                    optional=True,
+                    tooltip=(
+                        "Optional ComfyUI AUDIO single, batch, list, or nested list. Audio "
+                        "is encoded as lossless PCM16 WAV and requires an audio-capable mmproj."
+                    ),
+                ),
             ],
             outputs=[
                 io.String.Output("response", display_name="response"),
                 io.String.Output("thinking", display_name="thinking"),
                 io.String.Output("raw_json", display_name="raw JSON"),
                 io.String.Output("metrics_json", display_name="metrics"),
-                io.String.Output("image_manifest_json", display_name="image manifest"),
+                io.String.Output("media_manifest_json", display_name="media manifest"),
             ],
         )
 
@@ -347,9 +348,10 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         use_mmap,
         verbose,
         images=None,
+        audio=None,
         sampling=None,
     ) -> io.NodeOutput:
-        bundle = normalize_images(images)
+        bundle = normalize_media(images=images, audio=audio)
         model_selection = str(unwrap_required_scalar("model_path", model_path))
         mmproj_selection = str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION))
         sampling_values = _resolve_sampling_values(
@@ -399,7 +401,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             result.thinking,
             json.dumps(result.raw, ensure_ascii=False, indent=2),
             json.dumps(result.metrics, ensure_ascii=False, indent=2),
-            json.dumps(_image_manifest(bundle), ensure_ascii=False, indent=2),
+            json.dumps(_media_manifest(bundle), ensure_ascii=False, indent=2),
         )
 
 
