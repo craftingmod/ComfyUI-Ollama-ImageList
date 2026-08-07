@@ -31,7 +31,9 @@ Workflow example: [Native_Vision.json](./workflows/Native_Vision.json)
 
 ## Install
 
-Clone this repository into `ComfyUI/custom_nodes`. Runtime dependencies are provided by ComfyUI.
+Search `ollama-imagelist` in `ComfyUI Manager's nodes manager` and install `Ollama-ImageList`.
+
+Also you can clone this repository into `ComfyUI/custom_nodes`. Runtime dependencies are provided by ComfyUI.
 
 To run the development tests, sync the development environment:
 
@@ -39,9 +41,13 @@ To run the development tests, sync the development environment:
 uv sync --locked --group dev
 ```
 
+### Ollama Nodes
+
 The Ollama nodes require no additional Python package. They use Python's standard HTTP client and expect an Ollama server, which defaults to `http://127.0.0.1:11434`.
 
-The llama.cpp backend is optional. Its nodes still register when `llama-cpp-python` is absent, but executing Generate reports that the optional dependency is unavailable. Install a compatible wheel into the exact Python environment that runs ComfyUI, then restart ComfyUI. This project deliberately does not declare it as a package dependency because automatic installation could compile or select an incompatible CPU-only or CUDA build. The MTMD-enabled fork used during development publishes Windows CUDA wheels at [JamePeng/llama-cpp-python releases](https://github.com/JamePeng/llama-cpp-python/releases). VIDEO additionally requires FFmpeg on `PATH`.
+### llama_cpp Nodes
+
+The llama.cpp backend is optional. Its nodes still register when `llama-cpp-python` is absent, but executing Generate reports that the optional dependency is unavailable. Install a compatible wheel into the exact Python environment that runs ComfyUI, then restart ComfyUI. This project deliberately does not declare it as a package dependency because automatic installation could compile or select an incompatible CPU-only or CUDA build. The MTMD-enabled fork used during development publishes Windows CUDA wheels at [JamePeng/llama-cpp-python releases](https://github.com/JamePeng/llama-cpp-python/releases). VIDEO requires a wheel built with `MTMD_VIDEO` support; no separate FFmpeg executable is required by this node.
 
 See [Native llama.cpp backend](docs/LLAMA_CPP.md) for installation constraints, model layout, node wiring, preset values, modality behavior, and troubleshooting.
 
@@ -122,7 +128,7 @@ normalize media -> load GGUF/mmproj -> one chat completion -> Llama.close() -> g
 
 Native executions are serialized so two ComfyUI branches cannot load separate llama.cpp models concurrently. Cleanup runs in `finally`, including when loading or generation raises an exception. `metrics_json.model_unloaded` confirms that explicit cleanup completed. The model, context, KV cache, and multimodal projector are not retained by this node; the loaded CUDA driver context and native DLLs may keep a small process-level baseline allocation until ComfyUI exits.
 
-Input images are embedded as independent lossless PNG data URIs. ComfyUI AUDIO tensors are encoded as lossless PCM16 WAV payloads and attached as `input_audio`. A ComfyUI VIDEO object's original encoded stream is read without decoding it in Python and passed as an internal `video` content part containing a base64 data URI; this form is compatible with model-provided templates such as Gemma 4 that ignore `video_url`. llama.cpp invokes FFmpeg to extract frames and timestamps. The node exposes only a `video` socket, not a URL widget. Embedded video audio is not ingested by llama.cpp's current video path, so connect AUDIO separately when the soundtrack is required. Media are placed in one multimodal user message in IMAGE, AUDIO, then VIDEO group order. `mmproj_path` is mandatory whenever any media are connected but may be `[none]` for text-only GGUF models. Use `gpu_layers=all` for normal GPU offload, and start with the context size recommended by the selected model.
+Input images are embedded as independent lossless PNG data URIs. ComfyUI AUDIO tensors are encoded as lossless PCM16 WAV payloads and attached as `input_audio`. A ComfyUI VIDEO object's original encoded stream is read without decoding it in Python and passed as an internal `video` content part containing a base64 data URI; this form is compatible with model-provided templates such as Gemma 4 that ignore `video_url`. The fork's native `libmtmd` video helper decodes the stream when `MTMD_VIDEO` was enabled at wheel build time. The node exposes only a `video` socket, not a URL widget. Embedded video audio is not ingested by llama.cpp's current video path, so connect AUDIO separately when the soundtrack is required. Media are placed in one multimodal user message in IMAGE, AUDIO, then VIDEO group order. `mmproj_path` is mandatory whenever any media are connected but may be `[none]` for text-only GGUF models. Use `gpu_layers=all` for normal GPU offload, and start with the context size recommended by the selected model.
 
 The Generate node emits one typed `media_diagnostics` object rather than formatting diagnostics itself. Connect it to `Llama.cpp Media Diagnostics` to obtain `All Media Evaluated`, Vision/Audio/Video availability, evaluated IMAGE/AUDIO/VIDEO counts, full JSON, and a compact formatted receipt. With the supported fork, a successful `mtmd_evaluated` receipt means every requested media item passed capability checks, decoding, marker/chunk validation, and native MTMD evaluation. It does not claim that the language model interpreted the media correctly. Only payload-free metadata and hashes survive model cleanup; native handlers and pointers are never retained.
 
@@ -136,7 +142,7 @@ The Generate node emits one typed `media_diagnostics` object rather than formatt
 | Explicit Vision handlers | Gemma 4, Qwen 3 VL, and Qwen 2.5 VL |
 | Audio with `auto`/`generic` | Audio-capable main GGUF plus its matching multimodal projector and template |
 | Explicit audio handler | Qwen 3 ASR through `qwen3_asr` when provided by the installed llama-cpp-python build |
-| Video with `auto`/`generic` | Video-capable main GGUF plus matching projector, an MTMD video-enabled fork build, and FFmpeg available on `PATH` |
+| Video with `auto`/`generic` | Video-capable main GGUF plus matching projector and a fork wheel built with `MTMD_VIDEO` support |
 | Not accepted | Safetensors/Transformers directories, PyTorch checkpoints, ONNX, Ollama model names, and arbitrary non-GGUF files |
 
 GGUF is a container, not a guarantee that every model is compatible. The main model, projector, handler, requested modalities, and context size must agree. A file named `mtp-*.gguf` is a speculative-decoding MTP/draft model, not a multimodal projector, and must not be selected as `mmproj_path`.

@@ -441,6 +441,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_inputs["audio"].options["optional"] is True
     assert llama_inputs["video"].data_type == "video"
     assert llama_inputs["video"].options["optional"] is True
+    assert "MTMD_VIDEO" in llama_inputs["video"].options["tooltip"]
+    assert "FFmpeg" not in llama_inputs["video"].options["tooltip"]
     assert [field.name for field in llama_schema.outputs] == [
         "response",
         "thinking",

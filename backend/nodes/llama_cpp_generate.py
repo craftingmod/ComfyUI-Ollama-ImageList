@@ -426,8 +426,9 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     optional=True,
                     tooltip=(
                         "Optional ComfyUI VIDEO input. The original encoded stream is passed to "
-                        "llama.cpp for FFmpeg frame extraction and requires a video-capable build "
-                        "and mmproj. Embedded audio is not ingested; connect AUDIO separately."
+                        "llama.cpp's native libmtmd video helper and requires a wheel built with "
+                        "MTMD_VIDEO support plus a compatible mmproj. Embedded audio is not "
+                        "ingested; connect AUDIO separately."
                     ),
                 ),
             ],

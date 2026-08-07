@@ -19,7 +19,7 @@ This implementation targets the fork API used by the multimodal wheels published
 
 The custom node package and all Ollama nodes still load when this dependency is missing. Only an attempted llama.cpp Generate execution fails with an optional-dependency error, which includes the installation guide and JamePeng wheel-release links above.
 
-VIDEO input also requires an FFmpeg executable available on `PATH` to the ComfyUI process.
+VIDEO input requires a fork wheel built with `MTMD_VIDEO` support. The native `libmtmd` helper performs video decoding; this node does not require a separately installed FFmpeg executable.
 
 ## Model discovery
 
@@ -73,7 +73,7 @@ Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each gro
 | --- | --- | --- |
 | IMAGE | Independent lossless PNG data URI in an `image_url` part | No resize, crop, montage, or padding is performed. |
 | AUDIO | Lossless PCM16 WAV data URI in an `input_audio` part | Requires an audio-capable model/projector/template. |
-| VIDEO | Original encoded ComfyUI stream in an internal `video` part | The fork invokes FFmpeg for frame extraction. Embedded audio is not ingested. |
+| VIDEO | Original encoded ComfyUI stream in an internal `video` part | Native `libmtmd` decoding requires `MTMD_VIDEO` in the wheel build. Embedded audio is not ingested. |
 
 Connect AUDIO separately when a video's soundtrack is required. The code deliberately uses the fork's internal `video` representation instead of a `video_url` widget because model templates such as Gemma 4 may not render `video_url` into an MTMD media marker.
 
@@ -197,7 +197,7 @@ Use a Gemma 4 Runtime Preset or ensure that an explicit `image_max_tokens` value
 
 ### VIDEO fails before generation
 
-Confirm that FFmpeg is reachable from the environment of the running ComfyUI process and that the installed fork was built with its video path. Connect AUDIO separately for the soundtrack.
+Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. Connect AUDIO separately for the soundtrack.
 
 ### Console output is unexpectedly long
 
