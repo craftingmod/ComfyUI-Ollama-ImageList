@@ -9,3 +9,7 @@ Single publishable ComfyUI custom node pack.
 
 For testing details, see `docs/TESTING.md`.
 For ComfyUI API changes, verify current official docs before changing architecture or advanced frontend hooks.
+
+## Git
+- When Codex creates a Git commit, append:
+  `Co-authored-by: Codex <codex@openai.com>`
