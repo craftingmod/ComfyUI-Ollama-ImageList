@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Added
+
+- `CLIP Generate Text (Image List)`, based on ComfyUI's official Generate Text API, with system-role prompts, Qwen3-VL/Qwen3.5/Gemma 4 format selection, thinking support, and one-call IMAGE data lists.
+- Runtime detection of Gemma 4's named `images` tokenizer parameter from ComfyUI PR #15450, with a same-resolution batch fallback for older ComfyUI builds.
+
+### Compatibility
+
+- The minimum ComfyUI version is now 0.19.3 for the official Generate Text dynamic sampling schema.
+- Gemma 4 lists containing different resolutions require a ComfyUI build with explicit `images=` tokenizer support; older builds fail without resizing or discarding images.
+- Gemma 4 AUDIO remains available through the official default template. A separate system prompt plus AUDIO is rejected until ComfyUI exposes a public audio placeholder formatter.
+
 ## 0.2.0 - 2026-08-08
 
 ### Added

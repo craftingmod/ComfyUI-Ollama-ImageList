@@ -10,8 +10,11 @@ class TensorStub:
         self._data = data
         self.shape = shape
 
-    def __getitem__(self, index: int) -> "TensorStub":
-        return TensorStub(self._data[index], self.shape[1:])
+    def __getitem__(self, index) -> "TensorStub":
+        data = self._data[index]
+        if isinstance(index, slice):
+            return TensorStub(data, (len(data), *self.shape[1:]))
+        return TensorStub(data, self.shape[1:])
 
     def element_size(self) -> int:
         return 4

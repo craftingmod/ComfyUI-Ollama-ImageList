@@ -2,7 +2,7 @@
 
 ![JPG Banner](./docs/icon.jpg)
 
-ComfyUI V3 custom nodes that analyze image lists through either one stateless Ollama `/api/chat` request or one directly loaded `llama-cpp-python` GGUF model. The llama.cpp node additionally accepts ComfyUI AUDIO and VIDEO and can submit mixed media when the selected model, projector, and native build support those modalities. Batches, data lists, nested lists, and lists of batches are flattened deterministically while their traversal order is preserved.
+ComfyUI V3 custom nodes that analyze image lists through Ollama REST, a directly loaded `llama-cpp-python` GGUF model, or ComfyUI's native generative CLIP API. The llama.cpp and supported native CLIP models can additionally accept ComfyUI AUDIO and VIDEO. Batches, data lists, nested lists, and lists of batches are flattened deterministically while their traversal order is preserved.
 
 ## Nodes
 
@@ -28,6 +28,14 @@ Workflow example: [Native_Vision.json](./workflows/Native_Vision.json)
 - **Llama.cpp Gemma 4 Runtime Preset** — supplies Gemma 4 context and output-length integers plus a typed physical-batch and image-token profile.
 - **Llama.cpp Generate (Multimodal)** — loads a local GGUF and optional multimodal projector, analyzes optional IMAGE, AUDIO, and VIDEO inputs in one request, and immediately closes the model and handler.
 - **Llama.cpp Media Diagnostics** — expands the Generate node's typed MTMD receipt into capability flags, evaluated media counts, JSON, and formatted text.
+
+### Ollama / CLIP
+
+- **CLIP Generate Text (Image List)** — extends ComfyUI's official Generate Text flow with a real system-role prompt, IMAGE data-list support, and automatic/manual Qwen3-VL, Qwen3.5, or Gemma 4 template selection.
+
+The node calls the loaded CLIP's official `tokenize()`, `generate()`, and `decode()` methods; it does not load GGUF/mmproj files or implement another generation loop. Qwen image lists work with current upstream support. Gemma 4 lists with different resolutions activate automatically when the installed ComfyUI exposes the named `images` parameter proposed in [PR #15450](https://github.com/Comfy-Org/ComfyUI/pull/15450); older builds retain same-resolution IMAGE batch compatibility.
+
+See [CLIP Generate Text support](docs/CLIP_GENERATE_TEXT.md) for template behavior, the support matrix, thinking behavior, and current modality restrictions.
 
 ## Install
 
@@ -64,7 +72,7 @@ The nodes declare V3 `is_input_list=True`, so ComfyUI passes the complete data l
 
 The implementation follows ComfyUI's official [data list semantics](https://docs.comfy.org/custom-nodes/backend/lists) and [V3 migration/schema reference](https://docs.comfy.org/custom-nodes/v3_migration).
 
-All scalar inputs (`url`, `model`, prompts, and options) must resolve to exactly one value. Supplying a data list of multiple prompts is an error rather than silently choosing one.
+All scalar inputs (`url`, `model`, prompts, and options) must resolve to exactly one value. Supplying a data list of multiple prompts is an error rather than silently choosing one. Native CLIP images remain tensors and are passed to ComfyUI's resident tokenizer without PNG encoding.
 
 ## llama.cpp quick start
 

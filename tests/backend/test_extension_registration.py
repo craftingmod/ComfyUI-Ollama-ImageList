@@ -64,6 +64,17 @@ class NodeOutput(tuple):
         return super().__new__(cls, values)
 
 
+class DynamicCombo:
+    @dataclass(frozen=True)
+    class Option:
+        key: str
+        inputs: list
+
+    @classmethod
+    def Input(cls, name, **options):
+        return Field("input", "dynamic_combo", name, options)
+
+
 class Routes:
     def __init__(self):
         self.handlers = {}
@@ -81,11 +92,13 @@ def install_comfy_api_stub(monkeypatch):
         Audio=field_type("audio"),
         Boolean=field_type("boolean"),
         Combo=field_type("combo"),
+        Clip=field_type("clip"),
         ComfyNode=ComfyNode,
         Custom=Custom,
         Float=field_type("float"),
         Image=field_type("image"),
         Int=field_type("int"),
+        DynamicCombo=DynamicCombo,
         NodeOutput=NodeOutput,
         Schema=Schema,
         String=field_type("string"),
@@ -98,6 +111,11 @@ def install_comfy_api_stub(monkeypatch):
     comfy_api.v0_0_2 = versioned_api
     monkeypatch.setitem(sys.modules, "comfy_api", comfy_api)
     monkeypatch.setitem(sys.modules, "comfy_api.v0_0_2", versioned_api)
+    latest_api = ModuleType("comfy_api.latest")
+    latest_api.ComfyExtension = ComfyExtension
+    latest_api.io = io
+    comfy_api.latest = latest_api
+    monkeypatch.setitem(sys.modules, "comfy_api.latest", latest_api)
 
     folder_paths = ModuleType("folder_paths")
     folder_paths.models_dir = "C:/ComfyUI/models"
@@ -149,6 +167,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppGenerate",
         "OllamaImageList_LlamaCppMediaDiagnostics",
+        "OllamaImageList_CLIPGenerateText",
     ]
     assert [schema.display_name for schema in schemas] == [
         "Ollama Image List Connectivity",
@@ -158,6 +177,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Llama.cpp Gemma 4 Runtime Preset",
         "Llama.cpp Generate (Multimodal)",
         "Llama.cpp Media Diagnostics",
+        "CLIP Generate Text (Image List)",
     ]
     assert [schema.category for schema in schemas] == [
         "Ollama/Image List",
@@ -167,6 +187,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/llama_cpp",
         "Ollama/llama_cpp",
         "Ollama/llama_cpp",
+        "Ollama/CLIP",
     ]
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
 
@@ -174,6 +195,38 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         schema.node_id: (node_class, schema)
         for node_class, schema in zip(node_classes, schemas, strict=True)
     }
+
+    clip_schema = registered["OllamaImageList_CLIPGenerateText"][1]
+    assert clip_schema.is_input_list is True
+    clip_inputs = {field.name: field for field in clip_schema.inputs}
+    assert [field.name for field in clip_schema.inputs] == [
+        "clip",
+        "system",
+        "prompt",
+        "images",
+        "video",
+        "audio",
+        "model_format",
+        "max_length",
+        "sampling_mode",
+        "thinking",
+        "use_default_template",
+    ]
+    assert clip_inputs["clip"].data_type == "clip"
+    assert clip_inputs["images"].options["optional"] is True
+    assert clip_inputs["video"].data_type == "image"
+    assert clip_inputs["model_format"].options["options"] == [
+        "auto",
+        "qwen3_vl",
+        "qwen3_5",
+        "gemma4",
+    ]
+    assert clip_inputs["sampling_mode"].data_type == "dynamic_combo"
+    sampling_on = clip_inputs["sampling_mode"].options["options"][0]
+    sampling_seed = next(field for field in sampling_on.inputs if field.name == "seed")
+    assert sampling_seed.options["control_after_generate"] is True
+    assert clip_inputs["use_default_template"].options["advanced"] is True
+    assert [field.name for field in clip_schema.outputs] == ["generated_text"]
 
     connectivity_class, connectivity_schema = registered["OllamaImageList_Connectivity"]
     connectivity_inputs = connectivity_schema.inputs

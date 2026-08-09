@@ -20,5 +20,5 @@ Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"
 [tool.comfy]
 PublisherId = "alyac"
 DisplayName = "Ollama-ImageList"
-requires-comfyui = ">=0.18.1"
+requires-comfyui = ">=0.19.3"
 Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Ollama-ImageList@latest/docs/icon.svg"
