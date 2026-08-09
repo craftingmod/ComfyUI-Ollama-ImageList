@@ -9,7 +9,7 @@ def test_release_identity_and_archive_defaults_are_stable():
     metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert metadata["project"]["name"] == "ollama-image-list"
-    assert metadata["project"]["version"] == "0.2.0"
+    assert metadata["project"]["version"] == "0.3.0"
 
     build_script = (REPO_ROOT / "scripts" / "build-custom-node-zip.ps1").read_text(
         encoding="utf-8-sig"

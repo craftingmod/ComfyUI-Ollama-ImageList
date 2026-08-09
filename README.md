@@ -193,7 +193,7 @@ Use `-WhatIf` to inspect the fixed deployment target without replacing it. Resta
 
 ## Roadmap
 
-`v0.1.0` established Ollama image single/batch/data-list support. `v0.2.0` adds optional native `llama-cpp-python` image, audio, and video generation with explicit per-request unload, thinking control, typed presets, and MTMD ingestion diagnostics. Broader real-model compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
+`v0.1.0` established Ollama image single/batch/data-list support. `v0.2.0` added optional native `llama-cpp-python` image, audio, and video generation with explicit per-request unload, thinking control, typed presets, and MTMD ingestion diagnostics. `v0.3.0` adds native ComfyUI CLIP text generation with system-role prompts and one-call IMAGE lists for Qwen3-VL, Qwen3.5, and Gemma 4. Broader real-model compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
 
 See [CHANGELOG.md](CHANGELOG.md) for release details and workflow compatibility notes.
 

@@ -4,10 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-10
+
 ### Added
 
 - `CLIP Generate Text (Image List)`, based on ComfyUI's official Generate Text API, with system-role prompts, Qwen3-VL/Qwen3.5/Gemma 4 format selection, thinking support, and one-call IMAGE data lists.
 - Runtime detection of Gemma 4's named `images` tokenizer parameter from ComfyUI PR #15450, with a same-resolution batch fallback for older ComfyUI builds.
+
+### Changed
+
+- The CLIP text-generation seed now exposes ComfyUI's after-generation control, including automatic randomization, increment, decrement, and fixed modes.
 
 ### Compatibility
 

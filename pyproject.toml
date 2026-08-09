@@ -1,7 +1,7 @@
 [project]
 name = "ollama-image-list"
 description = "Analyze ComfyUI media lists through Ollama or native llama.cpp backends"
-version = "0.2.0"
+version = "0.3.0"
 requires-python = ">=3.12"
 readme = "README.md"
 license = { file = "LICENSE" }
