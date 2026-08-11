@@ -89,7 +89,8 @@ The principal inputs are:
 | `mmproj_path` | `[none]` | Matching multimodal projector; required when media are connected. |
 | `handler` | `auto` | Chat-handler and template behavior. |
 | `thinking` | `false` | Explicitly requests supported thinking/reasoning mode. |
-| `reasoning_strength` | `high` | Advanced reasoning effort. `thinking=false` forces `low`; `thinking=true` uses the selected value. |
+| `reasoning_strength` | `auto` | Advanced reasoning effort hint. `auto` omits the hint and lets the model template decide; ignored when thinking is disabled. |
+| `reasoning_budget` | `0` | Maximum reasoning tokens for recognized Qwen/Gemma formats. `0` means no budget; ignored when thinking is disabled. |
 | `system` | empty | System-role message, passed without rewriting. |
 | `prompt` | empty | User text, passed without rewriting. |
 | `n_ctx` | `8192` | Total context window, including media and generated tokens. |
@@ -116,6 +117,12 @@ Advanced inputs retain manual control when no preset is connected:
 | `main_gpu` | `0` | Main GPU index. |
 | `n_threads` | `0` | `0` lets llama-cpp-python choose. |
 | `flash_attention` | `auto` | `auto`, enabled, or disabled. |
+
+`reasoning_budget` uses llama.cpp's native reasoning budget arguments. Positive values
+are applied only when the GGUF chat template exposes Qwen `<think>...</think>` tags or
+Gemma channel tags; an unsupported template produces a clear error instead of silently
+ignoring the limit. Reasoning tokens share the `max_tokens` output allowance, so increase
+`max_tokens` when enabling a substantial budget.
 | `use_mmap` | `true` | Memory-maps the GGUF while the model is loaded. |
 | `verbose` | `false` | Controls model, timing, and handler diagnostics from both model and handler construction. |
 
@@ -191,11 +198,23 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 `Llama.cpp Speculative Generate (Experimental)` is registered under `Ollama / llama_cpp / experimental`. It mirrors the normal Generate schema and outputs, so the existing Sampling Preset, Gemma 4 Runtime Preset, and Media Diagnostics nodes connect without experimental variants.
 
-This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input, requires a draft GGUF, and uses only `LlamaNativeSpeculativeDecoding`. A direct backend call that attempts to enable both modes is rejected before either draft is created.
+This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses only `LlamaNativeSpeculativeDecoding`. DFlash, DSpark, and Gemma 4 external MTP require a separate draft/assistant GGUF. Qwen 3.5 internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
-The node requires an experimental wheel that provides `llama_cpp.llama_speculative.LlamaNativeSpeculativeDecoding`. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. Installation details are in the [v0.3.46 native speculative release](https://github.com/craftingmod/llama-cpp-python/releases/tag/v0.3.46-native-speculative.1). Its direct [CPython 3.13 / CUDA 13.2 / Windows x64 wheel](https://github.com/craftingmod/llama-cpp-python/releases/download/v0.3.46-native-speculative.1/llama_cpp_python-0.3.46-speculative-cp313-cu132-win_amd64.whl) must only be used with that matching environment.
+The node requires an experimental wheel that provides `llama_cpp.llama_speculative.LlamaNativeSpeculativeDecoding`. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. Installation details for the existing DFlash/DSpark build are in the [v0.3.46 native speculative release](https://github.com/craftingmod/llama-cpp-python/releases/tag/v0.3.46-native-speculative.1). Native MTP additionally requires a wheel freshly built from the experimental fork with `draft-mtp`, external/internal MTP bridging, and speculative ABI v2; the older DFlash/DSpark wheel is not sufficient. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
-Choose a compatible DFlash or DSpark GGUF in `draft_model`, then select `draft-dflash` or `draft-dspark`. The conservative defaults are `spec_n_max=8`, `spec_n_min=0`, and `spec_p_min=0.0`. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
+Choose `spec_type=none` for target-only generation; the three `spec_n_*` widgets are disabled in this mode and no native speculative dependency is imported. The `draft_model` selector uses `[none]` when no file is needed. For DFlash or DSpark, choose a compatible GGUF in `draft_model`, then select `draft-dflash` or `draft-dspark`. The shared defaults are `spec_n_max=2`, `spec_n_min=0`, and `spec_p_min=0.0`. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
+
+For Native MTP, choose one explicit `mtp_provider`:
+
+| Provider | Target | `draft_model` | Native decoder path |
+| --- | --- | --- | --- |
+| `off` | Existing DFlash/DSpark behavior | Required | Selected draft GGUF |
+| `external_gemma4` | Gemma 4 target GGUF | Matching `gemma4-assistant` GGUF required | Selected assistant GGUF |
+| `internal_qwen35` | Qwen 3.5 GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
+
+Select `spec_type=draft-mtp` together with an external or internal MTP provider. The `mtp_provider` widget is disabled for every other `spec_type`, and any preserved inactive value is treated as `off` during node execution. MTP uses the same `spec_n_max`, `spec_n_min`, and `spec_p_min` values as DFlash/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
+
+Native MTP currently supports one text-only request with `gpu_layers=all`. It sets `n_seq_max=1` and `native_context_reprefill=false`; IMAGE, AUDIO, VIDEO, context shifting, grammar/JSON-schema constraints, custom logits processors, prefix/state-cache reuse, and multi-sequence batching are unsupported. These restrictions apply only to MTP: existing DFlash/DSpark initial multimodal prefill remains available.
 
 Draft construction occurs before target-model construction. After successful target construction, `Llama.close()` owns cleanup of the attached draft resource. If target construction fails before ownership transfer, the node closes the draft directly. Draft statistics are copied before cleanup and exposed under `metrics_json.speculative`:
 
@@ -218,6 +237,8 @@ Draft construction occurs before target-model construction. After successful tar
 ```
 
 Zero or missing draft activity produces a ComfyUI console warning. Initial single-request image prefill uses the normal multimodal message path, but context shifting, multi-sequence generation, grammar/JSON-schema constraints, custom logits processors, and Python state-cache restoration are outside this node's supported scope. Target plus draft weights can consume substantial additional VRAM, and short multimodal responses may not become faster.
+
+MTP metrics use the same object and add `mtp_provider`, `n_layer_nextn`, `completion_tokens`, `tokens_per_second`, and `finish_reason`. Its `stats` values are decoder snapshots taken immediately before and after the request, so they represent the current request rather than the decoder lifetime. For a normal-length smoke test, `draft_calls` and `drafted_tokens` should be greater than zero; a very short completion can finish before the first draft cycle.
 
 ## Model lifetime and concurrency
 

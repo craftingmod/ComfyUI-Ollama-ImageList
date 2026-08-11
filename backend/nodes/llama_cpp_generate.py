@@ -24,7 +24,7 @@ from .llama_cpp_sampling import LlamaCppSamplingType, normalize_sampling
 LLM_FOLDER_NAME = "ollama_image_list_llm"
 NO_MODEL_OPTION = "[no GGUF models found]"
 NO_MMPROJ_OPTION = "[none]"
-NO_DRAFT_OPTION = "[select draft GGUF]"
+NO_DRAFT_OPTION = "[none]"
 
 
 def _get_folder_paths():
@@ -451,12 +451,24 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                 io.Combo.Input(
                     "reasoning_strength",
                     options=list(REASONING_STRENGTHS),
-                    default="high",
+                    default="auto",
                     advanced=True,
                     tooltip=(
-                        "Reasoning effort for templates such as Muse-Glimmer. When "
-                        "thinking is disabled this selection is ignored and low is "
-                        "sent; when thinking is enabled the selected value is sent."
+                        "Optional reasoning effort hint for templates such as "
+                        "Muse-Glimmer. auto omits the hint so the model template uses "
+                        "its own default. Ignored when thinking is disabled."
+                    ),
+                ),
+                io.Int.Input(
+                    "reasoning_budget",
+                    default=0,
+                    min=0,
+                    max=65536,
+                    step=1,
+                    advanced=True,
+                    tooltip=(
+                        "Maximum reasoning tokens for supported Qwen/Gemma reasoning "
+                        "formats. 0 applies no budget. Ignored when thinking is disabled."
                     ),
                 ),
             ],
@@ -512,12 +524,28 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         spec_n_max=None,
         spec_n_min=None,
         spec_p_min=None,
-        reasoning_strength="high",
+        mtp_provider="off",
+        reasoning_strength="auto",
+        reasoning_budget=0,
     ) -> io.NodeOutput:
-        backend_execution_values = cls._prepare_backend_execution()
+        resolved_spec_type = str(
+            unwrap_optional_scalar("spec_type", spec_type, "none")
+        )
+        backend_execution_values = (
+            {} if resolved_spec_type == "none" else cls._prepare_backend_execution()
+        )
         bundle = normalize_media(images=images, audio=audio, video=video)
         model_selection = str(unwrap_required_scalar("model_path", model_path))
         mmproj_selection = str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION))
+        resolved_mmproj_path = (
+            _resolve_gguf_selection(
+                mmproj_selection,
+                label="mmproj GGUF",
+                required=False,
+            )
+            if bundle.items
+            else ""
+        )
         sampling_values = _resolve_sampling_values(
             temperature=temperature,
             top_p=top_p,
@@ -541,20 +569,40 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                 ngram_speculative,
                 None,
             )
-        draft_selection = unwrap_optional_scalar("draft_model", draft_model, None)
+        draft_selection = unwrap_optional_scalar(
+            "draft_model",
+            draft_model,
+            NO_DRAFT_OPTION,
+        )
+        selected_mtp_provider = str(
+            unwrap_optional_scalar("mtp_provider", mtp_provider, "off")
+        )
+        resolved_mtp_provider = (
+            selected_mtp_provider if resolved_spec_type == "draft-mtp" else "off"
+        )
         speculative_values = {}
-        if draft_selection is not None:
+        if draft_model is not None or resolved_mtp_provider != "off":
+            draft_required = resolved_spec_type in {"draft-dflash", "draft-dspark"} or (
+                resolved_spec_type == "draft-mtp"
+                and resolved_mtp_provider == "external_gemma4"
+            )
             speculative_values = {
-                "draft_model_path": _resolve_gguf_selection(
-                    str(draft_selection),
-                    label="draft model GGUF",
-                    required=True,
+                "draft_model_path": (
+                    _resolve_gguf_selection(
+                        str(draft_selection),
+                        label=(
+                            "Gemma 4 MTP assistant GGUF"
+                            if resolved_mtp_provider == "external_gemma4"
+                            else "draft model GGUF"
+                        ),
+                        required=draft_required,
+                    )
+                    if resolved_spec_type != "none"
+                    else ""
                 ),
-                "spec_type": str(
-                    unwrap_optional_scalar("spec_type", spec_type, "draft-dflash")
-                ),
+                "spec_type": resolved_spec_type,
                 "spec_n_max": int(
-                    unwrap_optional_scalar("spec_n_max", spec_n_max, 8)
+                    unwrap_optional_scalar("spec_n_max", spec_n_max, 2)
                 ),
                 "spec_n_min": int(
                     unwrap_optional_scalar("spec_n_min", spec_n_min, 0)
@@ -562,6 +610,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                 "spec_p_min": float(
                     unwrap_optional_scalar("spec_p_min", spec_p_min, 0.0)
                 ),
+                "mtp_provider": resolved_mtp_provider,
             }
         result = run_chat(
             model_path=_resolve_gguf_selection(
@@ -569,18 +618,21 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                 label="model GGUF",
                 required=True,
             ),
-            mmproj_path=_resolve_gguf_selection(
-                mmproj_selection,
-                label="mmproj GGUF",
-                required=False,
-            ),
+            mmproj_path=resolved_mmproj_path,
             handler=str(unwrap_optional_scalar("handler", handler, "auto")),
             thinking=bool(unwrap_optional_scalar("thinking", thinking, False)),
             reasoning_strength=str(
                 unwrap_optional_scalar(
                     "reasoning_strength",
                     reasoning_strength,
-                    "high",
+                    "auto",
+                )
+            ),
+            reasoning_budget=int(
+                unwrap_optional_scalar(
+                    "reasoning_budget",
+                    reasoning_budget,
+                    0,
                 )
             ),
             system=str(unwrap_required_scalar("system", system)),

@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-12
+
+### Added
+
+- Native `draft-mtp` speculative decoding for Gemma 4 external assistant GGUFs and Qwen 3.5 targets with embedded NextN layers.
+- Advanced `reasoning_budget` control for recognized Qwen `<think>` and Gemma channel formats, with explicit validation for unsupported templates.
+- Request-local Native MTP acceptance, completion, throughput, finish-reason, provider, and NextN diagnostics in `metrics_json.speculative`.
+
+### Changed
+
+- Experimental Speculative Generate now supports an explicit target-only `none` mode, uses `[none]` for an unselected draft, and shares conservative `spec_n_max=2`, `spec_n_min=0`, and `spec_p_min=0.0` defaults across native providers.
+- Qwen 3.5 thinking controls now reach text-only GGUF Jinja templates even without an `mmproj`, and response extraction handles templates that prefill the opening `<think>` tag.
+- `reasoning_strength` now defaults to `auto`; thinking-specific widgets are disabled while thinking is off without losing their values.
+- Speculative and MTP widgets are enabled only for applicable modes, while Sampling and Runtime preset connections continue to preserve overridden widget values.
+- Text-only llama.cpp requests no longer resolve or load a selected multimodal projector when no media is connected.
+
+### Compatibility
+
+- Native MTP requires an experimental `llama-cpp-python` build with `draft-mtp`, external/internal MTP bridging, and speculative ABI v2; the earlier DFlash/DSpark-only wheel is insufficient.
+- Native MTP is currently text-only, requires `gpu_layers=all`, and does not support context shifting, grammar constraints, custom logits processors, state-cache reuse, or multi-sequence batching.
+- Qwen 3.5 internal MTP requires embedded NextN layers and no separate draft GGUF; Gemma 4 external MTP requires a matching assistant GGUF.
+
 ## 0.4.0 - 2026-08-11
 
 ### Added

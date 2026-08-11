@@ -44,6 +44,7 @@ class FakeLlama:
         "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
     }
     generation_error = None
+    nextn_layers = 0
 
     def __init__(self, **kwargs):
         NATIVE_EVENTS.append("target")
@@ -66,13 +67,18 @@ class FakeLlama:
             raise type(self).generation_error
         return type(self).response
 
+    def n_layer_nextn(self):
+        return type(self).nextn_layers
+
     def close(self):
         self.closed = True
         draft_model = self.kwargs.get("draft_model")
         if draft_model is not None:
             draft_model.close()
         if self.chat_handler is not None:
-            self.chat_handler.close()
+            close_handler = getattr(self.chat_handler, "close", None)
+            if callable(close_handler):
+                close_handler()
 
 
 class FakeHandler(FakeMTMDHandler):
@@ -89,6 +95,19 @@ class FakeHandler(FakeMTMDHandler):
 
 class FakeVideoHandler(FakeHandler):
     is_support_video = True
+
+
+class FakeJinjaFormatter:
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.call_kwargs = None
+        type(self).instances.append(self)
+
+    def __call__(self, **kwargs):
+        self.call_kwargs = kwargs
+        return object()
 
 
 class FakeDraftModel:
@@ -130,6 +149,41 @@ class FakeNGramDraft:
         self.closed = True
 
 
+class FakeMTPDraft:
+    instances = []
+
+    def __init__(self, **kwargs):
+        NATIVE_EVENTS.append("mtp")
+        self.kwargs = kwargs
+        self.closed = False
+        self.stats_reads = 0
+        self.is_mtp = True
+        self.is_internal_mtp = kwargs["model_path"] is None
+        type(self).instances.append(self)
+
+    @property
+    def stats(self):
+        if self.closed:
+            raise RuntimeError("stats accessed after close")
+        self.stats_reads += 1
+        if self.stats_reads == 1:
+            return {
+                "draft_calls": 5,
+                "accept_calls": 4,
+                "drafted_tokens": 20,
+                "accepted_tokens": 10,
+            }
+        return {
+            "draft_calls": 8,
+            "accept_calls": 7,
+            "drafted_tokens": 26,
+            "accepted_tokens": 14,
+        }
+
+    def close(self):
+        self.closed = True
+
+
 @pytest.fixture(autouse=True)
 def reset_fakes():
     NATIVE_EVENTS.clear()
@@ -140,13 +194,26 @@ def reset_fakes():
     }
     FakeLlama.generation_error = None
     FakeLlama.metadata = {}
+    FakeLlama.nextn_layers = 0
     FakeHandler.instances = []
+    FakeJinjaFormatter.instances = []
     FakeDraftModel.instances = []
     FakeNGramDraft.instances = []
+    FakeMTPDraft.instances = []
 
 
-def make_bindings(**handlers):
-    return LlamaCppBindings(llama_class=FakeLlama, handlers=handlers)
+def make_bindings(
+    *,
+    jinja_formatter_class=None,
+    chat_formatter_to_handler=None,
+    **handlers,
+):
+    return LlamaCppBindings(
+        llama_class=FakeLlama,
+        handlers=handlers,
+        jinja_formatter_class=jinja_formatter_class,
+        chat_formatter_to_handler=chat_formatter_to_handler,
+    )
 
 
 def gguf_files(tmp_path):
@@ -237,7 +304,7 @@ def test_target_only_path_does_not_import_or_pass_speculative_binding(tmp_path, 
     assert FakeNGramDraft.instances == []
 
 
-def test_text_only_generate_omits_selected_mmproj(tmp_path):
+def test_text_only_generate_omits_selected_mmproj_but_forwards_thinking(tmp_path):
     model, mmproj = gguf_files(tmp_path)
 
     result = run_chat(
@@ -247,13 +314,71 @@ def test_text_only_generate_omits_selected_mmproj(tmp_path):
         system="",
         prompt="hello",
         media=normalize_media(),
+        thinking=True,
+        reasoning_strength="xhigh",
         bindings=make_bindings(gemma4=FakeHandler),
     )
 
     assert "mmproj_path" not in FakeLlama.instances[0].kwargs
-    assert "chat_handler_kwargs" not in FakeLlama.instances[0].kwargs
+    assert FakeLlama.instances[0].kwargs["chat_handler_kwargs"] == {
+        "verbose": False,
+        "extra_template_arguments": {
+            "enable_thinking": True,
+            "force_reasoning": True,
+            "reasoning_strength": "xhigh",
+        },
+    }
     assert FakeHandler.instances == []
     assert result.media_diagnostics["mmproj"] is None
+
+
+def test_text_only_jinja_handler_receives_disabled_thinking_arguments(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {"tokenizer.chat_template": "{{ enable_thinking }}"}
+    configured_formatters = []
+
+    def to_handler(formatter):
+        configured_formatters.append(formatter)
+        return formatter
+
+    run_chat(
+        model_path=str(model),
+        system="",
+        prompt="translate this",
+        media=normalize_media(),
+        thinking=False,
+        reasoning_strength="xhigh",
+        bindings=make_bindings(
+            jinja_formatter_class=FakeJinjaFormatter,
+            chat_formatter_to_handler=to_handler,
+        ),
+    )
+
+    formatter = FakeJinjaFormatter.instances[0]
+    assert formatter.kwargs["template"] == "{{ enable_thinking }}"
+    configured_formatters[0](messages=[])
+    assert formatter.call_kwargs["enable_thinking"] is False
+    assert formatter.call_kwargs["force_reasoning"] is False
+    assert "reasoning_strength" not in formatter.call_kwargs
+
+
+def test_text_only_thinking_template_requires_configurable_jinja_api(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {
+        "tokenizer.chat_template": "{% if enable_thinking %}think{% endif %}"
+    }
+
+    with pytest.raises(BackendError, match="cannot pass thinking controls"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="translate this",
+            media=normalize_media(),
+            thinking=False,
+            bindings=make_bindings(),
+        )
+
+    assert FakeLlama.instances[0].closed is True
 
 
 def test_ngram_speculative_forwards_parameters_and_preserves_multimodal_request(tmp_path):
@@ -429,7 +554,7 @@ def test_native_speculative_draft_is_created_first_and_stats_are_copied(tmp_path
     }
     assert FakeLlama.instances[0].kwargs["draft_model"] is draft_instance
     assert "mmproj_path" not in FakeLlama.instances[0].kwargs
-    assert "chat_handler_kwargs" not in FakeLlama.instances[0].kwargs
+    assert "chat_handler_kwargs" in FakeLlama.instances[0].kwargs
     assert FakeLlama.instances[0].closed is True
     assert draft_instance.closed is True
     assert result.metrics["speculative"] == {
@@ -507,6 +632,258 @@ def test_native_speculative_parameters_are_validated_before_loading(
     assert FakeLlama.instances == []
 
 
+def test_gemma4_external_mtp_forwards_assistant_and_reports_request_delta(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    assistant = tmp_path / "gemma4-assistant.gguf"
+    assistant.write_bytes(b"assistant")
+    FakeLlama.response["choices"][0]["finish_reason"] = "stop"
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        gpu_layers="all",
+        draft_model_path=str(assistant),
+        spec_type="draft-mtp",
+        mtp_provider="external_gemma4",
+        spec_n_max=2,
+        spec_n_min=1,
+        spec_p_min=0.2,
+        verbose=True,
+        bindings=make_bindings(),
+        speculative_class=FakeMTPDraft,
+    )
+
+    assert NATIVE_EVENTS == ["mtp", "target"]
+    decoder = FakeMTPDraft.instances[0]
+    assert decoder.kwargs == {
+        "model_path": str(assistant.resolve()),
+        "spec_type": "draft-mtp",
+        "n_gpu_layers": "all",
+        "n_max": 2,
+        "n_min": 1,
+        "p_min": 0.2,
+        "verbose": True,
+    }
+    target = FakeLlama.instances[0]
+    assert target.kwargs["draft_model"] is decoder
+    assert target.kwargs["n_seq_max"] == 1
+    assert target.kwargs["native_context_reprefill"] is False
+    assert decoder.stats_reads == 2
+    assert target.closed is True
+    assert decoder.closed is True
+    assert result.metrics["speculative"] == {
+        "enabled": True,
+        "implementation": "draft-mtp",
+        "draft_model": "gemma4-assistant.gguf",
+        "n_max": 2,
+        "n_min": 1,
+        "p_min": 0.2,
+        "stats": {
+            "draft_calls": 3,
+            "accept_calls": 3,
+            "drafted_tokens": 6,
+            "accepted_tokens": 4,
+            "acceptance_rate": 4 / 6,
+            "mean_accepted_per_call": 4 / 3,
+        },
+        "mtp_provider": "external_gemma4",
+        "verbose": True,
+        "n_layer_nextn": None,
+        "completion_tokens": 2,
+        "tokens_per_second": result.metrics["speculative"]["tokens_per_second"],
+        "finish_reason": "stop",
+    }
+    assert result.metrics["speculative"]["tokens_per_second"] > 0
+
+
+def test_qwen35_internal_mtp_passes_none_and_validates_embedded_nextn(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.nextn_layers = 2
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        gpu_layers="all",
+        spec_type="draft-mtp",
+        mtp_provider="internal_qwen35",
+        spec_n_max=2,
+        bindings=make_bindings(),
+        speculative_class=FakeMTPDraft,
+    )
+
+    decoder = FakeMTPDraft.instances[0]
+    assert decoder.kwargs["model_path"] is None
+    assert decoder.kwargs["spec_type"] == "draft-mtp"
+    assert decoder.is_internal_mtp is True
+    assert result.metrics["speculative"]["mtp_provider"] == "internal_qwen35"
+    assert result.metrics["speculative"]["draft_model"] is None
+    assert result.metrics["speculative"]["n_layer_nextn"] == 2
+    assert FakeLlama.instances[0].closed is True
+    assert decoder.closed is True
+
+
+def test_qwen35_internal_mtp_rejects_target_without_nextn_and_unloads(tmp_path):
+    model, _ = gguf_files(tmp_path)
+
+    with pytest.raises(BackendError, match="no usable embedded NextN/MTP layers"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="hello",
+            media=normalize_media(),
+            gpu_layers="all",
+            spec_type="draft-mtp",
+            mtp_provider="internal_qwen35",
+            bindings=make_bindings(),
+            speculative_class=FakeMTPDraft,
+        )
+
+    assert FakeLlama.instances[0].closed is True
+    assert FakeMTPDraft.instances[0].closed is True
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (
+            {"mtp_provider": "internal_qwen35", "spec_type": "none"},
+            "mtp_provider must be off",
+        ),
+        (
+            {"mtp_provider": "internal_qwen35", "spec_type": "draft-dflash"},
+            "spec_type must be draft-mtp",
+        ),
+        (
+            {"mtp_provider": "off"},
+            "draft-mtp requires mtp_provider",
+        ),
+        (
+            {"mtp_provider": "external_gemma4"},
+            "requires a matching gemma4-assistant GGUF",
+        ),
+        (
+            {"mtp_provider": "internal_qwen35", "draft_model_path": "{draft}"},
+            "leave draft_model unselected",
+        ),
+        (
+            {"mtp_provider": "internal_qwen35", "gpu_layers": "cpu"},
+            "requires gpu_layers=all",
+        ),
+        (
+            {"mtp_provider": "internal_qwen35", "spec_n_max": 0},
+            "spec_n_max",
+        ),
+        (
+            {
+                "mtp_provider": "internal_qwen35",
+                "spec_n_max": 2,
+                "spec_n_min": 3,
+            },
+            "spec_n_min",
+        ),
+        (
+            {"mtp_provider": "internal_qwen35", "spec_p_min": 1.1},
+            "spec_p_min",
+        ),
+    ],
+)
+def test_mtp_configuration_is_validated_before_loading(tmp_path, kwargs, message):
+    model, _ = gguf_files(tmp_path)
+    draft = tmp_path / "assistant.gguf"
+    draft.write_bytes(b"draft")
+    resolved_kwargs = {
+        key: (str(draft) if value == "{draft}" else value)
+        for key, value in kwargs.items()
+    }
+
+    call_kwargs = {
+        "model_path": str(model),
+        "system": "",
+        "prompt": "hello",
+        "media": normalize_media(),
+        "gpu_layers": "all",
+        "spec_type": "draft-mtp",
+        "bindings": make_bindings(),
+        "speculative_class": FakeMTPDraft,
+        **resolved_kwargs,
+    }
+    with pytest.raises(InputNormalizationError, match=message):
+        run_chat(**call_kwargs)
+
+    assert FakeMTPDraft.instances == []
+    assert FakeLlama.instances == []
+
+
+def test_spec_type_none_runs_target_only_even_with_a_stale_draft_selection(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    draft = tmp_path / "stale-draft.gguf"
+    draft.write_bytes(b"draft")
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        draft_model_path=str(draft),
+        spec_type="none",
+        mtp_provider="off",
+        bindings=make_bindings(),
+        speculative_class=FakeDraftModel,
+    )
+
+    assert FakeDraftModel.instances == []
+    assert "draft_model" not in FakeLlama.instances[0].kwargs
+    assert "speculative" not in result.metrics
+
+
+def test_mtp_rejects_media_before_native_loading(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+
+    with pytest.raises(InputNormalizationError, match="text-only"):
+        run_chat(
+            model_path=str(model),
+            mmproj_path=str(mmproj),
+            system="",
+            prompt="hello",
+            media=normalize_images(solid_image(1, 2, 2, 3, 0.5)),
+            gpu_layers="all",
+            spec_type="draft-mtp",
+            mtp_provider="internal_qwen35",
+            bindings=make_bindings(),
+            speculative_class=FakeMTPDraft,
+        )
+
+    assert FakeMTPDraft.instances == []
+    assert FakeLlama.instances == []
+
+
+def test_mtp_initialization_failure_does_not_fallback_to_target_only(tmp_path):
+    model, _ = gguf_files(tmp_path)
+
+    class FailingMTPDraft:
+        def __init__(self, **_kwargs):
+            raise RuntimeError("ABI mismatch")
+
+    with pytest.raises(BackendError, match="speculative ABI v2"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="hello",
+            media=normalize_media(),
+            gpu_layers="all",
+            spec_type="draft-mtp",
+            mtp_provider="internal_qwen35",
+            bindings=make_bindings(),
+            speculative_class=FailingMTPDraft,
+        )
+
+    assert FakeLlama.instances == []
+
+
 def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
     model, mmproj = gguf_files(tmp_path)
     bundle = normalize_images(
@@ -537,7 +914,6 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
         "extra_template_arguments": {
             "enable_thinking": False,
             "force_reasoning": False,
-            "reasoning_strength": "low",
         },
     }
     assert instance.kwargs["n_gpu_layers"] == "all"
@@ -745,7 +1121,6 @@ def test_qwen3_asr_handler_is_available_for_audio_models(tmp_path):
         "extra_template_arguments": {
             "enable_thinking": False,
             "force_reasoning": False,
-            "reasoning_strength": "low",
         },
     }
     assert FakeLlama.instances[0].kwargs["chat_handler"] is handler
@@ -773,7 +1148,6 @@ def test_auto_handler_inherits_enabled_verbose_setting(tmp_path):
         "extra_template_arguments": {
             "enable_thinking": False,
             "force_reasoning": False,
-            "reasoning_strength": "low",
         },
     }
 
@@ -806,7 +1180,10 @@ def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
     assert FakeLlama.instances[0].kwargs["n_ubatch"] == 1120
     assert result.metrics["configuration"] == {
         "thinking": True,
-        "reasoning_strength": "high",
+        "reasoning_strength": "auto",
+        "reasoning_budget": 0,
+        "reasoning_budget_applied": False,
+        "reasoning_budget_format": None,
         "n_ctx": 8192,
         "n_batch": 1120,
         "n_ubatch_override": 1120,
@@ -884,9 +1261,115 @@ def test_disabled_thinking_ignores_selected_reasoning_strength(tmp_path):
     assert template_arguments == {
         "enable_thinking": False,
         "force_reasoning": False,
-        "reasoning_strength": "low",
     }
-    assert result.metrics["configuration"]["reasoning_strength"] == "low"
+    assert result.metrics["configuration"]["reasoning_strength"] == "auto"
+
+
+def test_auto_reasoning_strength_is_not_forwarded_when_thinking_is_enabled(tmp_path):
+    model, _ = gguf_files(tmp_path)
+
+    run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        thinking=True,
+        reasoning_strength="auto",
+        bindings=make_bindings(),
+    )
+
+    template_arguments = FakeLlama.instances[0].kwargs["chat_handler_kwargs"][
+        "extra_template_arguments"
+    ]
+    assert template_arguments == {
+        "enable_thinking": True,
+        "force_reasoning": True,
+    }
+
+
+def test_qwen_reasoning_budget_is_forwarded_to_completion(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {
+        "tokenizer.chat_template": "<think>{{ messages }}</think>"
+    }
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        thinking=True,
+        reasoning_budget=256,
+        bindings=make_bindings(),
+    )
+
+    completion_kwargs = FakeLlama.instances[0].completion_kwargs
+    assert completion_kwargs["reasoning_budget"] == 256
+    assert completion_kwargs["reasoning_start"] == "<think>"
+    assert completion_kwargs["reasoning_end"] == "</think>"
+    assert completion_kwargs["reasoning_start_in_prompt"] is True
+    assert result.metrics["configuration"]["reasoning_budget"] == 256
+    assert result.metrics["configuration"]["reasoning_budget_applied"] is True
+    assert result.metrics["configuration"]["reasoning_budget_format"] == "think_tags"
+
+
+def test_gemma_reasoning_budget_uses_channel_markers(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {
+        "tokenizer.chat_template": "<|channel>analysis<channel|>{{ messages }}"
+    }
+
+    run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        thinking=True,
+        reasoning_budget=128,
+        bindings=make_bindings(),
+    )
+
+    completion_kwargs = FakeLlama.instances[0].completion_kwargs
+    assert completion_kwargs["reasoning_budget"] == 128
+    assert completion_kwargs["reasoning_start"] == "<|channel>"
+    assert completion_kwargs["reasoning_end"] == "<channel|>"
+    assert completion_kwargs["reasoning_start_in_prompt"] is False
+
+
+def test_zero_or_disabled_reasoning_budget_is_not_forwarded(tmp_path):
+    model, _ = gguf_files(tmp_path)
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        thinking=False,
+        reasoning_budget=512,
+        bindings=make_bindings(),
+    )
+
+    assert "reasoning_budget" not in FakeLlama.instances[0].completion_kwargs
+    assert result.metrics["configuration"]["reasoning_budget"] == 0
+    assert result.metrics["configuration"]["reasoning_budget_applied"] is False
+
+
+def test_positive_reasoning_budget_rejects_unknown_template_and_unloads(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {"tokenizer.chat_template": "{{ messages }}"}
+
+    with pytest.raises(InputNormalizationError, match="supported reasoning format"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="hello",
+            media=normalize_media(),
+            thinking=True,
+            reasoning_budget=256,
+            bindings=make_bindings(),
+        )
+
+    assert FakeLlama.instances[0].closed is True
 
 
 def test_disabled_overrides_do_not_pass_integer_values(tmp_path):
@@ -977,14 +1460,21 @@ def test_audio_requires_mmproj_before_native_import(tmp_path):
     assert FakeLlama.instances == []
 
 
-def test_reasoning_tags_are_split_from_response(tmp_path):
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<think>inspect details</think>final answer",
+        "inspect details</think>final answer",
+    ],
+)
+def test_reasoning_tags_are_split_from_response(tmp_path, content):
     model, _ = gguf_files(tmp_path)
     FakeLlama.response = {
         "choices": [
             {
                 "message": {
                     "role": "assistant",
-                    "content": "<think>inspect details</think>final answer",
+                    "content": content,
                 }
             }
         ],

@@ -552,14 +552,20 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_inputs["thinking"].options["default"] is False
     assert "advanced" not in llama_inputs["thinking"].options
     assert llama_inputs["reasoning_strength"].options["options"] == [
+        "auto",
         "low",
         "medium",
         "high",
         "xhigh",
     ]
-    assert llama_inputs["reasoning_strength"].options["default"] == "high"
+    assert llama_inputs["reasoning_strength"].options["default"] == "auto"
     assert llama_inputs["reasoning_strength"].options["advanced"] is True
-    assert llama_schema.inputs[-1].name == "reasoning_strength"
+    assert llama_inputs["reasoning_budget"].options["default"] == 0
+    assert llama_inputs["reasoning_budget"].options["min"] == 0
+    assert llama_inputs["reasoning_budget"].options["max"] == 65536
+    assert llama_inputs["reasoning_budget"].options["advanced"] is True
+    assert llama_schema.inputs[-2].name == "reasoning_strength"
+    assert llama_schema.inputs[-1].name == "reasoning_budget"
     assert llama_inputs["gpu_layers"].options["default"] == "all"
     assert all(
         llama_inputs[name].options["advanced"] is True
@@ -615,19 +621,33 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         speculative_input_names.index("draft_model")
     )
     assert speculative_inputs["draft_model"].options["options"] == [
-        "[select draft GGUF]",
+        "[none]",
         "external/mtp-model-a.gguf",
         "external/model-a.gguf",
         "local/model-b.gguf",
         "external/mmproj-model-a-f16.gguf",
     ]
     assert speculative_inputs["spec_type"].options["options"] == [
+        "none",
         "draft-dflash",
         "draft-dspark",
+        "draft-mtp",
     ]
-    assert speculative_inputs["spec_n_max"].options["default"] == 8
+    assert speculative_inputs["spec_type"].options["default"] == "none"
+    assert speculative_inputs["spec_n_max"].options["default"] == 2
     assert speculative_inputs["spec_n_min"].options["default"] == 0
     assert speculative_inputs["spec_p_min"].options["default"] == 0.0
+    assert speculative_inputs["mtp_provider"].options["options"] == [
+        "off",
+        "external_gemma4",
+        "internal_qwen35",
+    ]
+    assert speculative_inputs["mtp_provider"].options["default"] == "off"
+    assert "mtp_n_max" not in speculative_inputs
+    assert "mtp_n_min" not in speculative_inputs
+    assert "mtp_p_min" not in speculative_inputs
+    assert "mtp_verbose" not in speculative_inputs
+    assert speculative_input_names[7] == "mtp_provider"
     assert speculative_inputs["sampling"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
     )
@@ -638,6 +658,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert speculative_inputs["reasoning_strength"].options["advanced"] is True
     assert speculative_input_names.index("reasoning_strength") == (
         speculative_input_names.index("thinking") + 1
+    )
+    assert speculative_input_names.index("reasoning_budget") == (
+        speculative_input_names.index("reasoning_strength") + 1
     )
     assert [field.name for field in speculative_schema.outputs] == [
         "response",
@@ -683,7 +706,31 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     llama_output = llama_class.execute(**llama_values)
     assert llama_output[0] == "done"
     assert captured_speculative_call["ngram_speculative"] == ngram_configuration
+    assert captured_speculative_call["reasoning_strength"] == "auto"
+    assert captured_speculative_call["reasoning_budget"] == 0
     assert "draft_model_path" not in captured_speculative_call
+
+    original_resolve_gguf_selection = llama_module._resolve_gguf_selection
+
+    def reject_stale_inactive_selection(selection, *, label, required):
+        if selection.startswith("stale/"):
+            raise AssertionError(f"inactive {label} selection was resolved")
+        return original_resolve_gguf_selection(
+            selection,
+            label=label,
+            required=required,
+        )
+
+    monkeypatch.setattr(
+        llama_module,
+        "_resolve_gguf_selection",
+        reject_stale_inactive_selection,
+    )
+    captured_speculative_call.clear()
+    llama_values["mmproj_path"] = ["stale/mmproj.gguf"]
+    llama_output = llama_class.execute(**llama_values)
+    assert llama_output[0] == "done"
+    assert captured_speculative_call["mmproj_path"] == ""
 
     captured_speculative_call.clear()
     speculative_values = {
@@ -694,7 +741,35 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     speculative_values.update(
         model_path=["external/model-a.gguf"],
         mmproj_path=["[none]"],
+        draft_model=["stale/draft.gguf"],
+    )
+
+    def unexpected_speculative_dependency():
+        raise AssertionError("spec_type=none imported the speculative dependency")
+
+    monkeypatch.setattr(
+        speculative_module,
+        "require_native_speculative",
+        unexpected_speculative_dependency,
+    )
+    speculative_output = speculative_class.execute(**speculative_values)
+    assert speculative_output[0] == "done"
+    assert captured_speculative_call["draft_model_path"] == ""
+    assert captured_speculative_call["spec_type"] == "none"
+    assert captured_speculative_call["reasoning_strength"] == "auto"
+    assert captured_speculative_call["reasoning_budget"] == 0
+    assert "speculative_class" not in captured_speculative_call
+
+    monkeypatch.setattr(
+        speculative_module,
+        "require_native_speculative",
+        lambda: speculative_binding,
+    )
+    captured_speculative_call.clear()
+    speculative_values.update(
         draft_model=["external/mtp-model-a.gguf"],
+        spec_type=["draft-dflash"],
+        mtp_provider=["internal_qwen35"],
     )
     speculative_output = speculative_class.execute(**speculative_values)
     assert speculative_output[0] == "done"
@@ -702,11 +777,27 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "D:/SharedModels/LLM/external/mtp-model-a.gguf"
     )
     assert captured_speculative_call["spec_type"] == "draft-dflash"
-    assert captured_speculative_call["spec_n_max"] == 8
+    assert captured_speculative_call["spec_n_max"] == 2
     assert captured_speculative_call["spec_n_min"] == 0
     assert captured_speculative_call["spec_p_min"] == 0.0
+    assert captured_speculative_call["mtp_provider"] == "off"
+    assert "mtp_n_max" not in captured_speculative_call
+    assert "mtp_n_min" not in captured_speculative_call
+    assert "mtp_p_min" not in captured_speculative_call
+    assert "mtp_verbose" not in captured_speculative_call
     assert captured_speculative_call["speculative_class"] is speculative_binding
     assert "ngram_speculative" not in captured_speculative_call
+
+    captured_speculative_call.clear()
+    speculative_values.update(
+        draft_model=["[none]"],
+        spec_type=["draft-mtp"],
+        mtp_provider=["internal_qwen35"],
+    )
+    speculative_output = speculative_class.execute(**speculative_values)
+    assert speculative_output[0] == "done"
+    assert captured_speculative_call["draft_model_path"] == ""
+    assert captured_speculative_call["mtp_provider"] == "internal_qwen35"
 
     def missing_speculative_api():
         raise BackendError("native speculative dependency is not installed")

@@ -50,20 +50,23 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
                 options=draft_options,
                 default=draft_options[0],
                 tooltip=(
-                    "Experimental DFlash or DSpark draft GGUF from ComfyUI's registered "
-                    "LLM paths. The draft must be compatible with the target model; an "
-                    "incompatible pair may fail during initialization or generation."
+                    "Experimental DFlash/DSpark draft or Gemma 4 MTP assistant GGUF from "
+                    "ComfyUI's registered LLM paths. Qwen 3.5 internal MTP must leave this "
+                    "unselected. Compatibility is validated by the native runtime."
                 ),
             ),
             io.Combo.Input(
                 "spec_type",
-                options=["draft-dflash", "draft-dspark"],
-                default="draft-dflash",
-                tooltip="Native speculative draft implementation provided by the wheel.",
+                options=["none", "draft-dflash", "draft-dspark", "draft-mtp"],
+                default="none",
+                tooltip=(
+                    "Native speculative implementation. Select draft-mtp together with "
+                    "external_gemma4 or internal_qwen35 in mtp_provider."
+                ),
             ),
             io.Int.Input(
                 "spec_n_max",
-                default=8,
+                default=2,
                 min=1,
                 max=64,
                 step=1,
@@ -89,28 +92,43 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
                 tooltip="Draft confidence threshold.",
             ),
         ]
+        mtp_inputs = [
+            io.Combo.Input(
+                "mtp_provider",
+                options=["off", "external_gemma4", "internal_qwen35"],
+                default="off",
+                tooltip=(
+                    "Native MTP provider. external_gemma4 uses the selected draft_model "
+                    "as a matching gemma4-assistant GGUF. internal_qwen35 uses embedded "
+                    "NextN/MTP layers and requires draft_model to remain unselected."
+                ),
+            ),
+        ]
         inputs = [
             field
             for field in base_schema.inputs
-            if field.id not in {"ngram_speculative", "reasoning_strength"}
+            if field.id
+            not in {"ngram_speculative", "reasoning_strength", "reasoning_budget"}
         ]
-        inputs[2:2] = speculative_inputs
-        reasoning_strength_input = next(
-            field for field in base_schema.inputs if field.id == "reasoning_strength"
-        )
+        inputs[2:2] = [*speculative_inputs, *mtp_inputs]
+        reasoning_inputs = [
+            field
+            for field in base_schema.inputs
+            if field.id in {"reasoning_strength", "reasoning_budget"}
+        ]
         thinking_index = next(
             index for index, field in enumerate(inputs) if field.id == "thinking"
         )
-        inputs[thinking_index + 1 : thinking_index + 1] = [reasoning_strength_input]
+        inputs[thinking_index + 1 : thinking_index + 1] = reasoning_inputs
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSpeculativeGenerate",
             display_name="Llama.cpp Speculative Generate (Experimental)",
             category="Ollama/llama_cpp/experimental",
             description=(
-                "Experimental native speculative decoding for compatible DFlash or DSpark "
-                "draft GGUFs. Runs one text or initial multimodal request, reports draft "
-                "acceptance statistics in metrics, then unloads target and draft resources. "
-                "Additional VRAM is required and a speedup is not guaranteed."
+                "Experimental native speculative decoding for DFlash/DSpark drafts, Gemma 4 "
+                "external MTP assistants, and Qwen 3.5 embedded MTP. MTP is text-only and "
+                "requires all-layer GPU offload. Reports request-local draft acceptance "
+                "statistics, then unloads all native resources."
             ),
             is_input_list=True,
             not_idempotent=True,

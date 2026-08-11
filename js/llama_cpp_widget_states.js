@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 
 const NGRAM_PRESET_CLASS = "OllamaImageList_LlamaCppNGramSpeculativePreset";
 const GENERATE_CLASS = "OllamaImageList_LlamaCppGenerate";
+const SPECULATIVE_GENERATE_CLASS = "OllamaImageList_LlamaCppSpeculativeGenerate";
 
 const NGRAM_DETAIL_WIDGETS = [
     "ngram_size",
@@ -19,6 +20,8 @@ const RUNTIME_WIDGETS = [
     "override_image_max_tokens",
     "image_max_tokens",
 ];
+const SPECULATIVE_DETAIL_WIDGETS = ["spec_n_max", "spec_n_min", "spec_p_min"];
+const THINKING_DETAIL_WIDGETS = ["reasoning_strength", "reasoning_budget"];
 
 function getWidget(node, name) {
     return node.widgets?.find((widget) => widget.name === name);
@@ -51,6 +54,27 @@ function updateNgramPresetWidgets(node) {
 function updateGenerateWidgets(node) {
     setWidgetsDisabled(node, SAMPLING_WIDGETS, isInputConnected(node, "sampling"));
     setWidgetsDisabled(node, RUNTIME_WIDGETS, isInputConnected(node, "runtime"));
+    setWidgetsDisabled(node, THINKING_DETAIL_WIDGETS, getWidget(node, "thinking")?.value !== true);
+}
+
+function updateSpeculativeGenerateWidgets(node) {
+    const specType = getWidget(node, "spec_type");
+    setWidgetsDisabled(node, SPECULATIVE_DETAIL_WIDGETS, specType?.value === "none");
+    setWidgetsDisabled(node, ["mtp_provider"], specType?.value !== "draft-mtp");
+    setWidgetsDisabled(node, THINKING_DETAIL_WIDGETS, getWidget(node, "thinking")?.value !== true);
+}
+
+function installThinkingCallback(node, updateWidgets) {
+    const thinking = getWidget(node, "thinking");
+    if (!thinking) {
+        return;
+    }
+    const originalCallback = thinking.callback;
+    thinking.callback = (value, ...args) => {
+        const result = originalCallback?.call(thinking, value, ...args);
+        updateWidgets(node);
+        return result;
+    };
 }
 
 function initializeNgramPreset(node) {
@@ -69,6 +93,7 @@ function initializeNgramPreset(node) {
 }
 
 function initializeGenerate(node) {
+    installThinkingCallback(node, updateGenerateWidgets);
     const originalOnConnectionsChange = node.onConnectionsChange;
     node.onConnectionsChange = function () {
         const result = originalOnConnectionsChange?.apply(this, arguments);
@@ -80,11 +105,31 @@ function initializeGenerate(node) {
     setTimeout(() => updateGenerateWidgets(node), 0);
 }
 
+function initializeSpeculativeGenerate(node) {
+    installThinkingCallback(node, updateSpeculativeGenerateWidgets);
+    const specType = getWidget(node, "spec_type");
+    if (specType) {
+        const originalCallback = specType.callback;
+        specType.callback = (value, ...args) => {
+            const result = originalCallback?.call(specType, value, ...args);
+            updateSpeculativeGenerateWidgets(node);
+            return result;
+        };
+    }
+
+    // Workflow widget values are restored before this timer runs.
+    setTimeout(() => updateSpeculativeGenerateWidgets(node), 0);
+}
+
 app.registerExtension({
     name: "ComfyUI.OllamaImageList.LlamaCppWidgetStates",
 
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== NGRAM_PRESET_CLASS && nodeData.name !== GENERATE_CLASS) {
+        if (
+            nodeData.name !== NGRAM_PRESET_CLASS &&
+            nodeData.name !== GENERATE_CLASS &&
+            nodeData.name !== SPECULATIVE_GENERATE_CLASS
+        ) {
             return;
         }
 
@@ -93,8 +138,10 @@ app.registerExtension({
             const result = originalOnNodeCreated?.apply(this, arguments);
             if (nodeData.name === NGRAM_PRESET_CLASS) {
                 initializeNgramPreset(this);
-            } else {
+            } else if (nodeData.name === GENERATE_CLASS) {
                 initializeGenerate(this);
+            } else {
+                initializeSpeculativeGenerate(this);
             }
             return result;
         };
