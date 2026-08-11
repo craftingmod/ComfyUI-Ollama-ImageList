@@ -10,7 +10,10 @@ from .nodes import (
     LlamaCppImageListGenerateNode,
     LlamaCppGemma4RuntimePresetNode,
     LlamaCppMediaDiagnosticsNode,
+    LlamaCppNGramSpeculativePresetNode,
     LlamaCppSamplingPresetNode,
+    LlamaCppSpeculativeGenerateNode,
+    MuseGlimmerResponseParserNode,
     OllamaImageListConnectivityNode,
     OllamaImageListGenerateNode,
     OllamaImageListOptionsNode,
@@ -26,8 +29,11 @@ class OllamaImageListExtension(ComfyExtension):
             OllamaImageListGenerateNode,
             LlamaCppSamplingPresetNode,
             LlamaCppGemma4RuntimePresetNode,
+            LlamaCppNGramSpeculativePresetNode,
             LlamaCppImageListGenerateNode,
+            LlamaCppSpeculativeGenerateNode,
             LlamaCppMediaDiagnosticsNode,
+            MuseGlimmerResponseParserNode,
             ClipImageListGenerateNode,
         ]
 

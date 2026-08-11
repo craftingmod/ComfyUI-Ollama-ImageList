@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-11
+
+### Added
+
+- `Muse Glimmer Response Parser`, a dedicated non-streaming string parser with separate response, thinking, unclassified raw, and final-response validity outputs.
+- `Llama.cpp Speculative Generate (Experimental)` under `Ollama / llama_cpp / experimental`, with a dedicated draft GGUF selector, DFlash/DSpark parameters, acceptance statistics, and target/draft cleanup.
+- `Llama.cpp N-gram Speculative Preset` for optional model-free `LlamaNGramMapDecoding` on the normal Generate node, including `off`/`ngram`, k/k4v, hit, memory-cap, and history-sync controls.
+- Advanced `reasoning_strength` control with `low`, `medium`, `high`, and `xhigh` values on both llama.cpp Generate nodes.
+- Unit coverage for target-only isolation, speculative construction order and parameter forwarding, pre-close statistics capture, validation, and initialization-failure cleanup.
+
+### Changed
+
+- Speculative Generate now checks its experimental Python API at Job start and reports release notes plus the compatible CPython 3.13/CUDA 13.2 Windows wheel before any media or model loading.
+- N-gram detail widgets are disabled without losing their values while its Preset mode is `off`; normal Generate sampling and runtime widgets behave the same way while their corresponding typed presets are connected.
+- Experimental node schema cloning now uses the V3 input `id`, preventing the extension entrypoint from being skipped by current ComfyUI builds.
+- Muse-Glimmer Auto requests preserve the model's embedded chat template while adapting OpenAI `image_url` parts to the template-native `image` representation required to emit `<|patch|>` markers.
+- `thinking=false` now takes precedence over the selected reasoning strength and sends disabled Boolean controls plus `reasoning_strength=low`; `thinking=true` uses the selected strength.
+- Speculative Generate places `reasoning_strength` directly below `thinking`; the published normal Generate keeps the new widget at the end for positional workflow compatibility.
+
+### Compatibility
+
+- Native DFlash/DSpark generation requires the separately published experimental `llama-cpp-python` wheel documented in the node error and llama.cpp guide.
+- Explicit Generic handling retains the existing OpenAI `image_url` representation; the Muse-specific conversion applies only to Auto with `general.architecture=muse-glimmer`.
+
 ## 0.3.0 - 2026-08-10
 
 ### Added

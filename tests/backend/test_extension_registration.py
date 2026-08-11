@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from backend.core import InputNormalizationError
+from backend.core import BackendError, InputNormalizationError
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,10 @@ class Field:
     data_type: str
     name: str
     options: dict
+
+    @property
+    def id(self) -> str:
+        return self.name
 
 
 class FieldType:
@@ -165,8 +169,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_Generate",
         "OllamaImageList_LlamaCppSamplingPreset",
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
+        "OllamaImageList_LlamaCppNGramSpeculativePreset",
         "OllamaImageList_LlamaCppGenerate",
+        "OllamaImageList_LlamaCppSpeculativeGenerate",
         "OllamaImageList_LlamaCppMediaDiagnostics",
+        "OllamaImageList_MuseGlimmerResponseParser",
         "OllamaImageList_CLIPGenerateText",
     ]
     assert [schema.display_name for schema in schemas] == [
@@ -175,8 +182,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama Generate (Image List)",
         "Llama.cpp Sampling Preset",
         "Llama.cpp Gemma 4 Runtime Preset",
+        "Llama.cpp N-gram Speculative Preset",
         "Llama.cpp Generate (Multimodal)",
+        "Llama.cpp Speculative Generate (Experimental)",
         "Llama.cpp Media Diagnostics",
+        "Muse Glimmer Response Parser",
         "CLIP Generate Text (Image List)",
     ]
     assert [schema.category for schema in schemas] == [
@@ -187,6 +197,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/llama_cpp",
         "Ollama/llama_cpp",
         "Ollama/llama_cpp",
+        "Ollama/llama_cpp/experimental",
+        "Ollama/llama_cpp",
+        "Ollama/llama_cpp",
         "Ollama/CLIP",
     ]
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
@@ -195,6 +208,24 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         schema.node_id: (node_class, schema)
         for node_class, schema in zip(node_classes, schemas, strict=True)
     }
+
+    muse_class, muse_schema = registered[
+        "OllamaImageList_MuseGlimmerResponseParser"
+    ]
+    assert [(field.name, field.data_type) for field in muse_schema.inputs] == [
+        ("muse_response", "string"),
+    ]
+    assert muse_schema.inputs[0].options["force_input"] is True
+    assert [(field.name, field.data_type) for field in muse_schema.outputs] == [
+        ("response", "string"),
+        ("thinking", "string"),
+        ("raw", "string"),
+        ("valid", "boolean"),
+    ]
+    assert muse_class.execute(
+        " to=self<|message|>Think<|eom|>"
+        "<|start|>assistant to=user<|message|>Answer<|eot|>"
+    ) == ("Answer", "Think", "", True)
 
     clip_schema = registered["OllamaImageList_CLIPGenerateText"][1]
     assert clip_schema.is_input_list is True
@@ -430,7 +461,57 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     with pytest.raises(InputNormalizationError, match="effective runtime.n_ubatch"):
         runtime_module.normalize_gemma4_runtime(invalid_runtime)
 
-    llama_schema = registered["OllamaImageList_LlamaCppGenerate"][1]
+    ngram_class, ngram_schema = registered[
+        "OllamaImageList_LlamaCppNGramSpeculativePreset"
+    ]
+    assert [field.name for field in ngram_schema.inputs] == [
+        "speculative_mode",
+        "ngram_size",
+        "num_pred_tokens",
+        "ngram_mode",
+        "ngram_min_hits",
+        "ngram_max_entries_per_key",
+        "ngram_sync_check_tokens",
+    ]
+    ngram_inputs = {field.name: field for field in ngram_schema.inputs}
+    assert ngram_inputs["speculative_mode"].options == {
+        "options": ["off", "ngram"],
+        "default": "off",
+        "tooltip": (
+            "off preserves normal generation. ngram predicts candidates from "
+            "repeated token patterns already in the current context."
+        ),
+    }
+    assert ngram_inputs["ngram_size"].options["default"] == 3
+    assert ngram_inputs["num_pred_tokens"].options["default"] == 10
+    assert ngram_inputs["ngram_mode"].options["options"] == ["k", "k4v"]
+    assert ngram_inputs["ngram_min_hits"].options["default"] == 2
+    assert ngram_inputs["ngram_max_entries_per_key"].options["default"] == 8
+    assert ngram_inputs["ngram_sync_check_tokens"].options["default"] == 16
+    assert ngram_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_NGRAM_SPECULATIVE"
+    )
+    assert ngram_class.execute("off", 0, 0, "invalid", 0, 0, 0) == (
+        {"speculative_mode": "off"},
+    )
+    ngram_configuration = ngram_class.execute("ngram", 3, 10, "k", 2, 0, 16)[0]
+    assert ngram_configuration == {
+        "speculative_mode": "ngram",
+        "ngram_size": 3,
+        "num_pred_tokens": 10,
+        "ngram_min_hits": 2,
+        "ngram_max_entries_per_key": None,
+        "ngram_sync_check_tokens": 16,
+        "ngram_mode": "k",
+    }
+    ngram_module = importlib.import_module(
+        "backend.nodes.llama_cpp_ngram_speculative"
+    )
+    assert ngram_module.normalize_ngram_speculative(ngram_configuration) == (
+        ngram_configuration
+    )
+
+    llama_class, llama_schema = registered["OllamaImageList_LlamaCppGenerate"]
     assert llama_schema.is_input_list is True
     assert llama_schema.not_idempotent is True
     llama_inputs = {field.name: field for field in llama_schema.inputs}
@@ -455,6 +536,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
     )
     assert llama_inputs["runtime"].options["optional"] is True
+    assert llama_inputs["ngram_speculative"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_NGRAM_SPECULATIVE"
+    )
+    assert llama_inputs["ngram_speculative"].options["optional"] is True
     assert llama_inputs["handler"].options["options"] == [
         "auto",
         "generic",
@@ -466,6 +551,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_inputs["thinking"].data_type == "boolean"
     assert llama_inputs["thinking"].options["default"] is False
     assert "advanced" not in llama_inputs["thinking"].options
+    assert llama_inputs["reasoning_strength"].options["options"] == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+    assert llama_inputs["reasoning_strength"].options["default"] == "high"
+    assert llama_inputs["reasoning_strength"].options["advanced"] is True
+    assert llama_schema.inputs[-1].name == "reasoning_strength"
     assert llama_inputs["gpu_layers"].options["default"] == "all"
     assert all(
         llama_inputs[name].options["advanced"] is True
@@ -507,7 +601,130 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
     )
 
+    speculative_class, speculative_schema = registered[
+        "OllamaImageList_LlamaCppSpeculativeGenerate"
+    ]
+    assert speculative_schema.is_input_list is True
+    assert speculative_schema.not_idempotent is True
+    assert speculative_schema.is_experimental is True
+    speculative_inputs = {
+        field.name: field for field in speculative_schema.inputs
+    }
+    speculative_input_names = [field.name for field in speculative_schema.inputs]
+    assert speculative_input_names.index("mmproj_path") + 1 == (
+        speculative_input_names.index("draft_model")
+    )
+    assert speculative_inputs["draft_model"].options["options"] == [
+        "[select draft GGUF]",
+        "external/mtp-model-a.gguf",
+        "external/model-a.gguf",
+        "local/model-b.gguf",
+        "external/mmproj-model-a-f16.gguf",
+    ]
+    assert speculative_inputs["spec_type"].options["options"] == [
+        "draft-dflash",
+        "draft-dspark",
+    ]
+    assert speculative_inputs["spec_n_max"].options["default"] == 8
+    assert speculative_inputs["spec_n_min"].options["default"] == 0
+    assert speculative_inputs["spec_p_min"].options["default"] == 0.0
+    assert speculative_inputs["sampling"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
+    )
+    assert speculative_inputs["runtime"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
+    )
+    assert "ngram_speculative" not in speculative_inputs
+    assert speculative_inputs["reasoning_strength"].options["advanced"] is True
+    assert speculative_input_names.index("reasoning_strength") == (
+        speculative_input_names.index("thinking") + 1
+    )
+    assert [field.name for field in speculative_schema.outputs] == [
+        "response",
+        "thinking",
+        "raw_json",
+        "metrics_json",
+        "media_diagnostics",
+    ]
+
     llama_module = importlib.import_module("backend.nodes.llama_cpp_generate")
+    speculative_module = importlib.import_module(
+        "backend.nodes.llama_cpp_speculative_generate"
+    )
+    speculative_binding = object()
+    monkeypatch.setattr(
+        speculative_module,
+        "require_native_speculative",
+        lambda: speculative_binding,
+    )
+    captured_speculative_call = {}
+
+    def fake_run_chat(**kwargs):
+        captured_speculative_call.update(kwargs)
+        return SimpleNamespace(
+            response="done",
+            thinking="",
+            raw={"choices": []},
+            metrics={"model_unloaded": True},
+            media_diagnostics={"model_unloaded_after_response": True},
+        )
+
+    monkeypatch.setattr(llama_module, "run_chat", fake_run_chat)
+    llama_values = {
+        field.name: [field.options["default"]]
+        for field in llama_schema.inputs
+        if "default" in field.options
+    }
+    llama_values.update(
+        model_path=["external/model-a.gguf"],
+        mmproj_path=["[none]"],
+        ngram_speculative=[ngram_configuration],
+    )
+    llama_output = llama_class.execute(**llama_values)
+    assert llama_output[0] == "done"
+    assert captured_speculative_call["ngram_speculative"] == ngram_configuration
+    assert "draft_model_path" not in captured_speculative_call
+
+    captured_speculative_call.clear()
+    speculative_values = {
+        field.name: [field.options["default"]]
+        for field in speculative_schema.inputs
+        if "default" in field.options
+    }
+    speculative_values.update(
+        model_path=["external/model-a.gguf"],
+        mmproj_path=["[none]"],
+        draft_model=["external/mtp-model-a.gguf"],
+    )
+    speculative_output = speculative_class.execute(**speculative_values)
+    assert speculative_output[0] == "done"
+    assert captured_speculative_call["draft_model_path"] == (
+        "D:/SharedModels/LLM/external/mtp-model-a.gguf"
+    )
+    assert captured_speculative_call["spec_type"] == "draft-dflash"
+    assert captured_speculative_call["spec_n_max"] == 8
+    assert captured_speculative_call["spec_n_min"] == 0
+    assert captured_speculative_call["spec_p_min"] == 0.0
+    assert captured_speculative_call["speculative_class"] is speculative_binding
+    assert "ngram_speculative" not in captured_speculative_call
+
+    def missing_speculative_api():
+        raise BackendError("native speculative dependency is not installed")
+
+    def unexpected_media_normalization(**_kwargs):
+        raise AssertionError("media normalization ran before the dependency check")
+
+    monkeypatch.setattr(
+        speculative_module,
+        "require_native_speculative",
+        missing_speculative_api,
+    )
+    monkeypatch.setattr(llama_module, "normalize_media", unexpected_media_normalization)
+    captured_speculative_call.clear()
+    with pytest.raises(BackendError, match="dependency is not installed"):
+        speculative_class.execute(**speculative_values)
+    assert captured_speculative_call == {}
+
     assert llama_module._resolve_sampling_values(
         temperature=[0.1],
         top_p=[0.8],

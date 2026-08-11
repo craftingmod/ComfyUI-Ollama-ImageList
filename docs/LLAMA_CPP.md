@@ -38,6 +38,8 @@ shared_models:
 
 Both `model_path` and `mmproj_path` show the complete GGUF inventory. Filenames are not used to reject user selections. The projector Combo provides `[none]` and places filenames containing `mmproj` first as a convenience. An `mtp-*.gguf` file is normally a speculative-decoding draft model, not a multimodal projector.
 
+The experimental Speculative Generate node adds a `draft_model` Combo from the same inventory directly below `mmproj_path`. It stably prioritizes filenames containing `dflash`, `dspark`, `draft`, or `mtp`, but does not infer target compatibility from a filename.
+
 After adding files or changing `extra_model_paths.yaml`, restart ComfyUI or refresh the node definitions. A saved relative selection is resolved through ComfyUI's registered model paths again at execution time.
 
 ## Supported files and handlers
@@ -87,11 +89,13 @@ The principal inputs are:
 | `mmproj_path` | `[none]` | Matching multimodal projector; required when media are connected. |
 | `handler` | `auto` | Chat-handler and template behavior. |
 | `thinking` | `false` | Explicitly requests supported thinking/reasoning mode. |
+| `reasoning_strength` | `high` | Advanced reasoning effort. `thinking=false` forces `low`; `thinking=true` uses the selected value. |
 | `system` | empty | System-role message, passed without rewriting. |
 | `prompt` | empty | User text, passed without rewriting. |
 | `n_ctx` | `8192` | Total context window, including media and generated tokens. |
 | `max_tokens` | `512` | Maximum generated tokens. |
 | `seed` | `-1` | `-1` keeps llama.cpp random-seed behavior. |
+| `ngram_speculative` | disconnected | Optional typed N-gram Speculative Preset for the normal Generate node only. |
 
 Advanced inputs retain manual control when no preset is connected:
 
@@ -119,7 +123,7 @@ If `image_max_tokens` is explicitly overridden for an IMAGE or VIDEO request, it
 
 ## Sampling presets
 
-Connect `sampling` to override all five sampling widgets together.
+Connect `sampling` to override all five sampling widgets together. While the socket is connected, the Generate node disables those widgets but preserves their values. Disconnecting it restores editing and makes the preserved values effective again.
 
 | Preset | temperature | top_p | top_k | min_p | repeat_penalty |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -138,7 +142,7 @@ Preset.n_ctx      -> Generate.n_ctx
 Preset.max_tokens -> Generate.max_tokens
 ```
 
-The typed `runtime` connection carries only `n_batch`, `override_n_ubatch`, `n_ubatch`, `override_image_max_tokens`, and `image_max_tokens`. Context and output length remain visible as ordinary integer connections.
+The typed `runtime` connection carries only `n_batch`, `override_n_ubatch`, `n_ubatch`, `override_image_max_tokens`, and `image_max_tokens`. These five Generate widgets are disabled while the socket is connected and recover their preserved values when disconnected. Context and output length remain visible as ordinary integer connections.
 
 | Preset | n_ctx | max_tokens | n_batch | n_ubatch override/value | image tokens override/value |
 | --- | ---: | ---: | ---: | --- | --- |
@@ -149,6 +153,26 @@ The typed `runtime` connection carries only `n_batch`, `override_n_ubatch`, `n_u
 | High Detail / OCR (Experimental) | 32768 | 2048 | 1120 | on / 1120 | on / 1120 |
 
 These profiles are named for Gemma 4 because the image-token and physical-batch values target its dynamic-resolution vision path. They are starting points rather than universal requirements. The `Vision Long / Thinking` preset reserves generation room but does not enable the separate `thinking` Boolean.
+
+## N-gram speculative preset
+
+Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `Ollama / llama_cpp`; the Experimental native DFlash/DSpark node does not expose or consume this type.
+
+`off` preserves the normal target-only path: no draft object is constructed, no speculative module is imported, and the `Llama` constructor receives exactly the same arguments as before. The detail widgets are disabled in this mode without resetting their values, so switching back to `ngram` restores the previous configuration. `ngram` lazily imports `LlamaNGramMapDecoding` and passes one request-local instance as `Llama(draft_model=...)`. It predicts candidates from repeated patterns already present in the verified prompt and generated history, requires no additional GGUF, and uses little additional VRAM. The target model still verifies every proposed token, so this is not a reduced-accuracy generation mode.
+
+| Preset input | Default | Allowed values | Constructor argument |
+| --- | ---: | --- | --- |
+| `speculative_mode` | `off` | `off`, `ngram` | Enables or bypasses construction |
+| `ngram_size` | `3` | 1–8 | `ngram_size` |
+| `num_pred_tokens` | `10` | 1–32 | `num_pred_tokens` |
+| `ngram_mode` | `k` | `k`, `k4v` | `mode` |
+| `ngram_min_hits` | `2` | 1–16 | `min_hits` |
+| `ngram_max_entries_per_key` | `8` | 0–1024 | `max_entries_per_key`; 0 becomes `None` |
+| `ngram_sync_check_tokens` | `16` | 1–256 | `sync_check_tokens` |
+
+`k` stores historical positions and normally uses less memory. `k4v` caches continuation values for cheaper lookup and should generally keep a finite entries-per-key cap. The installed package is imported only when `ngram` is selected; if the class is unavailable, that Generate Job fails with an upgrade-or-disable message while node registration and `off` workflows remain available. The constructor signature is based on the current [JamePeng `LlamaNGramMapDecoding` source](https://github.com/JamePeng/llama-cpp-python/blob/main/llama_cpp/llama_speculative.py).
+
+No stable acceptance statistics are assumed for this Python draft class. `metrics_json` retains the existing load/generation/cleanup timings and records the effective configuration under `ngram_speculative`; it does not inspect private draft fields. Speedup depends on repeated context and accepted proposals, and may be negligible for short or non-repetitive responses.
 
 ## Outputs and diagnostics
 
@@ -162,6 +186,38 @@ Connect the typed receipt to **Llama.cpp Media Diagnostics** to obtain:
 - full JSON and compact formatted text.
 
 A successful `mtmd_evaluated` receipt confirms capability checks, decoding, marker/chunk validation, and native MTMD evaluation for every requested item. It does not prove semantic understanding or answer quality.
+
+## Native speculative decoding (Experimental)
+
+`Llama.cpp Speculative Generate (Experimental)` is registered under `Ollama / llama_cpp / experimental`. It mirrors the normal Generate schema and outputs, so the existing Sampling Preset, Gemma 4 Runtime Preset, and Media Diagnostics nodes connect without experimental variants.
+
+This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input, requires a draft GGUF, and uses only `LlamaNativeSpeculativeDecoding`. A direct backend call that attempts to enable both modes is rejected before either draft is created.
+
+The node requires an experimental wheel that provides `llama_cpp.llama_speculative.LlamaNativeSpeculativeDecoding`. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. Installation details are in the [v0.3.46 native speculative release](https://github.com/craftingmod/llama-cpp-python/releases/tag/v0.3.46-native-speculative.1). Its direct [CPython 3.13 / CUDA 13.2 / Windows x64 wheel](https://github.com/craftingmod/llama-cpp-python/releases/download/v0.3.46-native-speculative.1/llama_cpp_python-0.3.46-speculative-cp313-cu132-win_amd64.whl) must only be used with that matching environment.
+
+Choose a compatible DFlash or DSpark GGUF in `draft_model`, then select `draft-dflash` or `draft-dspark`. The conservative defaults are `spec_n_max=8`, `spec_n_min=0`, and `spec_p_min=0.0`. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
+
+Draft construction occurs before target-model construction. After successful target construction, `Llama.close()` owns cleanup of the attached draft resource. If target construction fails before ownership transfer, the node closes the draft directly. Draft statistics are copied before cleanup and exposed under `metrics_json.speculative`:
+
+```json
+{
+  "enabled": true,
+  "implementation": "draft-dflash",
+  "draft_model": "dflash-kquant.gguf",
+  "n_max": 8,
+  "n_min": 0,
+  "p_min": 0.0,
+  "stats": {
+    "draft_calls": 70,
+    "drafted_tokens": 1050,
+    "accepted_tokens": 89,
+    "acceptance_rate": 0.085,
+    "mean_accepted_tokens": 1.27
+  }
+}
+```
+
+Zero or missing draft activity produces a ComfyUI console warning. Initial single-request image prefill uses the normal multimodal message path, but context shifting, multi-sequence generation, grammar/JSON-schema constraints, custom logits processors, and Python state-cache restoration are outside this node's supported scope. Target plus draft weights can consume substantial additional VRAM, and short multimodal responses may not become faster.
 
 ## Model lifetime and concurrency
 
@@ -202,3 +258,14 @@ Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and th
 ### Console output is unexpectedly long
 
 Keep Generate's `verbose` input disabled. Some model-load warnings originate from native code and may still be printed even when ordinary verbose diagnostics are disabled.
+
+## N-gram manual smoke test
+
+Run the normal Generate node twice with identical model, prompt, `max_tokens`, seed, and sampling values. Leave the N-gram Preset at `off` for the first run and switch it to `ngram` for the second. A suitable repetition-heavy prompt is:
+
+```text
+Create Python CRUD functions for users, products, orders, and invoices.
+Each section must use the same function structure and error-handling pattern.
+```
+
+Confirm that both runs return a non-empty response with a normal `finish_reason`, neither run enters a repetition loop, and both unload cleanly. Compare `metrics_json.generation_seconds` or derived tokens-per-second. Token-exact output equality is not required; the comparison is meaningful only when model, sampling, seed, and output length are otherwise held constant.

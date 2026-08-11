@@ -8,7 +8,7 @@ try:
 except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
-from ..backends.llama_cpp import HANDLER_NAMES, run_chat
+from ..backends.llama_cpp import HANDLER_NAMES, REASONING_STRENGTHS, run_chat
 from ..core import (
     InputNormalizationError,
     normalize_media,
@@ -16,6 +16,7 @@ from ..core import (
     unwrap_required_scalar,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
+from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativeType
 from .llama_cpp_runtime import LlamaCppGemma4RuntimeType, normalize_gemma4_runtime
 from .llama_cpp_sampling import LlamaCppSamplingType, normalize_sampling
 
@@ -23,6 +24,7 @@ from .llama_cpp_sampling import LlamaCppSamplingType, normalize_sampling
 LLM_FOLDER_NAME = "ollama_image_list_llm"
 NO_MODEL_OPTION = "[no GGUF models found]"
 NO_MMPROJ_OPTION = "[none]"
+NO_DRAFT_OPTION = "[select draft GGUF]"
 
 
 def _get_folder_paths():
@@ -75,7 +77,7 @@ def _gguf_options() -> tuple[list[str], list[str]]:
 def _resolve_gguf_selection(selection: str, *, label: str, required: bool) -> str:
     if selection == NO_MMPROJ_OPTION and not required:
         return ""
-    if selection in {NO_MODEL_OPTION, NO_MMPROJ_OPTION, ""}:
+    if selection in {NO_MODEL_OPTION, NO_MMPROJ_OPTION, NO_DRAFT_OPTION, ""}:
         if required:
             raise InputNormalizationError(
                 f"No {label} is selected. Place a compatible GGUF file under "
@@ -148,6 +150,12 @@ def _resolve_runtime_values(
 
 
 class LlamaCppImageListGenerateNode(io.ComfyNode):
+    _supports_ngram_speculative = True
+
+    @classmethod
+    def _prepare_backend_execution(cls) -> dict[str, object]:
+        return {}
+
     @classmethod
     def define_schema(cls) -> io.Schema:
         model_options, mmproj_options = _gguf_options()
@@ -218,6 +226,15 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                         "it overrides the Advanced n_batch, n_ubatch, image_max_tokens, and "
                         "both override switches. Connect the preset's separate n_ctx and "
                         "max_tokens outputs to apply those visible values."
+                    ),
+                ),
+                LlamaCppNGramSpeculativeType.Input(
+                    "ngram_speculative",
+                    optional=True,
+                    tooltip=(
+                        "Optional output from Llama.cpp N-gram Speculative Preset. This "
+                        "model-free mode uses repeated context patterns and no draft GGUF. "
+                        "It is separate from Experimental native DFlash/DSpark decoding."
                     ),
                 ),
                 io.String.Input(
@@ -431,6 +448,17 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                         "ingested; connect AUDIO separately."
                     ),
                 ),
+                io.Combo.Input(
+                    "reasoning_strength",
+                    options=list(REASONING_STRENGTHS),
+                    default="high",
+                    advanced=True,
+                    tooltip=(
+                        "Reasoning effort for templates such as Muse-Glimmer. When "
+                        "thinking is disabled this selection is ignored and low is "
+                        "sent; when thinking is enabled the selected value is sent."
+                    ),
+                ),
             ],
             outputs=[
                 io.String.Output("response", display_name="response"),
@@ -478,7 +506,15 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         video=None,
         sampling=None,
         runtime=None,
+        ngram_speculative=None,
+        draft_model=None,
+        spec_type=None,
+        spec_n_max=None,
+        spec_n_min=None,
+        spec_p_min=None,
+        reasoning_strength="high",
     ) -> io.NodeOutput:
+        backend_execution_values = cls._prepare_backend_execution()
         bundle = normalize_media(images=images, audio=audio, video=video)
         model_selection = str(unwrap_required_scalar("model_path", model_path))
         mmproj_selection = str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION))
@@ -498,6 +534,35 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             image_max_tokens=image_max_tokens,
             runtime=runtime,
         )
+        ngram_speculative_values = {}
+        if cls._supports_ngram_speculative:
+            ngram_speculative_values["ngram_speculative"] = unwrap_optional_scalar(
+                "ngram_speculative",
+                ngram_speculative,
+                None,
+            )
+        draft_selection = unwrap_optional_scalar("draft_model", draft_model, None)
+        speculative_values = {}
+        if draft_selection is not None:
+            speculative_values = {
+                "draft_model_path": _resolve_gguf_selection(
+                    str(draft_selection),
+                    label="draft model GGUF",
+                    required=True,
+                ),
+                "spec_type": str(
+                    unwrap_optional_scalar("spec_type", spec_type, "draft-dflash")
+                ),
+                "spec_n_max": int(
+                    unwrap_optional_scalar("spec_n_max", spec_n_max, 8)
+                ),
+                "spec_n_min": int(
+                    unwrap_optional_scalar("spec_n_min", spec_n_min, 0)
+                ),
+                "spec_p_min": float(
+                    unwrap_optional_scalar("spec_p_min", spec_p_min, 0.0)
+                ),
+            }
         result = run_chat(
             model_path=_resolve_gguf_selection(
                 model_selection,
@@ -511,6 +576,13 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             ),
             handler=str(unwrap_optional_scalar("handler", handler, "auto")),
             thinking=bool(unwrap_optional_scalar("thinking", thinking, False)),
+            reasoning_strength=str(
+                unwrap_optional_scalar(
+                    "reasoning_strength",
+                    reasoning_strength,
+                    "high",
+                )
+            ),
             system=str(unwrap_required_scalar("system", system)),
             prompt=str(unwrap_required_scalar("prompt", prompt)),
             media=bundle,
@@ -538,6 +610,9 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             seed=int(unwrap_optional_scalar("seed", seed, -1)),
             stop=str(unwrap_optional_scalar("stop", stop, "")),
             verbose=bool(unwrap_optional_scalar("verbose", verbose, False)),
+            **ngram_speculative_values,
+            **speculative_values,
+            **backend_execution_values,
         )
         return io.NodeOutput(
             result.response,

@@ -1,8 +1,11 @@
 from .clip_generate import ClipImageListGenerateNode
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsNode
 from .llama_cpp_generate import LlamaCppImageListGenerateNode
+from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativePresetNode
 from .llama_cpp_runtime import LlamaCppGemma4RuntimePresetNode
 from .llama_cpp_sampling import LlamaCppSamplingPresetNode
+from .llama_cpp_speculative_generate import LlamaCppSpeculativeGenerateNode
+from .muse_glimmer_response import MuseGlimmerResponseParserNode
 from .ollama_connectivity import OllamaImageListConnectivityNode
 from .ollama_generate import OllamaImageListGenerateNode
 from .ollama_options import OllamaImageListOptionsNode
@@ -11,8 +14,11 @@ __all__ = [
     "ClipImageListGenerateNode",
     "LlamaCppImageListGenerateNode",
     "LlamaCppMediaDiagnosticsNode",
+    "LlamaCppNGramSpeculativePresetNode",
     "LlamaCppGemma4RuntimePresetNode",
     "LlamaCppSamplingPresetNode",
+    "LlamaCppSpeculativeGenerateNode",
+    "MuseGlimmerResponseParserNode",
     "OllamaImageListConnectivityNode",
     "OllamaImageListGenerateNode",
     "OllamaImageListOptionsNode",
