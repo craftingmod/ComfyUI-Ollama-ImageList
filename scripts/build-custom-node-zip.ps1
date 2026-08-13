@@ -88,6 +88,7 @@ $packageDirectories = @(
     "web",
     "js",
     "assets",
+    "presets",
     "locales",
     "docs",
     "workflows"

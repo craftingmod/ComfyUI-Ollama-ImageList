@@ -15,6 +15,7 @@ from .llama_cpp_runtime import LlamaCppGemma4RuntimePresetNode
 from .llama_cpp_sampling import LlamaCppSamplingPresetNode
 from .llama_cpp_speculative_generate import LlamaCppSpeculativeGenerateNode
 from .muse_glimmer_response import MuseGlimmerResponseParserNode
+from .minimax_prompt import MiniMaxSystemPromptPresetNode
 from .ollama_connectivity import OllamaImageListConnectivityNode
 from .ollama_generate import OllamaImageListGenerateNode
 from .ollama_options import OllamaImageListOptionsNode
@@ -35,6 +36,7 @@ __all__ = [
     "LlamaCppSamplingPresetNode",
     "LlamaCppSpeculativeGenerateNode",
     "MuseGlimmerResponseParserNode",
+    "MiniMaxSystemPromptPresetNode",
     "OllamaImageListConnectivityNode",
     "OllamaImageListGenerateNode",
     "OllamaImageListOptionsNode",

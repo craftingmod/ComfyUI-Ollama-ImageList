@@ -18,6 +18,10 @@ Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
 
+### Ollama / prompt
+
+- **MiniMax System Prompt Preset** — reads Markdown files from `presets/` and outputs a system prompt for I2V, FL2V, FL2V_LOOP, T2V, R2V, R2I, R2A, or L2V. R2V/R2I/R2A join `PROMPT_REFERENCE_BASE.md` with `PROMPT_<type>.md`; every other type joins `PROMPT_BASE.md` with its mode file. Each pair is separated by one blank line. The optional `enum_string` socket overrides the Combo when connected and rejects values that do not exactly match a preset name.
+
 ### Ollama / llama_cpp
 
 ![Native Workflow Example](./workflows/Native_Vision.webp)

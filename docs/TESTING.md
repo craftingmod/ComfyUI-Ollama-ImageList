@@ -22,6 +22,7 @@ The automated suite covers:
 - normal-node N-gram Preset typing, off-path isolation, lazy API failure, parameter forwarding, 0-to-None conversion, multimodal preservation, mode separation, and cleanup through test doubles;
 - native CLIP Generate Text system templates, IMAGE list flattening, model detection, and Gemma 4 named-parameter compatibility;
 - V3 schemas, backend-specific node categories, extension registration, and the thin package entrypoint;
+- MiniMax system-prompt preset file selection, validated enum-string override, common/reference base concatenation, and release packaging.
 
 The suite does not install or load a real GGUF, start ComfyUI, exercise native `MTMD_VIDEO` decoding, launch a browser, or contact Ollama. Those integrations remain manual because wheel, GPU backend, model, projector, and chat-template compatibility are environment-specific.
 

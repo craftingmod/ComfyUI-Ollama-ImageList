@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- `MiniMax System Prompt Preset` under `Ollama / prompt`, with packaged, editable base and mode-specific Markdown sources for eight prompting modes plus an optional validated `enum_string` override.
 - `Llama.cpp Sequential Generate`, which reuses one loaded model for an input list while resetting context before every independent completion and unloading once after the sequence.
 
 ## 0.5.0 - 2026-08-12

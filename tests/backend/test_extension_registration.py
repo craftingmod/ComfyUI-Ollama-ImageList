@@ -167,6 +167,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_Connectivity",
         "OllamaImageList_Options",
         "OllamaImageList_Generate",
+        "OllamaImageList_MiniMaxSystemPromptPreset",
         "OllamaImageList_LlamaCppSamplingPreset",
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
@@ -186,6 +187,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama Image List Connectivity",
         "Ollama Image List Options",
         "Ollama Generate (Image List)",
+        "MiniMax System Prompt Preset",
         "Llama.cpp Sampling Preset",
         "Llama.cpp Gemma 4 Runtime Preset",
         "Llama.cpp N-gram Speculative Preset",
@@ -205,6 +207,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/Image List",
         "Ollama/Image List",
         "Ollama/Image List",
+        "Ollama/prompt",
         "Ollama/llama_cpp/legacy",
         "Ollama/llama_cpp/legacy",
         "Ollama/llama_cpp/legacy",
@@ -235,6 +238,56 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert {
         schema.node_id for schema in schemas if getattr(schema, "is_dev_only", False)
     } == hidden_legacy_ids
+
+    minimax_class, minimax_schema = registered[
+        "OllamaImageList_MiniMaxSystemPromptPreset"
+    ]
+    assert [(field.name, field.data_type) for field in minimax_schema.inputs] == [
+        ("type", "combo"),
+        ("enum_string", "string"),
+    ]
+    assert minimax_schema.inputs[0].options["options"] == [
+        "I2V",
+        "FL2V",
+        "FL2V_LOOP",
+        "T2V",
+        "R2V",
+        "R2I",
+        "R2A",
+        "L2V",
+    ]
+    assert minimax_schema.inputs[1].options["optional"] is True
+    assert minimax_schema.inputs[1].options["force_input"] is True
+    assert [(field.name, field.data_type) for field in minimax_schema.outputs] == [
+        ("system_prompt", "string"),
+    ]
+    minimax_module = importlib.import_module("backend.nodes.minimax_prompt")
+    base_prompt = minimax_module.BASE_PROMPT_PATH.read_text(
+        encoding="utf-8"
+    ).rstrip("\r\n")
+    for prompt_type in ("I2V", "FL2V", "FL2V_LOOP", "T2V", "L2V"):
+        type_prompt = (
+            minimax_module.PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md"
+        ).read_text(encoding="utf-8").lstrip("\r\n")
+        assert minimax_class.execute(prompt_type) == (
+            f"{base_prompt}\n\n{type_prompt}",
+        )
+    reference_base_prompt = minimax_module.REFERENCE_BASE_PROMPT_PATH.read_text(
+        encoding="utf-8"
+    ).rstrip("\r\n")
+    for prompt_type in ("R2V", "R2I", "R2A"):
+        type_prompt = (
+            minimax_module.PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md"
+        ).read_text(encoding="utf-8").lstrip("\r\n")
+        assert minimax_class.execute(prompt_type) == (
+            f"{reference_base_prompt}\n\n{type_prompt}",
+        )
+    assert minimax_class.execute("I2V", "R2A") == minimax_class.execute("R2A")
+    with pytest.raises(
+        ValueError,
+        match="Unknown MiniMax prompt preset 'invalid'.*I2V.*R2A.*L2V",
+    ):
+        minimax_class.execute("I2V", "invalid")
 
     muse_class, muse_schema = registered[
         "OllamaImageList_MuseGlimmerResponseParser"

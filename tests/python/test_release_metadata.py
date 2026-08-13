@@ -17,6 +17,7 @@ def test_release_identity_and_archive_defaults_are_stable():
     assert '[string]$PackageName = "ComfyUI-Ollama-ImageList"' in build_script
     assert '"CHANGELOG.md"' in build_script
     assert '"docs"' in build_script
+    assert '"presets"' in build_script
     assert '"workflows"' in build_script
 
     publish_workflow = (
