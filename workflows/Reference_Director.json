@@ -1,0 +1,94 @@
+{
+  "id": "cd4aa51d-72d0-4d73-b752-2520f25cdffe",
+  "revision": 0,
+  "last_node_id": 1,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "OllamaImageList_ReferenceDirector",
+      "pos": [80, 80],
+      "size": [560, 500],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "director state",
+          "name": "director_state",
+          "type": "STRING",
+          "widget": {
+            "name": "director_state"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "shape": 6,
+          "links": null
+        },
+        {
+          "localized_name": "image captions",
+          "name": "image_captions",
+          "type": "STRING",
+          "shape": 6,
+          "links": null
+        },
+        {
+          "localized_name": "audios",
+          "name": "audios",
+          "type": "AUDIO",
+          "shape": 6,
+          "links": null
+        },
+        {
+          "localized_name": "audio captions",
+          "name": "audio_captions",
+          "type": "STRING",
+          "shape": 6,
+          "links": null
+        },
+        {
+          "localized_name": "videos",
+          "name": "videos",
+          "type": "VIDEO",
+          "shape": 6,
+          "links": null
+        },
+        {
+          "localized_name": "video captions",
+          "name": "video_captions",
+          "type": "STRING",
+          "shape": 6,
+          "links": null
+        },
+        {
+          "localized_name": "manifest json",
+          "name": "manifest_json",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "OllamaImageList_ReferenceDirector"
+      },
+      "widgets_values": [
+        "{\"version\":1,\"items\":{},\"visualOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"previewMaxPixels\":1000000,\"waveformPeaks\":300,\"activeChannel\":\"visual\"}}"
+      ]
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1,
+      "offset": [0, 0]
+    }
+  },
+  "version": 0.4
+}

@@ -17,5 +17,5 @@ def test_v3_entrypoint_exports_loader_and_frontend_directory():
     )
 
     assert callable(module.comfy_entrypoint)
-    assert module.WEB_DIRECTORY == "./js"
+    assert module.WEB_DIRECTORY == "./web"
     assert module.__all__ == ["WEB_DIRECTORY", "comfy_entrypoint"]

@@ -1,0 +1,179 @@
+import { describe, expect, test } from "bun:test";
+
+import { executionFingerprintSource, projectDirectorExecution } from "../src/reference-director/execution";
+import { LocalHistory, canRedo, canUndo, commitHistory, createHistory, redoHistory, undoHistory } from "../src/reference-director/history";
+import { directorReducer } from "../src/reference-director/reducer";
+import { deserializeDirectorState, serializeDirectorState } from "../src/reference-director/serialization";
+import { createEmptyDirectorState, createMediaItem, type MediaSource } from "../src/reference-director/types";
+import { validateDirectorState } from "../src/reference-director/validation";
+
+const source = (name: string, mime: string): MediaSource => ({
+  path: `reference_director/sources/${name}`,
+  mime,
+  sha256: "a".repeat(64),
+  size: 128,
+});
+
+describe("Reference Director state", () => {
+  test("adds each media kind to the correct independent order", () => {
+    let state = createEmptyDirectorState();
+    state = directorReducer(state, { type: "add", item: createMediaItem("image", source("i.webp", "image/webp"), "i") });
+    state = directorReducer(state, { type: "add", item: createMediaItem("audio", source("a.wav", "audio/wav"), "a") });
+    state = directorReducer(state, { type: "add", item: createMediaItem("video", source("v.mp4", "video/mp4"), "v") });
+
+    expect(state.visualOrder).toEqual(["i", "v"]);
+    expect(state.audioOrder).toEqual(["a", "v"]);
+  });
+
+  test("reorders, moves, toggles and removes without mutating previous state", () => {
+    const first = createMediaItem("image", source("a.png", "image/png"), "a");
+    const second = createMediaItem("image", source("b.png", "image/png"), "b");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: first });
+    state = directorReducer(state, { type: "add", item: second });
+    const previous = state;
+    state = directorReducer(state, { type: "move", channel: "visual", id: "a", delta: 1 });
+    state = directorReducer(state, { type: "toggle", channel: "visual", id: "a" });
+    state = directorReducer(state, { type: "remove", id: "b" });
+
+    expect(previous.visualOrder).toEqual(["a", "b"]);
+    expect(state.visualOrder).toEqual(["a"]);
+    expect(state.items.a?.kind === "image" && state.items.a.visualEnabled).toBe(false);
+    expect(state.items.b).toBeUndefined();
+  });
+
+  test("keeps a video audio caption override separate from its visual caption", () => {
+    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
+    state = directorReducer(state, { type: "set-caption", id: "v", channel: "visual", caption: "visual" });
+    state = directorReducer(state, { type: "set-caption", id: "v", channel: "audio", caption: "spoken" });
+    expect(state.items.v).toMatchObject({ caption: "visual", audioCaptionOverride: "spoken" });
+  });
+
+  test("defaults a confirmed silent video out of the audio output", () => {
+    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "silent", { hasAudio: false });
+    expect(video.kind === "video" && video.audioEnabled).toBe(false);
+  });
+});
+
+describe("validation and serialization", () => {
+  test("migrates snake_case state and repairs missing orders", () => {
+    const result = validateDirectorState({
+      version: 0,
+      items: {
+        video: {
+          id: "video",
+          kind: "video",
+          source: source("v.mp4", "video/mp4"),
+          caption: "clip",
+          visual_enabled: false,
+          audio_enabled: true,
+          audio_caption_override: "voice",
+        },
+      },
+      visual_order: [],
+      audio_order: [],
+      ui: { waveform_peaks: 999, active_channel: "audio" },
+    });
+    expect(result.migrated).toBe(true);
+    expect(result.state.visualOrder).toEqual(["video"]);
+    expect(result.state.audioOrder).toEqual(["video"]);
+    expect(result.state.ui.waveformPeaks).toBe(500);
+    expect(result.state.ui.activeChannel).toBe("audio");
+  });
+
+  test("falls back safely for malformed JSON and unsupported versions", () => {
+    expect(deserializeDirectorState("{").state).toEqual(createEmptyDirectorState());
+    expect(validateDirectorState({ version: 20 }).state).toEqual(createEmptyDirectorState());
+  });
+
+  test("rejects oversized workflow state before parsing JSON", () => {
+    const restored = deserializeDirectorState(" ".repeat(1_000_001));
+    expect(restored.state).toEqual(createEmptyDirectorState());
+    expect(restored.issues).toContain("State JSON exceeded the 1,000,000-character limit.");
+  });
+
+  test("serializes deterministically and stores no runtime data", () => {
+    let state = createEmptyDirectorState();
+    state = directorReducer(state, { type: "add", item: createMediaItem("audio", source("a.wav", "audio/wav"), "z") });
+    state = directorReducer(state, { type: "add", item: createMediaItem("image", source("i.png", "image/png"), "a") });
+    const serialized = serializeDirectorState(state);
+    expect(serialized.indexOf('"a"')).toBeLessThan(serialized.indexOf('"z"'));
+    expect(serialized).not.toContain("blob:");
+    expect(deserializeDirectorState(serialized).state).toEqual(state);
+  });
+
+  test("keeps a portable content-addressed mask in state and execution", () => {
+    const image = createMediaItem("image", source("i.png", "image/png"), "i");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
+    const before = executionFingerprintSource(state);
+    state = directorReducer(state, {
+      type: "apply-image-edit",
+      id: "i",
+      edit: {
+        mask: source("mask.png", "image/png"),
+        maskMode: "keep",
+        revision: 1,
+      },
+    });
+    const restored = deserializeDirectorState(serializeDirectorState(state)).state;
+    expect(restored.items.i?.kind === "image" && restored.items.i.edit?.mask?.path).toBe(
+      "reference_director/sources/mask.png",
+    );
+    expect(projectDirectorExecution(restored).images[0]?.edit?.maskMode).toBe("keep");
+    expect(executionFingerprintSource(restored)).not.toBe(before);
+  });
+});
+
+describe("history and execution projection", () => {
+  test("supports bounded undo/redo and caption merge keys", () => {
+    let history = createHistory(0);
+    history = commitHistory(history, 1, { mergeKey: "caption" });
+    history = commitHistory(history, 2, { mergeKey: "caption" });
+    expect(history.past).toEqual([0]);
+    expect(canUndo(history)).toBe(true);
+    history = undoHistory(history);
+    expect(history.present).toBe(0);
+    expect(canRedo(history)).toBe(true);
+    history = redoHistory(history);
+    expect(history.present).toBe(2);
+  });
+
+  test("bounds editor-local snapshot history", () => {
+    const history = new LocalHistory(0, 20);
+    for (let value = 1; value <= 30; value += 1) history.commit(value);
+    for (let count = 0; count < 25; count += 1) history.undo();
+    expect(history.value).toBe(10);
+  });
+
+  test("maps video sound to a derived audio id and excludes UI from fingerprint", () => {
+    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
+    state = directorReducer(state, { type: "set-caption", id: "v", channel: "audio", caption: "voice" });
+    const projection = projectDirectorExecution(state);
+    expect(projection.audios[0]).toMatchObject({ id: "v:audio", kind: "audio", derivedFrom: "v", caption: "voice" });
+    const fingerprint = executionFingerprintSource(state);
+    state = directorReducer(state, { type: "set-ui", values: { cardAspectRatio: "1 / 1", previewMaxPixels: 200_000 } });
+    expect(executionFingerprintSource(state)).toBe(fingerprint);
+  });
+
+  test("drops API-only source revisions from the backend execution projection", () => {
+    const image = createMediaItem("image", { ...source("i.png", "image/png"), revision: 2 }, "i");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
+    state = directorReducer(state, {
+      type: "apply-image-edit",
+      id: "i",
+      edit: { mask: { ...source("mask.png", "image/png"), revision: 3 }, maskMode: "keep", revision: 2 },
+    });
+    const projection = projectDirectorExecution(state);
+    expect(projection.images[0]?.source).not.toHaveProperty("revision");
+    expect(projection.images[0]?.edit?.mask).not.toHaveProperty("revision");
+    expect(projection.images[0]?.edit?.revision).toBe(2);
+  });
+
+  test("clamps captions to the backend contract", () => {
+    const image = createMediaItem("image", source("i.png", "image/png"), "i");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
+    state = directorReducer(state, { type: "set-caption", id: "i", caption: "x".repeat(20_000) });
+    expect(state.items.i?.caption).toHaveLength(16_384);
+  });
+});

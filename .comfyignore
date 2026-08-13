@@ -14,3 +14,10 @@ uv.lock
 .python-version
 .gitattributes
 .gitignore
+
+# Frontend source and build tooling (web/index.js is the shipped artifact)
+frontend/
+node_modules/
+package.json
+bun.lock
+bun.lockb

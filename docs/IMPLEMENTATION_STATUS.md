@@ -21,6 +21,10 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 | Native model lifetime | Serialized, one completion per load, unconditional close in `finally`, no retained model output or cache |
 | Authentication | URL-supported only; credentials are redacted from diagnostics |
 | Ollama Cloud | Not compatibility-tested |
+| Reference Director frontend | Strict TypeScript compiled by Vite 8 to the shipped `web/index.js`; Bun is development-only |
+| Reference Director state | Version 1 JSON with stable item IDs, independent visual/audio order, raw user captions, and UI-only preferences excluded from execution fingerprints |
+| Reference Director video audio | Fixed `preserve` policy: VIDEO retains embedded audio and an enabled Audio channel emits a separate `<video-id>:audio` value |
+| Reference Director storage | Content-addressed files below `ComfyUI/input/reference_director`, with managed relative paths and size/hash/link validation |
 
 ## Milestones
 
@@ -36,7 +40,11 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 - Normal Generate supports a separate typed N-gram Speculative Preset backed by lazy `LlamaNGramMapDecoding`, with an unchanged off path, no draft GGUF, no private-stat inspection, and explicit rejection of mixed native/n-gram modes.
 - Phase 6: per-request Ollama unload is implemented through `unload_after_response`; native llama.cpp audio and video message construction is implemented, while broad real-model compatibility validation remains pending. A dedicated native unload node is unnecessary because native models are never cached.
 - Native CLIP Generate Text: implemented with official sampling/generation calls, model-specific system-role templates, one-call IMAGE lists, tokenizer capability detection, and Gemma 4 PR #15450 compatibility fallback.
+- Reference Director: implemented as a V3 custom DOM widget and backend node under `Ollama / Multimodal`, with multi-file upload, vertically stacked full-width Visual/Audio boards, card-surface dragging, captions, enable toggles, ordering, undo/redo, cached previews/waveforms, image crop/mask/flip/background editing with optional lazy `rembg` extraction, audio/video trim ranges, saved workflow state, six aligned list outputs, and a payload-free manifest.
+- Reference Director media execution: implemented with lazy Pillow/PyAV/NumPy/torch imports, native ComfyUI VIDEO values, source containment and hash verification, explicit image/audio/video limits, crop-selective bounded audio decoding, RGBA preservation for transparent edits, and derived video AUDIO output. Automated state, manifest, media-loader, route, custom-widget, DOM, API, and packaging coverage is implemented; the real-ComfyUI smoke checklist remains a release step.
 
 The Ollama node intentionally exposes no audio or video input. Native llama.cpp support depends on a separately installed platform/Python/native-backend-compatible wheel, a wheel built with `MTMD_VIDEO` for VIDEO, and modality-specific GGUF/mmproj compatibility. No separate FFmpeg executable is required by this node. Detailed operational documentation is in [`LLAMA_CPP.md`](LLAMA_CPP.md).
 
 Full `/api/object_info` discovery in a started ComfyUI process remains a manual release check until there is an end-to-end workflow test worth the additional harness cost.
+
+Reference Director's detailed output contract, managed storage model, compatibility boundaries, and manual release checks are documented in [`REFERENCE_DIRECTOR.md`](REFERENCE_DIRECTOR.md).

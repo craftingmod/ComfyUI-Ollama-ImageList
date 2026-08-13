@@ -18,6 +18,20 @@ Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 - **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
 - **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
 
+### Ollama / Multimodal
+
+Workflow example: [Reference_Director.json](./workflows/Reference_Director.json)
+
+- **Reference Director** — adds local image, audio, and video files to vertically stacked full-width boards; keeps independent visual and audio order; supports whole-card-surface reordering; attaches raw user captions; enables or disables each output; and applies non-destructive image crops, optional `rembg` foreground extraction, erase/restore masks, flips, backgrounds, and per-item audio/video trims.
+
+The node emits seven outputs: `images`, `image_captions`, `audios`, `audio_captions`, `videos`, `video_captions`, and `manifest_json`. The first six are explicit ComfyUI data lists. Each media list and its caption list are index-aligned, while `manifest_json` records stable IDs, source hashes, enabled state, edits, derivation, and output order without embedding media payloads or inserting captions into a generation prompt.
+
+Video follows the fixed `preserve` policy: its VIDEO value retains the source container's embedded audio, and enabling the card's audio channel also emits a separately decoded AUDIO item with the derived ID `<video-id>:audio`. A workflow that consumes both paths can therefore hear the soundtrack twice unless the downstream video consumer ignores embedded audio or the Director audio channel is disabled for that video.
+
+Current per-workflow limits are 32 images, 8 standalone audio items, 4 videos, 256 MiB per source, 40 million decoded pixels per image, 16,384 characters per caption, two hours of decoded audio, 256 MiB per selected decoded AUDIO waveform, a 1 GiB aggregate IMAGE/AUDIO tensor budget, and one hour of video. Audio crops are selected while decoding instead of retaining the unselected source. Transparent image edits produce RGBA IMAGE tensors; choose a solid editor background when the downstream node requires RGB. An output may be an empty list when every item in that channel is disabled, so confirm that the receiving node accepts empty ComfyUI lists.
+
+See [Reference Director](docs/REFERENCE_DIRECTOR.md) for usage, state and manifest contracts, storage/security behavior, compatibility, and a release smoke checklist.
+
 ### Ollama / prompt
 
 - **MiniMax System Prompt Preset** — reads Markdown files from `presets/` and outputs a system prompt for I2V, FL2V, FL2V_LOOP, T2V, R2V, R2I, R2A, or L2V. R2V/R2I/R2A join `PROMPT_REFERENCE_BASE.md` with `PROMPT_<type>.md`; every other type joins `PROMPT_BASE.md` with its mode file. Each pair is separated by one blank line. The optional `enum_string` socket overrides the Combo when connected and rejects values that do not exactly match a preset name.
@@ -73,6 +87,15 @@ To run the development tests, sync the development environment:
 
 ```bash
 uv sync --locked --group dev
+```
+
+Published packages and release archives already contain the compiled `web/index.js`; installing or running the custom node does **not** require Bun, Node.js, TypeScript, or Vite. Frontend contributors need Bun 1.3.14 or newer. The frontend uses strict TypeScript and Vite 8:
+
+```bash
+bun install --frozen-lockfile
+bun run check:frontend
+bun run dev       # type-check, then rebuild web/index.js on changes
+bun run build     # production type-check and Vite build
 ```
 
 ### Ollama Nodes
@@ -221,6 +244,8 @@ Build the versioned manual-install archive with:
 ```powershell
 ./scripts/build-custom-node-zip.ps1
 ```
+
+The archive script runs the strict TypeScript/Vite production build first, so a source checkout needs Bun. `-SkipFrontendBuild` is reserved for automation that has already run `bun run check:frontend` and verified `web/index.js`.
 
 The default output is `dist/ComfyUI-Ollama-ImageList-<version>.zip`; the Registry ID remains `ollama-image-list`.
 

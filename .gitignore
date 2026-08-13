@@ -1,6 +1,7 @@
 node_modules/
 __pycache__/
 .pytest_cache/
+.pytest-*/
 dist/
 coverage/
 .DS_Store
@@ -15,6 +16,8 @@ yarn-error.log*
 pnpm-debug.log*
 .venv/
 .uv-cache/
+.bun-tmp/
+.test-tmp/
 .worktrees/
 .vscode/
 .claude/

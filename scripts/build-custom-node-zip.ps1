@@ -15,6 +15,10 @@ Name of the top-level folder stored in the ZIP.
 .PARAMETER Force
 Replaces an archive that already exists.
 
+.PARAMETER SkipFrontendBuild
+Uses the existing web/index.js instead of rebuilding it. Intended only for CI
+jobs that already ran the complete frontend check immediately beforehand.
+
 .EXAMPLE
 ./scripts/build-custom-node-zip.ps1
 
@@ -28,7 +32,8 @@ Replaces an archive that already exists.
 param(
     [string]$OutputDirectory = "dist",
     [string]$PackageName = "ComfyUI-Ollama-ImageList",
-    [switch]$Force
+    [switch]$Force,
+    [switch]$SkipFrontendBuild
 )
 
 Set-StrictMode -Version Latest
@@ -86,13 +91,41 @@ $optionalRootFiles = @(
 $packageDirectories = @(
     "backend",
     "web",
-    "js",
     "assets",
     "presets",
     "locales",
     "docs",
     "workflows"
 )
+
+if (-not $SkipFrontendBuild) {
+    $bun = Get-Command "bun" -ErrorAction SilentlyContinue
+    if ($null -eq $bun) {
+        throw "Bun is required to build the packaged frontend. Install Bun or use -SkipFrontendBuild only after a verified frontend build."
+    }
+    Push-Location $repoRoot
+    try {
+        & $bun.Source run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "The frontend build failed with exit code $LASTEXITCODE."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+$webBundle = Join-Path $repoRoot "web/index.js"
+if (-not (Test-Path -LiteralPath $webBundle -PathType Leaf)) {
+    throw "Required frontend bundle is missing: $webBundle. Run 'bun run build' first."
+}
+
+$webJavaScriptFiles = @(
+    Get-ChildItem -LiteralPath (Join-Path $repoRoot "web") -Filter "*.js" -File -Recurse
+)
+if ($webJavaScriptFiles.Count -ne 1 -or $webJavaScriptFiles[0].Name -ne "index.js") {
+    throw "The web directory must contain exactly one JavaScript bundle named index.js."
+}
 
 $stagingRoot = Join-Path (
     [System.IO.Path]::GetTempPath()

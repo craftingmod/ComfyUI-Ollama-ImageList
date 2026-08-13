@@ -7,6 +7,15 @@ uv sync --locked --group dev
 uv run pytest
 ```
 
+The Reference Director frontend requires Bun 1.3.14 or newer. Install the locked frontend dependencies, then run strict TypeScript checks, DOM/state/API unit tests, and the Vite 8 production build:
+
+```bash
+bun install --frozen-lockfile
+bun run check:frontend
+```
+
+For focused iterations, use `bun run typecheck`, `bun run test:frontend`, `bun run build`, or `bun run dev`. The last command type-checks once and rebuilds `web/index.js` in watch mode. Runtime users do not need Bun because the compiled bundle is included in the package.
+
 The automated suite covers:
 
 - image/audio/video normalization, list flattening, limits, PNG encoding, and PCM16 WAV encoding;
@@ -23,6 +32,9 @@ The automated suite covers:
 - native CLIP Generate Text system templates, IMAGE list flattening, model detection, and Gemma 4 named-parameter compatibility;
 - V3 schemas, backend-specific node categories, extension registration, and the thin package entrypoint;
 - MiniMax system-prompt preset file selection, validated enum-string override, common/reference base concatenation, and release packaging.
+- Reference Director versioned state validation, independent visual/audio ordering, toggle and caption semantics, video-derived audio IDs, execution fingerprints that exclude UI-only preferences, payload-free manifests, and output-list alignment;
+- Reference Director managed-path containment, symlink/reparse-point rejection, content hash/size checks, lazy image/audio/video media loading, upload/metadata/preview/waveform/edit routes, mask materialization, cache validation, and stale edit revisions;
+- Reference Director frontend reducer/history/serialization behavior, migrations, API request mapping, custom-widget restoration/cleanup, channel rendering, bounded mask-brush history, and native drag arming under a browser-like test environment.
 
 The suite does not install or load a real GGUF, start ComfyUI, exercise native `MTMD_VIDEO` decoding, launch a browser, or contact Ollama. Those integrations remain manual because wheel, GPU backend, model, projector, and chat-template compatibility are environment-specific.
 
@@ -45,3 +57,22 @@ For normal-node n-gram speculative decoding, run the same repetition-heavy promp
 In the frontend, confirm that N-gram detail widgets are disabled at `off` and restored with their prior values at `ngram` on both N-gram configuration nodes. Confirm Model and Hardware Profile custom widgets are enabled only for `Custom`, retain their values across profile changes, and that `n_ubatch=0` reaches the backend as no override. Confirm Compact Generate accepts a disconnected Hardware Runtime input as GPU Full Offload, then applies a connected Hardware Runtime Profile instead. On Thinking / Reasoning Config, confirm effort and token-limit widgets are enabled only for `on`; verify disconnected/`auto` leaves template arguments untouched for ordinary profiles, selects `on` for Qwen 3.5 Thinking and `off` for Qwen 3.5 Non-thinking, and rejects an explicitly contradictory mode. Verify `off` sends an explicit disable and `max_reasoning_tokens=0` sends no budget. Confirm `presence_penalty` is editable in Custom and reaches the targeted fork as `present_penalty`. Confirm the node is discoverable by both `thinking` and `reasoning` searches. Confirm Compact Generate sends no image-token override at `image_max_tokens=0` and enables it for a positive value. Confirm the Compact N-gram and Native Speculative nodes can each connect to the same Compact Generate `speculative` input. On Native Speculative Config, confirm custom fields are enabled only for `Custom`, the draft selector is disabled for `Off` and Qwen internal MTP, and `mtp_provider` normalization matches the chosen provider. On the normal Generate node, connect and disconnect Sampling and Runtime presets and confirm that only their corresponding overridden widgets are disabled, with values preserved across each round trip.
 
 Before publishing native CLIP support, also verify Qwen3-VL or Qwen3.5 with two IMAGE list items and verify Gemma 4 with both a same-resolution batch and, on a ComfyUI build containing PR #15450, two different resolutions.
+
+## Reference Director manual smoke
+
+The automated frontend suite uses a simulated DOM and the Python suite uses decoder/test doubles where appropriate. Before publishing Reference Director, run the following in a real target ComfyUI installation:
+
+1. Add **Reference Director** from `Ollama / Multimodal`; verify the custom board renders, resizes with the node, and reports no browser-console errors.
+2. Add two differently sized images, one audio file, one video with audio, and one silent video. Confirm progress state, image/video previews, Audio-channel waveforms, and metadata; confirm the silent video's **A** output is disabled automatically.
+3. Enter unique captions, including a separate Audio caption for one video. Reorder Visual and Audio independently with drag/drop and arrow controls, then toggle one card off in each channel.
+4. Use board undo/redo. Open the image editor; exercise crop, viewport pan/zoom, Erase/Restore with different brush sizes/opacities, horizontal/vertical flip, transparent/solid background, bounded local undo/redo, Cancel, and Apply. Confirm Apply stores a content-addressed mask and creates a new content-addressed PNG/revision without changing the original source.
+5. Trim the audio and video to known second ranges, cancel once, then apply. Confirm the native AUDIO waveform/sample count and VIDEO duration match the selected ranges.
+6. Queue the node. Verify `images`/`image_captions`, `audios`/`audio_captions`, and `videos`/`video_captions` have equal lengths and identical per-channel order. Verify the video-derived manifest ID is `<video-id>:audio`.
+7. Confirm VIDEO retains its embedded audio while the enabled video Audio channel emits a separate decoded AUDIO value. Ensure the intended downstream workflow does not play both unintentionally.
+8. Inspect `manifest_json`: disabled cards remain in `items`; active IDs match the three output lists; captions are marked `source: user`; no base64 media or absolute server path is present.
+9. Save and reload the workflow. Confirm cards, independent orders, captions, toggles, edit/trim state, and display settings are restored, then execute again.
+10. Disable every card in one channel and verify an empty list is produced. Test the actual downstream consumer because some third-party nodes assume a non-empty list.
+11. Apply a transparent edit and confirm the IMAGE has four RGBA channels. Repeat with a solid background when testing an RGB-only downstream node.
+12. Replace a managed source on disk and confirm execution rejects the size/hash mismatch. Restore or re-add the file rather than bypassing identity validation.
+
+The longer operational checklist, storage layout, and compatibility notes are in [`REFERENCE_DIRECTOR.md`](REFERENCE_DIRECTOR.md).

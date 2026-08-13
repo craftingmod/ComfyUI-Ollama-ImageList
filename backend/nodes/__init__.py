@@ -19,6 +19,7 @@ from .minimax_prompt import MiniMaxSystemPromptPresetNode
 from .ollama_connectivity import OllamaImageListConnectivityNode
 from .ollama_generate import OllamaImageListGenerateNode
 from .ollama_options import OllamaImageListOptionsNode
+from .reference_director import ReferenceDirectorNode
 
 __all__ = [
     "ClipImageListGenerateNode",
@@ -40,4 +41,5 @@ __all__ = [
     "OllamaImageListConnectivityNode",
     "OllamaImageListGenerateNode",
     "OllamaImageListOptionsNode",
+    "ReferenceDirectorNode",
 ]

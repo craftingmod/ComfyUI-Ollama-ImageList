@@ -25,6 +25,7 @@ from .nodes import (
     OllamaImageListConnectivityNode,
     OllamaImageListGenerateNode,
     OllamaImageListOptionsNode,
+    ReferenceDirectorNode,
 )
 from .routes import register_routes
 
@@ -50,6 +51,7 @@ class OllamaImageListExtension(ComfyExtension):
             LlamaCppMediaDiagnosticsNode,
             MuseGlimmerResponseParserNode,
             ClipImageListGenerateNode,
+            ReferenceDirectorNode,
         ]
 
 

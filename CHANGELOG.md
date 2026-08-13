@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `Reference Director` under `Ollama / Multimodal`, with a persistent custom board for local image, audio, and video uploads; independent Visual/Audio ordering; raw user captions; enable toggles; drag/keyboard reordering; and undo/redo.
+- Non-destructive image crop, erase/restore mask painting with bounded local undo/redo, horizontal/vertical flip, transparent/solid background editing, plus per-item audio/video trim ranges, bounded preview proxies, and waveform summaries.
+- Explicit IMAGE/STRING, AUDIO/STRING, and VIDEO/STRING list pairs plus a deterministic payload-free manifest containing stable IDs, source hashes, disabled items, edit/crop state, output order, and video-audio derivation.
+- Managed, content-addressed Reference Director upload/edit/cache routes and a minimal `workflows/Reference_Director.json` example.
+
+### Changed
+
+- Stacked the Reference Director Visual and Audio boards vertically, expanded drag arming from the six-dot handle to each card's non-control surface, and made the × delete action visibly red.
+- Added optional lazy `rembg` foreground extraction to image edits; the existing node pack remains usable when the extra is absent.
+- Frontend extensions now build from strict TypeScript with Vite 8 into one shipped `web/index.js`; Bun 1.3.14 or newer is required only for development, not for installation or runtime.
+- VIDEO uses the fixed `preserve` policy: its native VIDEO value retains embedded audio, while an enabled video Audio channel also emits a separately decoded `<video-id>:audio` item.
+
+### Security
+
+- Reference media loading rejects absolute/traversing paths, symlinks, junctions/reparse points, unsupported managed locations, size changes, and SHA-256 identity mismatches. Uploads are streamed with a 256 MiB limit and content inspection, while manifests and errors omit media payloads and absolute server paths.
+
+### Compatibility
+
+- Transparent image edits emit RGBA IMAGE tensors; select a solid background for downstream nodes that require RGB.
+- A fully disabled channel emits an empty typed list, which may require an empty-list-aware downstream node.
+- Reference Director VIDEO output requires a ComfyUI V3 build that exposes native `VideoFromFile` and trimming support.
+
 ## 0.6.0 - 2026-08-13
 
 ### Added

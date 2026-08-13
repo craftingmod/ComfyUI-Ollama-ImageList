@@ -90,6 +90,13 @@ class Routes:
 
         return register
 
+    def get(self, path):
+        def register(handler):
+            self.handlers[path] = handler
+            return handler
+
+        return register
+
 
 def install_comfy_api_stub(monkeypatch):
     io = SimpleNamespace(
@@ -182,6 +189,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppMediaDiagnostics",
         "OllamaImageList_MuseGlimmerResponseParser",
         "OllamaImageList_CLIPGenerateText",
+        "OllamaImageList_ReferenceDirector",
     ]
     assert [schema.display_name for schema in schemas] == [
         "Ollama Image List Connectivity",
@@ -202,6 +210,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Llama.cpp Media Diagnostics",
         "Muse Glimmer Response Parser",
         "CLIP Generate Text (Image List)",
+        "Reference Director",
     ]
     assert [schema.category for schema in schemas] == [
         "Ollama/Image List",
@@ -222,8 +231,17 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/llama_cpp/utils",
         "Ollama/llama_cpp/utils",
         "Ollama/CLIP",
+        "Ollama/Multimodal",
     ]
-    assert routes.handlers.keys() == {"/ollama_image_list/models"}
+    assert routes.handlers.keys() == {
+        "/ollama_image_list/models",
+        "/ollama_multimodal/reference_director/upload",
+        "/ollama_multimodal/reference_director/metadata",
+        "/ollama_multimodal/reference_director/image_proxy",
+        "/ollama_multimodal/reference_director/waveform",
+        "/ollama_multimodal/reference_director/apply_edit",
+        "/ollama_multimodal/reference_director/cache/{kind}/{filename}",
+    }
 
     registered = {
         schema.node_id: (node_class, schema)

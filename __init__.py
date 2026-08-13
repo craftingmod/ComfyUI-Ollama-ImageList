@@ -4,7 +4,7 @@ async def comfy_entrypoint():
     return await load_extension()
 
 
-WEB_DIRECTORY = "./js"
+WEB_DIRECTORY = "./web"
 
 
 __all__ = ["WEB_DIRECTORY", "comfy_entrypoint"]

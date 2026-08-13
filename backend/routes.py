@@ -5,6 +5,7 @@ from typing import Any
 
 from .backends.ollama import list_models
 from .core.errors import BackendError, InputNormalizationError
+from .reference_routes import register_reference_routes
 
 
 MODELS_ROUTE = "/ollama_image_list/models"
@@ -43,7 +44,9 @@ def register_routes() -> None:
 
     from server import PromptServer
 
-    PromptServer.instance.routes.post(MODELS_ROUTE)(fetch_models_endpoint)
+    routes = PromptServer.instance.routes
+    routes.post(MODELS_ROUTE)(fetch_models_endpoint)
+    register_reference_routes(routes)
     _routes_registered = True
 
 
