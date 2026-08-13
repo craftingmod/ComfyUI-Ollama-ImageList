@@ -162,7 +162,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppGenerate",
             display_name="Llama.cpp Generate (Multimodal)",
-            category="Ollama/llama_cpp",
+            category="Ollama/llama_cpp/legacy",
             description=(
                 "Loads one local GGUF model, analyzes optional image, audio, and video inputs in "
                 "one llama-cpp-python chat request, then closes and releases the model "
@@ -170,6 +170,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             ),
             is_input_list=True,
             not_idempotent=True,
+            is_dev_only=True,
             inputs=[
                 io.Combo.Input(
                     "model_path",

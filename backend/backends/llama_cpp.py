@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Any
 
 from ..core import BackendError, InputNormalizationError, MediaBundle
@@ -41,7 +41,7 @@ _SPECULATIVE_STAT_KEYS = (
     "accepted_tokens",
 )
 _DEFAULT_N_UBATCH = 512
-_NATIVE_EXECUTION_LOCK = Lock()
+_NATIVE_EXECUTION_LOCK = RLock()
 _LOGGER = logging.getLogger(__name__)
 _JAMEPENG_RELEASES_URL = "https://github.com/JamePeng/llama-cpp-python/releases/"
 _VISION_INSTALL_GUIDE_URL = (
@@ -82,6 +82,95 @@ class LlamaCppResult:
     raw: dict[str, Any]
     metrics: dict[str, Any]
     media_diagnostics: dict[str, Any]
+
+
+class _SequentialLlamaProxy:
+    def __init__(
+        self,
+        session: "_SequentialLlamaSession",
+        transient_resources: tuple[Any, ...],
+    ):
+        object.__setattr__(self, "_session", session)
+        object.__setattr__(self, "_transient_resources", transient_resources)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session.llm, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in {"_session", "_transient_resources"}:
+            object.__setattr__(self, name, value)
+            return
+        if name == "chat_handler":
+            old_value = getattr(self._session.llm, name, None)
+            if old_value is not None and old_value is not value:
+                close_resource = getattr(old_value, "close", None)
+                if callable(close_resource):
+                    close_resource()
+        setattr(self._session.llm, name, value)
+
+    def create_chat_completion(self, **kwargs: Any) -> Any:
+        llm = self._session.llm
+        if hasattr(llm, "_native_speculative"):
+            reset = getattr(llm, "reset", None)
+            if not callable(reset):
+                raise BackendError(
+                    "The native-speculative llama-cpp-python fork must expose "
+                    "Llama.reset() for independent sequential requests."
+                )
+            reset()
+        else:
+            context = getattr(llm, "_ctx", None)
+            memory_clear = getattr(context, "memory_clear", None)
+            if not callable(memory_clear):
+                raise BackendError(
+                    "Sequential generation requires either native-speculative "
+                    "Llama.reset() support or llama._ctx.memory_clear(True)."
+                )
+            memory_clear(True)
+            llm.n_tokens = 0
+        self._session.reset_count += 1
+        return llm.create_chat_completion(**kwargs)
+
+    def close(self) -> None:
+        for resource in self._transient_resources:
+            close_resource = getattr(resource, "close", None)
+            if callable(close_resource):
+                close_resource()
+
+
+class _SequentialLlamaSession:
+    def __init__(self, llama_class: type):
+        self._llama_class = llama_class
+        self.llm: Any | None = None
+        self.reset_count = 0
+
+    def create(self, **kwargs: Any) -> _SequentialLlamaProxy:
+        if self.llm is None:
+            self.llm = self._llama_class(**kwargs)
+            transient_resources: tuple[Any, ...] = ()
+        else:
+            new_handler = kwargs.get("chat_handler")
+            old_handler = getattr(self.llm, "chat_handler", None)
+            if new_handler is not None and new_handler is not old_handler:
+                close_handler = getattr(old_handler, "close", None)
+                if callable(close_handler):
+                    close_handler()
+                self.llm.chat_handler = new_handler
+            transient_resources = tuple(
+                resource
+                for name in ("draft_model",)
+                if (resource := kwargs.get(name)) is not None
+            )
+        return _SequentialLlamaProxy(self, transient_resources)
+
+    def close(self) -> None:
+        if self.llm is None:
+            return
+        try:
+            self.llm.close()
+        finally:
+            self.llm = None
+            gc.collect()
 
 
 def _import_bindings() -> LlamaCppBindings:
@@ -541,7 +630,7 @@ def _create_handler(
     handler: str,
     mmproj_path: str | None,
     verbose: bool,
-    thinking: bool,
+    thinking: bool | None,
     reasoning_strength: str | None,
     image_max_tokens: int | None,
 ) -> Any | None:
@@ -566,14 +655,14 @@ def _create_handler(
     }
     if image_max_tokens is not None:
         handler_kwargs["image_max_tokens"] = image_max_tokens
-    if handler == "gemma4":
+    if handler == "gemma4" and thinking is not None:
         handler_kwargs["enable_thinking"] = thinking
-    elif handler == "qwen3_vl":
+    elif handler == "qwen3_vl" and thinking is not None:
         handler_kwargs["force_reasoning"] = thinking
-    else:
+    elif thinking is not None or reasoning_strength is not None:
         handler_kwargs["extra_template_arguments"] = {
-            "enable_thinking": thinking,
-            "force_reasoning": thinking,
+            "enable_thinking": bool(thinking),
+            "force_reasoning": bool(thinking),
         }
         if reasoning_strength is not None:
             handler_kwargs["extra_template_arguments"]["reasoning_strength"] = (
@@ -588,9 +677,11 @@ def _install_text_template_handler(
     bindings: LlamaCppBindings,
     llm: Any,
     *,
-    thinking: bool,
+    thinking: bool | None,
     reasoning_strength: str | None,
 ) -> bool:
+    if thinking is None and reasoning_strength is None:
+        return False
     formatter_class = bindings.jinja_formatter_class
     to_handler = bindings.chat_formatter_to_handler
     metadata = getattr(llm, "metadata", None)
@@ -677,7 +768,7 @@ def _optional_positive_override(name: str, enabled: bool, value: int) -> int | N
     return normalized
 
 
-def _effective_reasoning_strength(thinking: bool, value: str) -> str | None:
+def _effective_reasoning_strength(thinking: bool | None, value: str) -> str | None:
     if not thinking:
         return None
     normalized = str(value).strip().lower()
@@ -688,7 +779,7 @@ def _effective_reasoning_strength(thinking: bool, value: str) -> str | None:
     return None if normalized == "auto" else normalized
 
 
-def _effective_reasoning_budget(thinking: bool, value: int) -> int:
+def _effective_reasoning_budget(thinking: bool | None, value: int) -> int:
     if not thinking:
         return 0
     normalized = int(value)
@@ -909,7 +1000,7 @@ def run_chat(
     flash_attention: str = "auto",
     use_mmap: bool = True,
     max_tokens: int = 512,
-    thinking: bool = False,
+    thinking: bool | None = False,
     reasoning_strength: str = "auto",
     reasoning_budget: int = 0,
     override_image_max_tokens: bool = False,
@@ -918,6 +1009,7 @@ def run_chat(
     top_p: float = 0.95,
     top_k: int = 40,
     min_p: float = 0.05,
+    presence_penalty: float = 0.0,
     repeat_penalty: float = 1.0,
     seed: int = -1,
     stop: str = "",
@@ -1030,7 +1122,7 @@ def run_chat(
                     handler=handler,
                     mmproj_path=resolved_mmproj,
                     verbose=verbose,
-                    thinking=bool(thinking),
+                    thinking=thinking,
                     reasoning_strength=effective_reasoning_strength,
                     image_max_tokens=image_max_tokens_override,
                 )
@@ -1055,13 +1147,12 @@ def run_chat(
             else:
                 if resolved_mmproj is not None:
                     model_kwargs["mmproj_path"] = resolved_mmproj
-                model_kwargs["chat_handler_kwargs"] = {
-                    "verbose": bool(verbose),
-                    "extra_template_arguments": {
+                model_kwargs["chat_handler_kwargs"] = {"verbose": bool(verbose)}
+                if thinking is not None or effective_reasoning_strength is not None:
+                    model_kwargs["chat_handler_kwargs"]["extra_template_arguments"] = {
                         "enable_thinking": bool(thinking),
                         "force_reasoning": bool(thinking),
-                    },
-                }
+                    }
                 if effective_reasoning_strength is not None:
                     model_kwargs["chat_handler_kwargs"]["extra_template_arguments"][
                         "reasoning_strength"
@@ -1117,7 +1208,7 @@ def run_chat(
                 _install_text_template_handler(
                     native,
                     llm,
-                    thinking=bool(thinking),
+                    thinking=thinking,
                     reasoning_strength=effective_reasoning_strength,
                 )
             if (
@@ -1151,6 +1242,10 @@ def run_chat(
                 "top_p": float(top_p),
                 "top_k": int(top_k),
                 "min_p": float(min_p),
+                # The targeted JamePeng fork follows llama.cpp's `present` spelling.
+                # Keep the public/profile name aligned with model cards and translate
+                # only at the binding boundary.
+                "present_penalty": float(presence_penalty),
                 "repeat_penalty": float(repeat_penalty),
                 "seed": None if int(seed) < 0 else int(seed),
             }
@@ -1284,7 +1379,7 @@ def run_chat(
         "usage": usage,
         "model_unloaded": True,
         "configuration": {
-            "thinking": bool(thinking),
+            "thinking": thinking if thinking is None else bool(thinking),
             "reasoning_strength": effective_reasoning_strength or "auto",
             "reasoning_budget": effective_reasoning_budget,
             "reasoning_budget_applied": reasoning_budget_format is not None,
@@ -1293,6 +1388,7 @@ def run_chat(
             "n_batch": int(n_batch),
             "n_ubatch_override": n_ubatch_override,
             "image_max_tokens_override": image_max_tokens_override,
+            "presence_penalty": float(presence_penalty),
         },
     }
     if native_configuration is not None:
@@ -1347,6 +1443,79 @@ def run_chat(
     )
 
 
+def run_chat_sequential(
+    *,
+    media_items: list[MediaBundle],
+    bindings: LlamaCppBindings | None = None,
+    **kwargs: Any,
+) -> list[LlamaCppResult]:
+    """Run independent completions on one loaded model, then unload it once."""
+    if not media_items:
+        raise InputNormalizationError(
+            "Sequential generation requires at least one input item."
+        )
+    if kwargs.get("draft_model_path") or kwargs.get("mtp_provider", "off") != "off":
+        raise InputNormalizationError(
+            "Sequential generation does not support native draft models because their "
+            "cross-request state cannot yet be guaranteed independent."
+        )
+    if normalize_ngram_speculative(kwargs.get("ngram_speculative"))[
+        "speculative_mode"
+    ] != "off":
+        raise InputNormalizationError(
+            "Sequential generation does not support N-gram speculative decoding because "
+            "its history map may carry state between items."
+        )
+
+    native = bindings or _import_bindings()
+    session = _SequentialLlamaSession(native.llama_class)
+    session_bindings = LlamaCppBindings(
+        llama_class=session.create,
+        handlers=native.handlers,
+        jinja_formatter_class=native.jinja_formatter_class,
+        chat_formatter_to_handler=native.chat_formatter_to_handler,
+    )
+    results: list[LlamaCppResult] = []
+    cleanup_seconds = 0.0
+    try:
+        with _NATIVE_EXECUTION_LOCK:
+            for media in media_items:
+                results.append(
+                    run_chat(
+                        media=media,
+                        bindings=session_bindings,
+                        **kwargs,
+                    )
+                )
+    finally:
+        cleanup_started = time.perf_counter()
+        session.close()
+        cleanup_seconds = time.perf_counter() - cleanup_started
+
+    item_count = len(results)
+    for index, result in enumerate(results):
+        result.metrics.update(
+            model_unloaded=True,
+            sequential={
+                "item_index": index,
+                "item_count": item_count,
+                "context_reset_before_item": True,
+                "model_reused": item_count > 1,
+                "model_unloaded_after_sequence": True,
+            },
+        )
+        result.media_diagnostics["model_unloaded_after_response"] = False
+        result.media_diagnostics["model_unloaded_after_sequence"] = True
+    if results:
+        results[-1].metrics["cleanup_seconds"] += cleanup_seconds
+        results[-1].metrics["total_seconds"] += cleanup_seconds
+    if session.reset_count != item_count:
+        raise BackendError(
+            "Sequential generation did not reset context exactly once per item."
+        )
+    return results
+
+
 __all__ = [
     "HANDLER_NAMES",
     "REASONING_STRENGTHS",
@@ -1355,4 +1524,5 @@ __all__ = [
     "normalize_ngram_speculative",
     "require_native_speculative",
     "run_chat",
+    "run_chat_sequential",
 ]

@@ -14,7 +14,7 @@ class MuseGlimmerResponseParserNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_MuseGlimmerResponseParser",
             display_name="Muse Glimmer Response Parser",
-            category="Ollama/llama_cpp",
+            category="Ollama/llama_cpp/utils",
             description=(
                 "Splits a non-streaming Muse Glimmer response into final response and "
                 "thinking text while preserving other recipients as raw text. Streaming "

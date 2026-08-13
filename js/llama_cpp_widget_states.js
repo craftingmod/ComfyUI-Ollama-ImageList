@@ -1,6 +1,11 @@
 import { app } from "../../scripts/app.js";
 
 const NGRAM_PRESET_CLASS = "OllamaImageList_LlamaCppNGramSpeculativePreset";
+const COMPACT_NGRAM_CONFIG_CLASS = "OllamaImageList_LlamaCppNGramSpeculativeConfig";
+const COMPACT_MODEL_PROFILE_CLASS = "OllamaImageList_LlamaCppModelProfile";
+const COMPACT_HARDWARE_PROFILE_CLASS = "OllamaImageList_LlamaCppHardwareRuntimeProfile";
+const REASONING_CONFIG_CLASS = "OllamaImageList_LlamaCppReasoningConfig";
+const NATIVE_SPECULATIVE_CONFIG_CLASS = "OllamaImageList_LlamaCppNativeSpeculativeConfig";
 const GENERATE_CLASS = "OllamaImageList_LlamaCppGenerate";
 const SPECULATIVE_GENERATE_CLASS = "OllamaImageList_LlamaCppSpeculativeGenerate";
 
@@ -22,6 +27,31 @@ const RUNTIME_WIDGETS = [
 ];
 const SPECULATIVE_DETAIL_WIDGETS = ["spec_n_max", "spec_n_min", "spec_p_min"];
 const THINKING_DETAIL_WIDGETS = ["reasoning_strength", "reasoning_budget"];
+const NATIVE_DRAFT_CUSTOM_WIDGETS = [
+    "custom_spec_type",
+    "custom_mtp_provider",
+    "spec_n_max",
+    "spec_n_min",
+    "spec_p_min",
+];
+const COMPACT_HARDWARE_CUSTOM_WIDGETS = [
+    "n_batch",
+    "n_ubatch",
+    "gpu_layers",
+    "main_gpu",
+    "n_threads",
+    "flash_attention",
+    "use_mmap",
+];
+const COMPACT_MODEL_CUSTOM_WIDGETS = [
+    "custom_handler",
+    "temperature",
+    "top_p",
+    "top_k",
+    "min_p",
+    "repeat_penalty",
+    "presence_penalty",
+];
 
 function getWidget(node, name) {
     return node.widgets?.find((widget) => widget.name === name);
@@ -49,6 +79,35 @@ function setWidgetsDisabled(node, names, disabled) {
 function updateNgramPresetWidgets(node) {
     const mode = getWidget(node, "speculative_mode");
     setWidgetsDisabled(node, NGRAM_DETAIL_WIDGETS, mode?.value !== "ngram");
+}
+
+function updateNativeSpeculativeConfigWidgets(node) {
+    const preset = getWidget(node, "preset")?.value;
+    setWidgetsDisabled(node, NATIVE_DRAFT_CUSTOM_WIDGETS, preset !== "Custom");
+    setWidgetsDisabled(
+        node,
+        ["draft_model"],
+        preset === "Off" || preset === "Qwen 3.5 Internal MTP",
+    );
+}
+
+function updateCompactModelProfileWidgets(node) {
+    const profile = getWidget(node, "profile")?.value;
+    setWidgetsDisabled(node, COMPACT_MODEL_CUSTOM_WIDGETS, profile !== "Custom");
+}
+
+function updateCompactHardwareProfileWidgets(node) {
+    const profile = getWidget(node, "profile")?.value;
+    setWidgetsDisabled(node, COMPACT_HARDWARE_CUSTOM_WIDGETS, profile !== "Custom");
+}
+
+function updateReasoningConfigWidgets(node) {
+    const mode = getWidget(node, "reasoning_mode")?.value;
+    setWidgetsDisabled(
+        node,
+        ["reasoning_effort", "max_reasoning_tokens"],
+        mode !== "on",
+    );
 }
 
 function updateGenerateWidgets(node) {
@@ -92,6 +151,58 @@ function initializeNgramPreset(node) {
     setTimeout(() => updateNgramPresetWidgets(node), 0);
 }
 
+function initializeNativeSpeculativeConfig(node) {
+    const preset = getWidget(node, "preset");
+    if (preset) {
+        const originalCallback = preset.callback;
+        preset.callback = (value, ...args) => {
+            const result = originalCallback?.call(preset, value, ...args);
+            updateNativeSpeculativeConfigWidgets(node);
+            return result;
+        };
+    }
+    setTimeout(() => updateNativeSpeculativeConfigWidgets(node), 0);
+}
+
+function initializeCompactModelProfile(node) {
+    const profile = getWidget(node, "profile");
+    if (profile) {
+        const originalCallback = profile.callback;
+        profile.callback = (value, ...args) => {
+            const result = originalCallback?.call(profile, value, ...args);
+            updateCompactModelProfileWidgets(node);
+            return result;
+        };
+    }
+    setTimeout(() => updateCompactModelProfileWidgets(node), 0);
+}
+
+function initializeCompactHardwareProfile(node) {
+    const profile = getWidget(node, "profile");
+    if (profile) {
+        const originalCallback = profile.callback;
+        profile.callback = (value, ...args) => {
+            const result = originalCallback?.call(profile, value, ...args);
+            updateCompactHardwareProfileWidgets(node);
+            return result;
+        };
+    }
+    setTimeout(() => updateCompactHardwareProfileWidgets(node), 0);
+}
+
+function initializeReasoningConfig(node) {
+    const mode = getWidget(node, "reasoning_mode");
+    if (mode) {
+        const originalCallback = mode.callback;
+        mode.callback = (value, ...args) => {
+            const result = originalCallback?.call(mode, value, ...args);
+            updateReasoningConfigWidgets(node);
+            return result;
+        };
+    }
+    setTimeout(() => updateReasoningConfigWidgets(node), 0);
+}
+
 function initializeGenerate(node) {
     installThinkingCallback(node, updateGenerateWidgets);
     const originalOnConnectionsChange = node.onConnectionsChange;
@@ -127,6 +238,11 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (
             nodeData.name !== NGRAM_PRESET_CLASS &&
+            nodeData.name !== COMPACT_NGRAM_CONFIG_CLASS &&
+            nodeData.name !== COMPACT_MODEL_PROFILE_CLASS &&
+            nodeData.name !== COMPACT_HARDWARE_PROFILE_CLASS &&
+            nodeData.name !== REASONING_CONFIG_CLASS &&
+            nodeData.name !== NATIVE_SPECULATIVE_CONFIG_CLASS &&
             nodeData.name !== GENERATE_CLASS &&
             nodeData.name !== SPECULATIVE_GENERATE_CLASS
         ) {
@@ -136,8 +252,19 @@ app.registerExtension({
         const originalOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = originalOnNodeCreated?.apply(this, arguments);
-            if (nodeData.name === NGRAM_PRESET_CLASS) {
+            if (
+                nodeData.name === NGRAM_PRESET_CLASS ||
+                nodeData.name === COMPACT_NGRAM_CONFIG_CLASS
+            ) {
                 initializeNgramPreset(this);
+            } else if (nodeData.name === COMPACT_MODEL_PROFILE_CLASS) {
+                initializeCompactModelProfile(this);
+            } else if (nodeData.name === COMPACT_HARDWARE_PROFILE_CLASS) {
+                initializeCompactHardwareProfile(this);
+            } else if (nodeData.name === REASONING_CONFIG_CLASS) {
+                initializeReasoningConfig(this);
+            } else if (nodeData.name === NATIVE_SPECULATIVE_CONFIG_CLASS) {
+                initializeNativeSpeculativeConfig(this);
             } else if (nodeData.name === GENERATE_CLASS) {
                 initializeGenerate(this);
             } else {

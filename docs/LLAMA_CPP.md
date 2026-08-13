@@ -81,6 +81,11 @@ Connect AUDIO separately when a video's soundtrack is required. The code deliber
 
 ## Generate inputs
 
+The detailed Generate node and its Sampling, Gemma 4 Runtime, and N-gram Preset helpers
+remain registered for saved-workflow compatibility under `Ollama / llama_cpp / legacy`.
+They are marked V3 development-only, so normal ComfyUI sessions hide them from search
+and the add-node menu. Enable developer mode only when the detailed interface is needed.
+
 The principal inputs are:
 
 | Input | Default | Purpose |
@@ -127,6 +132,81 @@ ignoring the limit. Reasoning tokens share the `max_tokens` output allowance, so
 | `verbose` | `false` | Controls model, timing, and handler diagnostics from both model and handler construction. |
 
 If `image_max_tokens` is explicitly overridden for an IMAGE or VIDEO request, it cannot exceed `n_ctx`, `n_batch`, or the effective `n_ubatch`. Invalid combinations fail before loading the model rather than reaching a native assertion.
+
+## Compact nodes
+
+The nodes under `Ollama / llama_cpp / compact` keep model selection, request budgets,
+prompts, seed, media, and diagnostics visible while moving stable model and hardware
+tuning behind separate typed connections:
+
+```text
+Model Profile -------------------------+-> Llama.cpp Generate
+Hardware Runtime Profile (optional) ---/
+Thinking / Reasoning Config -----------/
+N-gram Speculative Config ------------\
+Native Speculative Config (Compat) ---+-> speculative (choose one)
+```
+
+The two Profile nodes, Thinking / Reasoning Config, N-gram Speculative Config, Generate,
+and Sequential Generate live under `Ollama / llama_cpp / compact`. Sequential Generate
+receives the complete input list in one call, loads the model once, calls `Llama.reset()`
+before every independent completion on native-speculative forks, and otherwise clears the
+underlying context memory before setting `n_tokens=0`. It retains results as data lists and
+unloads once after the sequence. Speculative configs are rejected on this node because
+their decoder history cannot yet be guaranteed independent. Native Speculative Config
+remains under the `experimental` subcategory because its providers require experimental
+backend support.
+
+Model Profile choices are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5 Thinking`,
+`Qwen 3.5 Non-thinking`, `Qwen 3 VL`, and `Custom`. Selecting `Custom` enables the Advanced
+handler and six sampling inputs; switching back to a named profile preserves those custom
+widget values without applying them. The published general-purpose values are encoded as:
+
+| Profile | temperature | top_p | top_k | min_p | presence_penalty | repeat_penalty | reasoning mode |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| General | 0.2 | 0.95 | 40 | 0.05 | 0.0 | 1.0 | model default |
+| Gemma 4 Vision | 1.0 | 0.95 | 64 | 0.0 | 0.0 | 1.0 | model default |
+| Muse Glimmer | 1.0 | 0.95 | 64 | 0.0 | 0.0 | 1.0 | model default |
+| Qwen 3.5 Thinking | 1.0 | 0.95 | 20 | 0.0 | 1.5 | 1.0 | on |
+| Qwen 3.5 Non-thinking | 0.7 | 0.8 | 20 | 0.0 | 1.5 | 1.0 | off |
+| Qwen 3 VL | 0.7 | 0.8 | 20 | 0.0 | 1.5 | 1.0 | model default |
+
+The Qwen 3 VL card does not prescribe `min_p`; its profile uses `0.0` so no additional
+minimum-probability filter is imposed. `presence_penalty` is forwarded directly to
+the targeted JamePeng llama-cpp-python fork as its API spelling `present_penalty`.
+Hardware Runtime Profile is
+optional: a disconnected Compact Generate uses GPU Full Offload (`n_batch=512`, all GPU
+layers, main GPU 0, automatic CPU threads and flash attention, mmap enabled, and no explicit
+`n_ubatch` override). Connect it to override `n_batch`, `n_ubatch`, GPU offload, main GPU,
+CPU threads, flash attention, or mmap settings. Its `n_ubatch=0` means that no explicit
+override is sent to llama.cpp.
+
+Thinking / Reasoning Config has exactly `reasoning_mode`, `reasoning_effort`, and
+`max_reasoning_tokens`. `auto` or a disconnected socket leaves chat-template reasoning
+controls untouched for ordinary profiles; Qwen 3.5 Thinking/Non-thinking instead applies
+the mode named by the profile. An explicitly connected opposite mode fails before model
+loading. `off` explicitly disables reasoning; `on` applies effort and a positive token
+budget. `max_reasoning_tokens=0` omits the separate reasoning limit, but reasoning and the
+final answer still share Generate's `max_tokens` allowance.
+
+Compact Generate keeps `n_ctx`, `max_tokens`, and `image_max_tokens` visible because these
+are request budgets. `image_max_tokens=0` leaves
+the mmproj/handler default untouched; a positive value enables the explicit override and
+must fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
+and output length remain user-selected even when a Qwen 3.5 profile supplies its mode.
+
+Native Speculative Config choices are `Off`, `Muse Glimmer DFlash`, `Generic DFlash`,
+`Generic DSpark`, `Gemma 4 External MTP`, `Qwen 3.5 Internal MTP`, and `Custom`.
+The Muse preset uses a 16-token DFlash proposal block. Qwen internal MTP ignores the
+draft selector; DFlash, DSpark, and Gemma external MTP resolve the selected draft GGUF
+only when Compact Generate receives that Native config. The Compact N-gram and Native
+config nodes intentionally emit the same typed `speculative` output, so one Generate node
+dispatches either strategy and the graph cannot connect both simultaneously. The same
+backend validation, dependency checks, statistics, and cleanup paths used by the detailed
+nodes remain active.
+
+Compact node IDs are new and do not replace or reorder the inputs of existing saved
+workflows.
 
 ## Sampling presets
 
@@ -196,7 +276,7 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 ## Native speculative decoding (Experimental)
 
-`Llama.cpp Speculative Generate (Experimental)` is registered under `Ollama / llama_cpp / experimental`. It mirrors the normal Generate schema and outputs, so the existing Sampling Preset, Gemma 4 Runtime Preset, and Media Diagnostics nodes connect without experimental variants.
+`Llama.cpp Native Speculative Config (Compat)` is registered under `Ollama / llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
 This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses only `LlamaNativeSpeculativeDecoding`. DFlash, DSpark, and Gemma 4 external MTP require a separate draft/assistant GGUF. Qwen 3.5 internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 

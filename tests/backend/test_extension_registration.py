@@ -170,8 +170,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppSamplingPreset",
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
+        "OllamaImageList_LlamaCppModelProfile",
+        "OllamaImageList_LlamaCppHardwareRuntimeProfile",
+        "OllamaImageList_LlamaCppReasoningConfig",
+        "OllamaImageList_LlamaCppNGramSpeculativeConfig",
+        "OllamaImageList_LlamaCppNativeSpeculativeConfig",
+        "OllamaImageList_LlamaCppProfiledGenerate",
+        "OllamaImageList_LlamaCppSequentialGenerate",
         "OllamaImageList_LlamaCppGenerate",
-        "OllamaImageList_LlamaCppSpeculativeGenerate",
         "OllamaImageList_LlamaCppMediaDiagnostics",
         "OllamaImageList_MuseGlimmerResponseParser",
         "OllamaImageList_CLIPGenerateText",
@@ -183,8 +189,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Llama.cpp Sampling Preset",
         "Llama.cpp Gemma 4 Runtime Preset",
         "Llama.cpp N-gram Speculative Preset",
+        "Llama.cpp Model Profile",
+        "Llama.cpp Hardware Runtime Profile",
+        "Llama.cpp Thinking / Reasoning Config",
+        "Llama.cpp N-gram Speculative Config",
+        "Llama.cpp Native Speculative Config (Compat)",
+        "Llama.cpp Generate",
+        "Llama.cpp Sequential Generate",
         "Llama.cpp Generate (Multimodal)",
-        "Llama.cpp Speculative Generate (Experimental)",
         "Llama.cpp Media Diagnostics",
         "Muse Glimmer Response Parser",
         "CLIP Generate Text (Image List)",
@@ -193,13 +205,19 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/Image List",
         "Ollama/Image List",
         "Ollama/Image List",
-        "Ollama/llama_cpp",
-        "Ollama/llama_cpp",
-        "Ollama/llama_cpp",
-        "Ollama/llama_cpp",
+        "Ollama/llama_cpp/legacy",
+        "Ollama/llama_cpp/legacy",
+        "Ollama/llama_cpp/legacy",
+        "Ollama/llama_cpp/compact",
+        "Ollama/llama_cpp/compact",
+        "Ollama/llama_cpp/compact",
+        "Ollama/llama_cpp/compact",
         "Ollama/llama_cpp/experimental",
-        "Ollama/llama_cpp",
-        "Ollama/llama_cpp",
+        "Ollama/llama_cpp/compact",
+        "Ollama/llama_cpp/compact",
+        "Ollama/llama_cpp/legacy",
+        "Ollama/llama_cpp/utils",
+        "Ollama/llama_cpp/utils",
         "Ollama/CLIP",
     ]
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
@@ -208,6 +226,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         schema.node_id: (node_class, schema)
         for node_class, schema in zip(node_classes, schemas, strict=True)
     }
+    hidden_legacy_ids = {
+        "OllamaImageList_LlamaCppSamplingPreset",
+        "OllamaImageList_LlamaCppGemma4RuntimePreset",
+        "OllamaImageList_LlamaCppNGramSpeculativePreset",
+        "OllamaImageList_LlamaCppGenerate",
+    }
+    assert {
+        schema.node_id for schema in schemas if getattr(schema, "is_dev_only", False)
+    } == hidden_legacy_ids
 
     muse_class, muse_schema = registered[
         "OllamaImageList_MuseGlimmerResponseParser"
@@ -511,6 +538,317 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         ngram_configuration
     )
 
+    compact_profile_class, compact_profile_schema = registered[
+        "OllamaImageList_LlamaCppModelProfile"
+    ]
+    assert [field.name for field in compact_profile_schema.inputs] == [
+        "profile",
+        "custom_handler",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "repeat_penalty",
+        "presence_penalty",
+    ]
+    assert compact_profile_schema.inputs[0].options["options"] == [
+        "General",
+        "Gemma 4 Vision",
+        "Muse Glimmer",
+        "Qwen 3.5 Thinking",
+        "Qwen 3.5 Non-thinking",
+        "Qwen 3 VL",
+        "Custom",
+    ]
+    assert all(
+        field.options["advanced"] is True
+        for field in compact_profile_schema.inputs[1:]
+    )
+    assert compact_profile_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
+    )
+    model_profile_defaults = {
+        field.name: field.options["default"]
+        for field in compact_profile_schema.inputs
+    }
+    muse_profile = compact_profile_class.execute(
+        **{**model_profile_defaults, "profile": "Muse Glimmer"}
+    )[0]
+    assert muse_profile["temperature"] == 1.0
+    assert muse_profile["top_k"] == 64
+    assert set(muse_profile) == {
+        "handler",
+        "recommended_reasoning_mode",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "presence_penalty",
+        "repeat_penalty",
+    }
+    qwen35_thinking_profile = compact_profile_class.execute(
+        **{**model_profile_defaults, "profile": "Qwen 3.5 Thinking"}
+    )[0]
+    assert qwen35_thinking_profile["recommended_reasoning_mode"] == "on"
+    assert qwen35_thinking_profile["temperature"] == 1.0
+    assert qwen35_thinking_profile["top_p"] == 0.95
+    assert qwen35_thinking_profile["top_k"] == 20
+    assert qwen35_thinking_profile["min_p"] == 0.0
+    assert qwen35_thinking_profile["presence_penalty"] == 1.5
+    qwen35_non_thinking_profile = compact_profile_class.execute(
+        **{**model_profile_defaults, "profile": "Qwen 3.5 Non-thinking"}
+    )[0]
+    assert qwen35_non_thinking_profile["recommended_reasoning_mode"] == "off"
+    assert qwen35_non_thinking_profile["temperature"] == 0.7
+    assert qwen35_non_thinking_profile["top_p"] == 0.8
+    qwen3_vl_profile = compact_profile_class.execute(
+        **{**model_profile_defaults, "profile": "Qwen 3 VL"}
+    )[0]
+    assert qwen3_vl_profile["temperature"] == 0.7
+    assert qwen3_vl_profile["top_p"] == 0.8
+    assert qwen3_vl_profile["top_k"] == 20
+    assert qwen3_vl_profile["min_p"] == 0.0
+    assert qwen3_vl_profile["presence_penalty"] == 1.5
+    custom_model_profile = compact_profile_class.execute(
+        "Custom", "qwen3_vl", 0.7, 0.8, 20, 0.1, 1.1, 1.25
+    )[0]
+    assert custom_model_profile == {
+        "handler": "qwen3_vl",
+        "recommended_reasoning_mode": "auto",
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "min_p": 0.1,
+        "presence_penalty": 1.25,
+        "repeat_penalty": 1.1,
+    }
+
+    hardware_class, hardware_schema = registered[
+        "OllamaImageList_LlamaCppHardwareRuntimeProfile"
+    ]
+    assert [field.name for field in hardware_schema.inputs] == [
+        "profile",
+        "n_batch",
+        "n_ubatch",
+        "gpu_layers",
+        "main_gpu",
+        "n_threads",
+        "flash_attention",
+        "use_mmap",
+    ]
+    assert hardware_schema.inputs[0].options["options"] == [
+        "GPU Full Offload",
+        "GPU Vision 512",
+        "Automatic Offload",
+        "CPU",
+        "Custom",
+    ]
+    assert hardware_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
+    )
+    default_hardware_profile = hardware_class.execute(
+        "GPU Full Offload", 1, 1, "cpu", 3, 8, "disabled", False
+    )[0]
+    assert default_hardware_profile == {
+        "n_batch": 512,
+        "n_ubatch": 0,
+        "gpu_layers": "all",
+        "main_gpu": 0,
+        "n_threads": 0,
+        "flash_attention": "auto",
+        "use_mmap": True,
+    }
+    custom_hardware_profile = hardware_class.execute(
+        "Custom", 2048, 1024, "auto", 1, 12, "enabled", False
+    )[0]
+    assert custom_hardware_profile["n_batch"] == 2048
+    assert custom_hardware_profile["n_ubatch"] == 1024
+
+    reasoning_class, reasoning_schema = registered[
+        "OllamaImageList_LlamaCppReasoningConfig"
+    ]
+    assert [field.name for field in reasoning_schema.inputs] == [
+        "reasoning_mode",
+        "reasoning_effort",
+        "max_reasoning_tokens",
+    ]
+    assert reasoning_schema.inputs[0].options["options"] == ["auto", "off", "on"]
+    assert reasoning_schema.search_aliases == ["thinking", "reasoning"]
+    assert reasoning_schema.inputs[1].options["options"] == [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ]
+    assert reasoning_schema.inputs[2].options["default"] == 0
+    assert reasoning_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
+    )
+    auto_reasoning = reasoning_class.execute("auto", "xhigh", 2048)[0]
+    assert auto_reasoning == {
+        "reasoning_mode": "auto",
+        "reasoning_effort": "auto",
+        "max_reasoning_tokens": 0,
+    }
+    off_reasoning = reasoning_class.execute("off", "high", 1024)[0]
+    assert off_reasoning == (
+        {
+            "reasoning_mode": "off",
+            "reasoning_effort": "auto",
+            "max_reasoning_tokens": 0,
+        }
+    )
+    muse_reasoning = reasoning_class.execute("on", "high", 1024)[0]
+    assert muse_reasoning == {
+        "reasoning_mode": "on",
+        "reasoning_effort": "high",
+        "max_reasoning_tokens": 1024,
+    }
+
+    compact_ngram_class, compact_ngram_schema = registered[
+        "OllamaImageList_LlamaCppNGramSpeculativeConfig"
+    ]
+    assert [field.name for field in compact_ngram_schema.inputs] == [
+        "speculative_mode",
+        "ngram_size",
+        "num_pred_tokens",
+        "ngram_mode",
+        "ngram_min_hits",
+        "ngram_max_entries_per_key",
+        "ngram_sync_check_tokens",
+    ]
+    assert compact_ngram_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
+    )
+    assert compact_ngram_class.execute("off", 3, 10, "k", 2, 8, 16) == (
+        {"kind": "off"},
+    )
+    compact_ngram_config = compact_ngram_class.execute(
+        "ngram", 3, 10, "k", 2, 0, 16
+    )[0]
+    assert compact_ngram_config == {
+        "kind": "ngram",
+        "config": ngram_configuration,
+    }
+
+    native_config_class, native_config_schema = registered[
+        "OllamaImageList_LlamaCppNativeSpeculativeConfig"
+    ]
+    assert native_config_schema.is_experimental is True
+    native_inputs = {field.name: field for field in native_config_schema.inputs}
+    assert native_inputs["preset"].options["options"] == [
+        "Off",
+        "Muse Glimmer DFlash",
+        "Generic DFlash",
+        "Generic DSpark",
+        "Gemma 4 External MTP",
+        "Qwen 3.5 Internal MTP",
+        "Custom",
+    ]
+    assert native_config_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
+    )
+    off_draft_config = native_config_class.execute(
+        "Off",
+        "stale/draft.gguf",
+        "draft-dspark",
+        "off",
+        2,
+        0,
+        0.0,
+    )[0]
+    assert off_draft_config == {"kind": "off"}
+    muse_draft_config = native_config_class.execute(
+        "Muse Glimmer DFlash",
+        "external/mtp-model-a.gguf",
+        "draft-dspark",
+        "off",
+        2,
+        0,
+        0.0,
+    )[0]
+    assert muse_draft_config == {
+        "kind": "native",
+        "config": {
+            "spec_type": "draft-dflash",
+            "mtp_provider": "off",
+            "draft_model": "external/mtp-model-a.gguf",
+            "spec_n_max": 16,
+            "spec_n_min": 0,
+            "spec_p_min": 0.0,
+        },
+    }
+    internal_mtp_config = native_config_class.execute(
+        "Qwen 3.5 Internal MTP",
+        "stale/draft.gguf",
+        "draft-dflash",
+        "off",
+        2,
+        0,
+        0.0,
+    )[0]
+    assert internal_mtp_config["kind"] == "native"
+    assert internal_mtp_config["config"]["draft_model"] == "[none]"
+
+    compact_class, compact_schema = registered[
+        "OllamaImageList_LlamaCppProfiledGenerate"
+    ]
+    compact_inputs = {field.name: field for field in compact_schema.inputs}
+    assert compact_schema.is_input_list is True
+    assert compact_schema.not_idempotent is True
+    assert [field.name for field in compact_schema.inputs] == [
+        "model_path",
+        "mmproj_path",
+        "model_profile",
+        "hardware_profile",
+        "reasoning",
+        "speculative",
+        "system",
+        "prompt",
+        "n_ctx",
+        "max_tokens",
+        "image_max_tokens",
+        "seed",
+        "stop",
+        "images",
+        "audio",
+        "video",
+        "verbose",
+    ]
+    assert compact_inputs["model_profile"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
+    )
+    assert compact_inputs["hardware_profile"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
+    )
+    assert compact_inputs["hardware_profile"].options["optional"] is True
+    assert compact_inputs["image_max_tokens"].options["default"] == 0
+    assert compact_inputs["reasoning"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
+    )
+    assert compact_inputs["reasoning"].options["optional"] is True
+    assert compact_inputs["speculative"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
+    )
+    assert compact_inputs["speculative"].options["optional"] is True
+
+    sequential_class, sequential_schema = registered[
+        "OllamaImageList_LlamaCppSequentialGenerate"
+    ]
+    assert sequential_schema.is_input_list is True
+    assert sequential_schema.not_idempotent is True
+    assert [field.name for field in sequential_schema.inputs] == [
+        field.name for field in compact_schema.inputs
+    ]
+    assert [field.name for field in sequential_schema.outputs] == [
+        field.name for field in compact_schema.outputs
+    ]
+    assert all(
+        field.options["is_output_list"] is True
+        for field in sequential_schema.outputs
+    )
+
     llama_class, llama_schema = registered["OllamaImageList_LlamaCppGenerate"]
     assert llama_schema.is_input_list is True
     assert llama_schema.not_idempotent is True
@@ -607,9 +945,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
     )
 
-    speculative_class, speculative_schema = registered[
-        "OllamaImageList_LlamaCppSpeculativeGenerate"
-    ]
+    assert "OllamaImageList_LlamaCppSpeculativeGenerate" not in registered
+    speculative_module = importlib.import_module(
+        "backend.nodes.llama_cpp_speculative_generate"
+    )
+    speculative_class = speculative_module.LlamaCppSpeculativeGenerateNode
+    speculative_schema = speculative_class.define_schema()
     assert speculative_schema.is_input_list is True
     assert speculative_schema.not_idempotent is True
     assert speculative_schema.is_experimental is True
@@ -671,9 +1012,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
 
     llama_module = importlib.import_module("backend.nodes.llama_cpp_generate")
-    speculative_module = importlib.import_module(
-        "backend.nodes.llama_cpp_speculative_generate"
-    )
     speculative_binding = object()
     monkeypatch.setattr(
         speculative_module,
@@ -693,6 +1031,19 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         )
 
     monkeypatch.setattr(llama_module, "run_chat", fake_run_chat)
+    compact_module = importlib.import_module("backend.nodes.llama_cpp_compact")
+    monkeypatch.setattr(compact_module, "run_chat", fake_run_chat)
+
+    def fake_run_chat_sequential(*, media_items, **kwargs):
+        captured_speculative_call.update(kwargs)
+        captured_speculative_call["media_item_count"] = len(media_items)
+        return [fake_run_chat(**kwargs) for _media in media_items]
+
+    monkeypatch.setattr(
+        compact_module,
+        "run_chat_sequential",
+        fake_run_chat_sequential,
+    )
     llama_values = {
         field.name: [field.options["default"]]
         for field in llama_schema.inputs
@@ -709,6 +1060,170 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["reasoning_strength"] == "auto"
     assert captured_speculative_call["reasoning_budget"] == 0
     assert "draft_model_path" not in captured_speculative_call
+
+    captured_speculative_call.clear()
+    sequential_values = {
+        field.name: [field.options["default"]]
+        for field in sequential_schema.inputs
+        if "default" in field.options
+    }
+    sequential_values.update(
+        model_path=["external/model-a.gguf"],
+        mmproj_path=["[none]"],
+        model_profile=[muse_profile],
+        max_tokens=[4096],
+        reasoning=[muse_reasoning],
+    )
+    sequential_output = sequential_class.execute(**sequential_values)
+    assert sequential_output[0] == ["done"]
+    assert sequential_output[1] == [""]
+    assert all(isinstance(value, list) for value in sequential_output)
+    assert captured_speculative_call["model_path"] == (
+        "D:/SharedModels/LLM/external/model-a.gguf"
+    )
+    assert captured_speculative_call["media_item_count"] == 1
+    assert captured_speculative_call["reasoning_strength"] == "high"
+    assert captured_speculative_call["reasoning_budget"] == 1024
+
+    captured_speculative_call.clear()
+    compact_values = {
+        field.name: [field.options["default"]]
+        for field in compact_schema.inputs
+        if "default" in field.options
+    }
+    compact_values.update(
+        model_path=["external/model-a.gguf"],
+        mmproj_path=["[none]"],
+        model_profile=[muse_profile],
+        n_ctx=[32768],
+        max_tokens=[4096],
+        image_max_tokens=[0],
+        reasoning=[muse_reasoning],
+        speculative=[compact_ngram_config],
+    )
+    compact_output = compact_class.execute(**compact_values)
+    assert compact_output[0] == "done"
+    assert captured_speculative_call["handler"] == "auto"
+    assert captured_speculative_call["reasoning_strength"] == "high"
+    assert captured_speculative_call["n_ctx"] == 32768
+    assert captured_speculative_call["max_tokens"] == 4096
+    assert captured_speculative_call["thinking"] is True
+    assert captured_speculative_call["reasoning_strength"] == "high"
+    assert captured_speculative_call["reasoning_budget"] == 1024
+    assert captured_speculative_call["temperature"] == 1.0
+    assert captured_speculative_call["presence_penalty"] == 0.0
+    assert captured_speculative_call["n_batch"] == 512
+    assert captured_speculative_call["gpu_layers"] == "all"
+    assert captured_speculative_call["main_gpu"] == 0
+    assert captured_speculative_call["n_threads"] == 0
+    assert captured_speculative_call["flash_attention"] == "auto"
+    assert captured_speculative_call["use_mmap"] is True
+    assert captured_speculative_call["override_n_ubatch"] is False
+    assert captured_speculative_call["override_image_max_tokens"] is False
+    assert captured_speculative_call["ngram_speculative"] == ngram_configuration
+
+    captured_speculative_call.clear()
+    compact_auto_values = dict(compact_values)
+    compact_auto_values.pop("reasoning")
+    compact_auto_output = compact_class.execute(**compact_auto_values)
+    assert compact_auto_output[0] == "done"
+    assert captured_speculative_call["thinking"] is None
+    assert captured_speculative_call["reasoning_strength"] == "auto"
+    assert captured_speculative_call["reasoning_budget"] == 0
+
+    captured_speculative_call.clear()
+    compact_qwen35_thinking_values = dict(compact_values)
+    compact_qwen35_thinking_values.pop("reasoning")
+    compact_qwen35_thinking_values["model_profile"] = [qwen35_thinking_profile]
+    compact_qwen35_thinking_output = compact_class.execute(
+        **compact_qwen35_thinking_values
+    )
+    assert compact_qwen35_thinking_output[0] == "done"
+    assert captured_speculative_call["thinking"] is True
+    assert captured_speculative_call["temperature"] == 1.0
+    assert captured_speculative_call["top_p"] == 0.95
+    assert captured_speculative_call["top_k"] == 20
+    assert captured_speculative_call["min_p"] == 0.0
+    assert captured_speculative_call["presence_penalty"] == 1.5
+
+    captured_speculative_call.clear()
+    compact_qwen35_non_thinking_values = dict(compact_qwen35_thinking_values)
+    compact_qwen35_non_thinking_values["model_profile"] = [
+        qwen35_non_thinking_profile
+    ]
+    compact_qwen35_non_thinking_output = compact_class.execute(
+        **compact_qwen35_non_thinking_values
+    )
+    assert compact_qwen35_non_thinking_output[0] == "done"
+    assert captured_speculative_call["thinking"] is False
+    assert captured_speculative_call["temperature"] == 0.7
+    assert captured_speculative_call["top_p"] == 0.8
+
+    compact_qwen35_conflict_values = dict(compact_qwen35_thinking_values)
+    compact_qwen35_conflict_values["reasoning"] = [off_reasoning]
+    with pytest.raises(
+        InputNormalizationError,
+        match="Model Profile requires reasoning_mode=on",
+    ):
+        compact_class.execute(**compact_qwen35_conflict_values)
+
+    excessive_reasoning = reasoning_class.execute("on", "high", 8192)[0]
+    compact_excessive_values = dict(compact_values)
+    compact_excessive_values["reasoning"] = [excessive_reasoning]
+    with pytest.raises(
+        InputNormalizationError,
+        match="max_reasoning_tokens cannot exceed Generate max_tokens",
+    ):
+        compact_class.execute(**compact_excessive_values)
+
+    def unexpected_compact_speculative_dependency():
+        raise AssertionError("an off Compact config imported the speculative dependency")
+
+    monkeypatch.setattr(
+        compact_module,
+        "require_native_speculative",
+        unexpected_compact_speculative_dependency,
+    )
+    captured_speculative_call.clear()
+    compact_off_values = dict(compact_values)
+    compact_off_values["speculative"] = [off_draft_config]
+    compact_off_output = compact_class.execute(**compact_off_values)
+    assert compact_off_output[0] == "done"
+    assert "ngram_speculative" not in captured_speculative_call
+    assert "draft_model_path" not in captured_speculative_call
+    assert "spec_type" not in captured_speculative_call
+
+    captured_speculative_call.clear()
+    compact_native_values = {
+        field.name: [field.options["default"]]
+        for field in compact_schema.inputs
+        if "default" in field.options
+    }
+    compact_native_values.update(
+        model_path=["external/model-a.gguf"],
+        mmproj_path=["[none]"],
+        model_profile=[muse_profile],
+        hardware_profile=[custom_hardware_profile],
+        image_max_tokens=[768],
+        speculative=[muse_draft_config],
+    )
+    monkeypatch.setattr(
+        compact_module,
+        "require_native_speculative",
+        lambda: speculative_binding,
+    )
+    compact_native_output = compact_class.execute(**compact_native_values)
+    assert compact_native_output[0] == "done"
+    assert captured_speculative_call["draft_model_path"] == (
+        "D:/SharedModels/LLM/external/mtp-model-a.gguf"
+    )
+    assert captured_speculative_call["spec_type"] == "draft-dflash"
+    assert captured_speculative_call["spec_n_max"] == 16
+    assert captured_speculative_call["speculative_class"] is speculative_binding
+    assert captured_speculative_call["override_n_ubatch"] is True
+    assert captured_speculative_call["n_ubatch"] == 1024
+    assert captured_speculative_call["override_image_max_tokens"] is True
+    assert captured_speculative_call["image_max_tokens"] == 768
 
     original_resolve_gguf_selection = llama_module._resolve_gguf_selection
 

@@ -3,7 +3,7 @@ import base64
 import pytest
 
 import backend.backends.llama_cpp as llama_cpp_backend
-from backend.backends.llama_cpp import LlamaCppBindings, run_chat
+from backend.backends.llama_cpp import LlamaCppBindings, run_chat, run_chat_sequential
 from backend.core import (
     BackendError,
     InputNormalizationError,
@@ -50,8 +50,12 @@ class FakeLlama:
         NATIVE_EVENTS.append("target")
         self.kwargs = kwargs
         self.completion_kwargs = None
+        self.completion_kwargs_history = []
+        self.reset_count = 0
+        self._native_speculative = None
         self.metadata = dict(type(self).metadata)
         self.closed = False
+        self.close_count = 0
         if "chat_handler" in kwargs:
             self.chat_handler = kwargs["chat_handler"]
         elif "mmproj_path" in kwargs:
@@ -63,14 +67,19 @@ class FakeLlama:
 
     def create_chat_completion(self, **kwargs):
         self.completion_kwargs = kwargs
+        self.completion_kwargs_history.append(kwargs)
         if type(self).generation_error is not None:
             raise type(self).generation_error
         return type(self).response
+
+    def reset(self):
+        self.reset_count += 1
 
     def n_layer_nextn(self):
         return type(self).nextn_layers
 
     def close(self):
+        self.close_count += 1
         self.closed = True
         draft_model = self.kwargs.get("draft_model")
         if draft_model is not None:
@@ -330,6 +339,33 @@ def test_text_only_generate_omits_selected_mmproj_but_forwards_thinking(tmp_path
     }
     assert FakeHandler.instances == []
     assert result.media_diagnostics["mmproj"] is None
+
+
+def test_text_only_auto_reasoning_leaves_template_arguments_untouched(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {"tokenizer.chat_template": "{{ enable_thinking }}"}
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        thinking=None,
+        reasoning_strength="xhigh",
+        reasoning_budget=512,
+        bindings=make_bindings(
+            jinja_formatter_class=FakeJinjaFormatter,
+            chat_formatter_to_handler=lambda formatter: formatter,
+        ),
+    )
+
+    assert FakeLlama.instances[0].kwargs["chat_handler_kwargs"] == {
+        "verbose": False
+    }
+    assert FakeJinjaFormatter.instances == []
+    assert result.metrics["configuration"]["thinking"] is None
+    assert result.metrics["configuration"]["reasoning_strength"] == "auto"
+    assert result.metrics["configuration"]["reasoning_budget"] == 0
 
 
 def test_text_only_jinja_handler_receives_disabled_thinking_arguments(tmp_path):
@@ -900,6 +936,7 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
         gpu_layers="all",
         flash_attention="enabled",
         max_tokens=42,
+        presence_penalty=1.5,
         seed=7,
         stop="END",
         bindings=make_bindings(),
@@ -920,6 +957,8 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
     assert instance.kwargs["flash_attn_type"] == 1
     assert instance.closed is True
     assert instance.completion_kwargs["max_tokens"] == 42
+    assert instance.completion_kwargs["present_penalty"] == 1.5
+    assert "presence_penalty" not in instance.completion_kwargs
     assert instance.completion_kwargs["seed"] == 7
     assert instance.completion_kwargs["stop"] == ["END"]
 
@@ -936,6 +975,7 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
     assert result.response == "done"
     assert result.metrics["usage"]["total_tokens"] == 12
     assert result.metrics["model_unloaded"] is True
+    assert result.metrics["configuration"]["presence_penalty"] == 1.5
     assert result.media_diagnostics["capabilities"] == {
         "vision": True,
         "audio": True,
@@ -1019,6 +1059,122 @@ def test_run_chat_sends_audio_as_base64_pcm16_wav(tmp_path):
     assert base64.b64decode(audio["data"]) == bundle.items[0].payload
     assert base64.b64decode(audio["data"]).startswith(b"RIFF")
     assert FakeLlama.instances[0].closed is True
+
+
+def test_run_chat_sequential_reuses_model_resets_each_audio_and_unloads_once(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    bundles = [
+        normalize_audio(
+            {"waveform": silent_audio(1, 1, sample_count), "sample_rate": 16_000}
+        )
+        for sample_count in (80, 160)
+    ]
+
+    results = run_chat_sequential(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="auto",
+        system="",
+        prompt="transcribe independently",
+        media_items=bundles,
+        bindings=make_bindings(),
+    )
+
+    assert len(FakeLlama.instances) == 1
+    instance = FakeLlama.instances[0]
+    assert instance.reset_count == 2
+    assert len(instance.completion_kwargs_history) == 2
+    assert instance.closed is True
+    assert instance.close_count == 1
+    payloads = [
+        base64.b64decode(call["messages"][-1]["content"][1]["input_audio"]["data"])
+        for call in instance.completion_kwargs_history
+    ]
+    assert payloads == [bundle.items[0].payload for bundle in bundles]
+    assert len(results) == 2
+    assert all(result.response == "done" for result in results)
+    assert all(
+        result.metrics["sequential"]["context_reset_before_item"] is True
+        for result in results
+    )
+    assert all(
+        result.media_diagnostics["model_unloaded_after_sequence"] is True
+        for result in results
+    )
+
+
+def test_run_chat_sequential_rejects_native_fork_without_reset_and_still_unloads(tmp_path):
+    class NoResetLlama(FakeLlama):
+        instances = []
+        reset = None
+
+    model, mmproj = gguf_files(tmp_path)
+    bindings = LlamaCppBindings(llama_class=NoResetLlama, handlers={})
+
+    with pytest.raises(BackendError, match=r"native-speculative.*Llama\.reset\(\)"):
+        run_chat_sequential(
+            model_path=str(model),
+            mmproj_path=str(mmproj),
+            handler="auto",
+            system="",
+            prompt="transcribe independently",
+            media_items=[
+                normalize_audio(
+                    {"waveform": silent_audio(1, 1, 80), "sample_rate": 16_000}
+                )
+            ],
+            bindings=bindings,
+        )
+
+    assert len(NoResetLlama.instances) == 1
+    assert NoResetLlama.instances[0].closed is True
+    assert NoResetLlama.instances[0].close_count == 1
+
+
+def test_run_chat_sequential_uses_memory_clear_for_non_native_fork(tmp_path):
+    class FakeContext:
+        def __init__(self):
+            self.clear_calls = []
+
+        def memory_clear(self, clear_data):
+            self.clear_calls.append(clear_data)
+
+    class NonNativeLlama(FakeLlama):
+        instances = []
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            del self._native_speculative
+            self._ctx = FakeContext()
+            self.n_tokens = 123
+
+        def reset(self):
+            raise AssertionError("non-native fallback must not call reset()")
+
+    model, mmproj = gguf_files(tmp_path)
+    bindings = LlamaCppBindings(llama_class=NonNativeLlama, handlers={})
+
+    results = run_chat_sequential(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="auto",
+        system="",
+        prompt="transcribe independently",
+        media_items=[
+            normalize_audio(
+                {"waveform": silent_audio(1, 1, count), "sample_rate": 16_000}
+            )
+            for count in (80, 160)
+        ],
+        bindings=bindings,
+    )
+
+    assert len(results) == 2
+    assert len(NonNativeLlama.instances) == 1
+    instance = NonNativeLlama.instances[0]
+    assert instance._ctx.clear_calls == [True, True]
+    assert instance.n_tokens == 0
+    assert instance.close_count == 1
 
 
 def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
@@ -1188,6 +1344,7 @@ def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
         "n_batch": 1120,
         "n_ubatch_override": 1120,
         "image_max_tokens_override": 1120,
+        "presence_penalty": 0.0,
     }
 
 

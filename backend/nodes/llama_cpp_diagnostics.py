@@ -87,7 +87,7 @@ class LlamaCppMediaDiagnosticsNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppMediaDiagnostics",
             display_name="Llama.cpp Media Diagnostics",
-            category="Ollama/llama_cpp",
+            category="Ollama/llama_cpp/utils",
             description=(
                 "Expands the fork-specific MTMD ingestion receipt into capability flags, "
                 "evaluated media counts, JSON, and formatted text."

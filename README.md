@@ -24,16 +24,30 @@ Workflow example: [Simple_Vision.json](./workflows/Simple_Vision.json)
 
 Workflow example: [Native_Vision.json](./workflows/Native_Vision.json)
 
-- **Llama.cpp Sampling Preset** — supplies image-analysis, Gemma 4, or llama.cpp-default sampling values through one typed connection.
-- **Llama.cpp Gemma 4 Runtime Preset** — supplies Gemma 4 context and output-length integers plus a typed physical-batch and image-token profile.
-- **Llama.cpp N-gram Speculative Preset** — optionally configures model-free n-gram draft prediction through one typed connection to the normal Generate node.
-- **Llama.cpp Generate (Multimodal)** — loads a local GGUF and optional multimodal projector, analyzes optional IMAGE, AUDIO, and VIDEO inputs in one request, and immediately closes the model and handler.
-- **Llama.cpp Media Diagnostics** — expands the Generate node's typed MTMD receipt into capability flags, evaluated media counts, JSON, and formatted text.
-- **Muse Glimmer Response Parser** — routes `to=user` content to `response`, `to=self` content to `thinking`, and other recipients or unclassified text to `raw`, followed by a `valid` completion flag. Truncated reasoning is kept out of `response`; streaming and tool-call interpretation are not supported.
+### Ollama / llama_cpp / compact
+
+- **Llama.cpp Model Profile** — bundles model-dependent handler and sampling defaults, including `presence_penalty`; its Qwen 3.5 variants also select the matching thinking mode.
+- **Llama.cpp Hardware Runtime Profile** — optionally overrides batch, offload, CPU, attention, and mmap settings; `n_ubatch=0` uses the backend default.
+- **Llama.cpp Thinking / Reasoning Config** — controls `auto/off/on`, reasoning effort, and an optional reasoning-token limit for Generate.
+- **Llama.cpp N-gram Speculative Config** — produces Generate's shared `speculative` connection with model-free prompt-history drafting.
+- **Llama.cpp Generate** — requires a Model Profile and accepts optional Hardware Runtime, `reasoning`, and unified `speculative` inputs. A disconnected Hardware Runtime input uses GPU Full Offload.
+- **Llama.cpp Sequential Generate** — loads Compact Generate once, resets llama.cpp context before every independent media item, returns explicit list outputs, and unloads after the complete sequence.
 
 ### Ollama / llama_cpp / experimental
 
-- **Llama.cpp Speculative Generate (Experimental)** — mirrors the multimodal Generate node, adds a compatible DFlash/DSpark draft GGUF and native speculative controls, reports acceptance statistics, and unloads the target and draft resources after one request.
+- **Llama.cpp Native Speculative Config (Compat)** — supplies DFlash, DSpark, or Native MTP settings to Compact Generate's shared `speculative` input. The detailed experimental Generate implementation remains in the package but is not registered.
+
+### Ollama / llama_cpp / utils
+
+- **Llama.cpp Media Diagnostics** — expands Generate's typed MTMD receipt into capability flags, evaluated media counts, JSON, and formatted text.
+- **Muse Glimmer Response Parser** — routes `to=user` content to `response`, `to=self` content to `thinking`, and other recipients or unclassified text to `raw`, followed by a `valid` completion flag.
+
+### Hidden legacy nodes
+
+`Llama.cpp Generate (Multimodal)`, Sampling Preset, Gemma 4 Runtime Preset, and
+N-gram Speculative Preset remain registered under `Ollama / llama_cpp / legacy` so saved
+workflows continue to load. Their V3 schemas are marked development-only, which hides
+them from the add-node menu and search unless ComfyUI developer mode is enabled.
 
 ### Ollama / CLIP
 
@@ -89,6 +103,17 @@ All scalar inputs (`url`, `model`, prompts, and options) must resolve to exactly
 3. Add **Llama.cpp Generate (Multimodal)** from `Ollama / llama_cpp`, select the main GGUF and `mmproj`, and connect any IMAGE, AUDIO, or VIDEO inputs.
 4. Optionally connect **Llama.cpp Sampling Preset**. For Gemma 4, connect the Runtime Preset's `runtime`, `n_ctx`, and `max_tokens` outputs to the matching Generate inputs. Connect **Llama.cpp N-gram Speculative Preset** to `ngram_speculative` when model-free prompt-history drafting is desired.
 5. Connect `media_diagnostics` to **Llama.cpp Media Diagnostics** when verifying native ingestion.
+
+For a smaller graph, use the nodes under `Ollama / llama_cpp / compact`. Connect
+**Llama.cpp Model Profile** to **Llama.cpp Generate**. Its Hardware
+Runtime input is optional and uses GPU Full Offload when disconnected; connect a Hardware
+Runtime Profile only to override it. Context, output, and image-token budgets remain visible
+on Generate; `image_max_tokens=0` uses the mmproj/handler default. Connect
+**Llama.cpp Thinking / Reasoning Config** only when model-default reasoning behavior should
+be overridden. Qwen 3.5 Thinking and Non-thinking profiles apply their named mode when this
+socket is disconnected or `auto`, and reject an explicitly contradictory mode.
+Optionally connect either Compact speculative config to the shared `speculative` socket.
+The original Generate nodes remain available for per-parameter tuning and existing workflows.
 
 All connected media lists are normalized into one user message and one chat completion. The node does not map one prompt over each list item. The model and projector are closed after that completion, including on failure.
 
@@ -150,7 +175,7 @@ Input images are embedded as independent lossless PNG data URIs. ComfyUI AUDIO t
 
 The Generate node emits one typed `media_diagnostics` object rather than formatting diagnostics itself. Connect it to `Llama.cpp Media Diagnostics` to obtain `All Media Evaluated`, Vision/Audio/Video availability, evaluated IMAGE/AUDIO/VIDEO counts, full JSON, and a compact formatted receipt. With the supported fork, a successful `mtmd_evaluated` receipt means every requested media item passed capability checks, decoding, marker/chunk validation, and native MTMD evaluation. It does not claim that the language model interpreted the media correctly. Only payload-free metadata and hashes survive model cleanup; native handlers and pointers are never retained.
 
-`Llama.cpp Speculative Generate (Experimental)` appears under `Ollama / llama_cpp / experimental`. It reuses the same Sampling Preset, Gemma 4 Runtime Preset, and Media Diagnostics nodes. Its `draft_model` selector appears directly below `mmproj_path`, uses `[none]` for no draft, lists GGUFs from the same registered `LLM` paths, and prioritizes filenames containing `dflash`, `dspark`, `draft`, or `mtp` without treating filenames as a compatibility guarantee. `spec_type=none` runs target-only and disables the shared `spec_n_*` widgets. `mtp_provider` is enabled only for `spec_type=draft-mtp`; other types treat it as `off`. In addition to DFlash/DSpark, MTP supports a separate Gemma 4 `gemma4-assistant` GGUF (`external_gemma4`) and Qwen 3.5 GGUFs with embedded NextN layers (`internal_qwen35`). MTP uses the shared `spec_n_*` values and follows the normal `verbose` switch. It is text-only, requires `gpu_layers=all`, and writes request-local acceptance, completion, throughput, and NextN diagnostics under `metrics_json.speculative` before resources are closed.
+`Llama.cpp Native Speculative Config (Compat)` appears under `Ollama / llama_cpp / experimental`. Its draft selector uses `[none]` when no external draft is needed and prioritizes filenames containing `dflash`, `dspark`, `draft`, or `mtp` without treating filenames as a compatibility guarantee. Connect its output to Compact Generate. The older detailed `Llama.cpp Speculative Generate (Experimental)` class and backend implementation remain in the source tree for compatibility and testing, but the extension no longer registers that node.
 
 The normal `Llama.cpp Generate (Multimodal)` node additionally accepts the typed `ngram_speculative` output from **Llama.cpp N-gram Speculative Preset**. Its detail widgets are disabled while `speculative_mode=off` but keep their configured values. N-gram mode uses `LlamaNGramMapDecoding` and repeated patterns from the current verified context; it requires no draft GGUF and little additional VRAM. It is most useful for code, JSON, templates, and boilerplate-heavy output, while short or non-repetitive natural language may see little benefit. This input is deliberately absent from the Experimental native node, and the backend rejects any attempt to combine n-gram and native draft-GGUF modes.
 
