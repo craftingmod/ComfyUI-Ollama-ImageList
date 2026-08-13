@@ -1130,25 +1130,11 @@ def _compact_profiled_generate_inputs() -> list[Any]:
     return inputs
 
 
-class LlamaCppProfiledGenerateNode(io.ComfyNode):
+# Keep the registered Generate nodes as siblings: ComfyUI caches V3 output-list
+# metadata on each class, so a registered subclass can inherit its parent's cache.
+class _LlamaCppGenerateNodeBase(io.ComfyNode):
     outputs_as_lists = False
     sequential = False
-
-    @classmethod
-    def define_schema(cls) -> io.Schema:
-        return io.Schema(
-            node_id="OllamaImageList_LlamaCppProfiledGenerate",
-            display_name="Llama.cpp Generate",
-            category=COMPACT_CATEGORY,
-            description=(
-                "Runs one multimodal llama.cpp completion using separate Compact model "
-                "and hardware profiles plus optional reasoning and speculative configs."
-            ),
-            is_input_list=True,
-            not_idempotent=True,
-            inputs=_compact_profiled_generate_inputs(),
-            outputs=_compact_output_fields(),
-        )
 
     @classmethod
     def execute(
@@ -1194,7 +1180,25 @@ class LlamaCppProfiledGenerateNode(io.ComfyNode):
         )
 
 
-class LlamaCppSequentialGenerateNode(LlamaCppProfiledGenerateNode):
+class LlamaCppProfiledGenerateNode(_LlamaCppGenerateNodeBase):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="OllamaImageList_LlamaCppProfiledGenerate",
+            display_name="Llama.cpp Generate",
+            category=COMPACT_CATEGORY,
+            description=(
+                "Runs one multimodal llama.cpp completion using separate Compact model "
+                "and hardware profiles plus optional reasoning and speculative configs."
+            ),
+            is_input_list=True,
+            not_idempotent=True,
+            inputs=_compact_profiled_generate_inputs(),
+            outputs=_compact_output_fields(),
+        )
+
+
+class LlamaCppSequentialGenerateNode(_LlamaCppGenerateNodeBase):
     outputs_as_lists = True
     sequential = True
 

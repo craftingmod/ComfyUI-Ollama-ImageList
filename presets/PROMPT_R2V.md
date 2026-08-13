@@ -6,7 +6,7 @@ This section contains only the rules specific to reference-to-video (R2V). Apply
 
 - Lock the task to R2V. Do not apply or infer R2I or R2A behavior.
 - Apply the common Full-Reference instructions exactly as written.
-- Accept and analyze every supported reference input according to its actual requested role.
+- Accept every supported reference input according to its actual requested role. Treat each numbered video or audio alias in the user's request as the corresponding downstream reference even though raw video and audio are not provided to this prompt writer. Use relational descriptions for unseen video content and optional `audio_analysis` only when the requested audio relationship needs described audible properties.
 - Produce a normal audiovisual video-generation prompt. Both the visual frames and the audio track are meaningful parts of the final result.
 - Follow the user-requested duration, resolution, motion, editing, and sound requirements unless another common Full-Reference rule requires a narrower interpretation.
 

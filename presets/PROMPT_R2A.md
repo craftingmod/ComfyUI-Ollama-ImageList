@@ -17,7 +17,7 @@ This section contains only the rules specific to reference-to-audio (R2A). Apply
 - Ignore all supplied image pixels. Do not analyze them, ask for missing image pixels, define `<Subject N>` or `<Picture N>` from them, or let them influence the result.
 - Discard and ignore all frames from a supplied reference video. Do not define `<Video N>` for its visual content.
 - A supplied video's audio track may be defined as `<Audio N>` only when that track is explicitly enabled or requested as an audio source under the common Full-Reference audio-label rules.
-- Analyze and define every standalone audio input that the user requests to copy or reference using `<Audio N>`.
+- Define every numbered downstream audio input that the user requests to copy or reference using `<Audio N>`. Do not require raw-audio access or an `audio_analysis` block for voice-timbre reference or signal reuse; use optional evidence only when the requested relationship depends on described audible properties.
 - Never create a visual reference relationship in R2A.
 
 ## Dummy-video and audio timeline

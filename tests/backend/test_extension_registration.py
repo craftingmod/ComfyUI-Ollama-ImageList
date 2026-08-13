@@ -889,6 +889,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     sequential_class, sequential_schema = registered[
         "OllamaImageList_LlamaCppSequentialGenerate"
     ]
+    assert compact_class not in sequential_class.__mro__[1:]
     assert sequential_schema.is_input_list is True
     assert sequential_schema.not_idempotent is True
     assert [field.name for field in sequential_schema.inputs] == [

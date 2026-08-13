@@ -7,7 +7,7 @@ This section contains only the rules specific to reference-to-image (R2I). Apply
 - Lock the task to R2I. Do not apply or infer R2V or R2A behavior.
 - The generation backend still renders a video, but the downstream result consumes only frame 1. Treat the task as still-image generation through a video interface.
 - Accept reference images exactly as Full-Reference mode normally does and use their observable visual evidence and assigned roles.
-- Ignore every supplied audio input completely. Do not analyze it, define an `<Audio N>` label for it, mention it, copy it, reference it, or let it influence any visual or textual decision.
+- Ignore every numbered downstream audio reference and every optional `audio_analysis` block completely. Do not analyze it, define an `<Audio N>` label for it, mention it, copy it, reference it, or let it influence any visual or textual decision.
 - The target duration is always exactly **5 frames**, regardless of any duration requested or implied elsewhere.
 - Only frame 1 is consumed downstream; frames 2–5 are discarded.
 - All five generated frames must show the same finished still image without any change. The complete intended composition must already exist in frame 1 and remain unchanged through frame 5.
