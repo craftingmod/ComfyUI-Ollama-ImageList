@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.6.0 - 2026-08-13
+
 ### Added
 
 - `MiniMax System Prompt Preset` under `Ollama / prompt`, with packaged, editable base and mode-specific Markdown sources for eight prompting modes plus an optional validated `enum_string` override.

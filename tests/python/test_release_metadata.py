@@ -9,7 +9,11 @@ def test_release_identity_and_archive_defaults_are_stable():
     metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert metadata["project"]["name"] == "ollama-image-list"
-    assert metadata["project"]["version"] == "0.5.0"
+    assert metadata["project"]["version"] == "0.6.0"
+    assert metadata["project"]["description"] == (
+        "Analyze ComfyUI image, audio, and video lists with Ollama, llama.cpp GGUF, "
+        "or native generative CLIP backends"
+    )
 
     build_script = (REPO_ROOT / "scripts" / "build-custom-node-zip.ps1").read_text(
         encoding="utf-8-sig"

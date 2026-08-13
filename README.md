@@ -234,7 +234,7 @@ Use `-WhatIf` to inspect the fixed deployment target without replacing it. Resta
 
 ## Roadmap
 
-`v0.1.0` established Ollama image single/batch/data-list support. `v0.2.0` added optional native `llama-cpp-python` multimodal generation. `v0.3.0` added native ComfyUI CLIP text generation. `v0.4.0` added native and N-gram speculative decoding, Muse-Glimmer response parsing, and reasoning-strength control. `v0.5.0` adds Gemma 4 and Qwen 3.5 Native MTP paths, reasoning budgets, and stricter thinking/template handling. Broader real-model compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
+`v0.1.0` established Ollama image single/batch/data-list support. `v0.2.0` added optional native `llama-cpp-python` multimodal generation. `v0.3.0` added native ComfyUI CLIP text generation. `v0.4.0` added native and N-gram speculative decoding, Muse-Glimmer response parsing, and reasoning-strength control. `v0.5.0` added Gemma 4 and Qwen 3.5 Native MTP paths, reasoning budgets, and stricter thinking/template handling. `v0.6.0` adds packaged MiniMax system-prompt presets and sequential llama.cpp generation with one model load per input list. Broader real-model compatibility results and the optional Media Bundle remain later milestones described by `PLAN.md`.
 
 See [CHANGELOG.md](CHANGELOG.md) for release details and workflow compatibility notes.
 
