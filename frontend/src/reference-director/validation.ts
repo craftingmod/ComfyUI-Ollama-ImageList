@@ -4,7 +4,6 @@ import {
   VIDEO_AUDIO_POLICY,
   createEmptyDirectorState,
   isAudioItem,
-  isVisualItem,
   type BackgroundEdit,
   type DirectorState,
   type DirectorUiPreferences,
@@ -19,10 +18,7 @@ import {
 export interface DirectorValidationResult {
   state: DirectorState;
   issues: string[];
-  migrated: boolean;
 }
-
-const PREVIEW_PIXEL_CHOICES = [262_144, 1_000_000, 2_000_000, 4_000_000] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,14 +40,10 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function readAliased(record: Record<string, unknown>, camel: string, snake: string): unknown {
-  return record[camel] ?? record[snake];
-}
-
 function sanitizeSource(value: unknown): MediaSource | undefined {
   if (!isRecord(value)) return undefined;
   const path = stringValue(value.path);
-  const mime = stringValue(readAliased(value, "mime", "mime_type")).toLowerCase();
+  const mime = stringValue(value.mime).toLowerCase();
   const sha256 = stringValue(value.sha256).toLowerCase();
   const pathParts = path.split("/");
   if (
@@ -120,19 +112,16 @@ function sanitizeImageEdit(value: unknown): ImageEditRecipe | undefined {
   const recipe: ImageEditRecipe = {};
   const crop = sanitizeNormalizedCrop(value.crop);
   const background = sanitizeBackground(value.background);
-  const mask = sanitizeSource(value.mask ?? value.mask_source);
+  const mask = sanitizeSource(value.mask);
   const revision = finiteNumber(value.revision);
   if (crop) recipe.crop = crop;
   if (typeof value.flipX === "boolean") recipe.flipX = value.flipX;
-  else if (typeof value.flip_x === "boolean") recipe.flipX = value.flip_x;
   if (typeof value.flipY === "boolean") recipe.flipY = value.flipY;
-  else if (typeof value.flip_y === "boolean") recipe.flipY = value.flip_y;
   if (typeof value.removeBackground === "boolean") recipe.removeBackground = value.removeBackground;
-  else if (typeof value.remove_background === "boolean") recipe.removeBackground = value.remove_background;
   if (background) recipe.background = background;
   if (mask?.mime.startsWith("image/")) {
     recipe.mask = mask;
-    recipe.maskMode = value.maskMode === "erase" || value.mask_mode === "erase" ? "erase" : "keep";
+    recipe.maskMode = value.maskMode === "erase" ? "erase" : "keep";
   }
   if (revision !== undefined && revision >= 0) recipe.revision = Math.floor(revision);
   return Object.keys(recipe).length > 0 ? recipe : undefined;
@@ -149,14 +138,21 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
   const source = sanitizeSource(value.source);
   if (!id || id !== key || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id) || !kind || !source || !source.mime.startsWith(`${kind}/`)) return undefined;
   const caption = captionValue(value.caption);
+  const sourceFilenameValue = stringValue(value.sourceFilename);
+  const sourceFilename = (
+    sourceFilenameValue.replace(/\\/g, "/").split("/").pop()
+    || source.path.split("/").pop()
+    || source.path
+  ).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 255);
 
   if (kind === "image") {
     const item: MediaItem = {
       id,
       kind,
       source,
+      sourceFilename,
       caption,
-      visualEnabled: booleanValue(readAliased(value, "visualEnabled", "visual_enabled"), true),
+      imageEnabled: booleanValue(value.imageEnabled, true),
     };
     const edit = sanitizeImageEdit(value.edit);
     if (edit) item.edit = edit;
@@ -169,8 +165,9 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
       id,
       kind,
       source,
+      sourceFilename,
       caption,
-      audioEnabled: booleanValue(readAliased(value, "audioEnabled", "audio_enabled"), true),
+      audioEnabled: booleanValue(value.audioEnabled, true),
     };
     if (crop) item.crop = crop;
     return item;
@@ -180,11 +177,12 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
     id,
     kind,
     source,
+    sourceFilename,
     caption,
-    visualEnabled: booleanValue(readAliased(value, "visualEnabled", "visual_enabled"), true),
-    audioEnabled: booleanValue(readAliased(value, "audioEnabled", "audio_enabled"), true),
+    videoEnabled: booleanValue(value.videoEnabled, true),
+    audioEnabled: booleanValue(value.audioEnabled, true),
   };
-  const audioCaption = readAliased(value, "audioCaptionOverride", "audio_caption_override");
+  const audioCaption = value.audioCaptionOverride;
   if (typeof audioCaption === "string") item.audioCaptionOverride = audioCaption.slice(0, 16_384);
   if (crop) item.crop = crop;
   return item;
@@ -192,23 +190,22 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
 
 function sanitizeUi(value: unknown): DirectorUiPreferences {
   if (!isRecord(value)) return { ...DEFAULT_UI_PREFERENCES };
-  const aspect = stringValue(readAliased(value, "cardAspectRatio", "card_aspect_ratio"));
-  const preview = finiteNumber(readAliased(value, "previewMaxPixels", "preview_max_pixels"));
-  const peaks = finiteNumber(readAliased(value, "waveformPeaks", "waveform_peaks"));
-  const channel = readAliased(value, "activeChannel", "active_channel");
-  const previewChoice = preview === undefined
-    ? DEFAULT_UI_PREFERENCES.previewMaxPixels
-    : PREVIEW_PIXEL_CHOICES.reduce((closest, candidate) =>
-      Math.abs(candidate - preview) < Math.abs(closest - preview) ? candidate : closest,
-    );
+  const aspect = stringValue(value.cardAspectRatio);
+  const columns = finiteNumber(value.gridColumns);
+  const preview = finiteNumber(value.previewMaxPixels);
+  const peaks = finiteNumber(value.waveformPeaks);
   return {
     cardAspectRatio: /^\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?$/.test(aspect)
       ? aspect
       : DEFAULT_UI_PREFERENCES.cardAspectRatio,
-    previewMaxPixels: previewChoice,
+    gridColumns: columns === undefined
+      ? DEFAULT_UI_PREFERENCES.gridColumns
+      : Math.min(8, Math.max(1, Math.round(columns))),
+    previewMaxPixels: preview === undefined
+      ? DEFAULT_UI_PREFERENCES.previewMaxPixels
+      : Math.min(16_000_000, Math.max(250_000, Math.round(preview))),
     waveformPeaks:
       peaks !== undefined ? Math.min(500, Math.max(200, Math.floor(peaks))) : DEFAULT_UI_PREFERENCES.waveformPeaks,
-    activeChannel: channel === "audio" ? "audio" : "visual",
   };
 }
 
@@ -243,16 +240,14 @@ function sanitizeOrder(
 
 export function validateDirectorState(value: unknown): DirectorValidationResult {
   if (!isRecord(value)) {
-    return { state: createEmptyDirectorState(), issues: ["State was not an object."], migrated: false };
+    return { state: createEmptyDirectorState(), issues: ["State was not an object."] };
   }
   const issues: string[] = [];
   const rawVersion = value.version;
-  const migrated = rawVersion === 0 || rawVersion === undefined;
-  if (rawVersion !== DIRECTOR_STATE_VERSION && !migrated) {
+  if (rawVersion !== DIRECTOR_STATE_VERSION) {
     return {
       state: createEmptyDirectorState(),
       issues: [`Unsupported Reference Director state version: ${String(rawVersion)}.`],
-      migrated: false,
     };
   }
 
@@ -273,15 +268,22 @@ export function validateDirectorState(value: unknown): DirectorValidationResult 
     issues.push("items was not an object.");
   }
 
-  const visualOrder = sanitizeOrder(
-    readAliased(value, "visualOrder", "visual_order"),
+  const imageOrder = sanitizeOrder(
+    value.imageOrder,
     items,
-    isVisualItem,
+    (item) => item.kind === "image",
     issues,
-    "visualOrder",
+    "imageOrder",
+  );
+  const videoOrder = sanitizeOrder(
+    value.videoOrder,
+    items,
+    (item) => item.kind === "video",
+    issues,
+    "videoOrder",
   );
   const audioOrder = sanitizeOrder(
-    readAliased(value, "audioOrder", "audio_order"),
+    value.audioOrder,
     items,
     isAudioItem,
     issues,
@@ -295,12 +297,12 @@ export function validateDirectorState(value: unknown): DirectorValidationResult 
     state: {
       version: DIRECTOR_STATE_VERSION,
       items,
-      visualOrder,
+      imageOrder,
+      videoOrder,
       audioOrder,
       videoAudioPolicy: VIDEO_AUDIO_POLICY,
       ui: sanitizeUi(value.ui),
     },
     issues,
-    migrated,
   };
 }

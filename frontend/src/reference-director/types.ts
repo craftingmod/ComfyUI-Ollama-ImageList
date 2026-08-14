@@ -43,12 +43,13 @@ interface BaseItem {
   id: string;
   kind: MediaKind;
   source: MediaSource;
+  sourceFilename?: string;
   caption: string;
 }
 
 export interface ImageItem extends BaseItem {
   kind: "image";
-  visualEnabled: boolean;
+  imageEnabled: boolean;
   edit?: ImageEditRecipe;
 }
 
@@ -60,7 +61,7 @@ export interface AudioItem extends BaseItem {
 
 export interface VideoItem extends BaseItem {
   kind: "video";
-  visualEnabled: boolean;
+  videoEnabled: boolean;
   audioEnabled: boolean;
   audioCaptionOverride?: string;
   crop?: TimeRange;
@@ -70,15 +71,16 @@ export type MediaItem = ImageItem | AudioItem | VideoItem;
 
 export interface DirectorUiPreferences {
   cardAspectRatio: string;
+  gridColumns: number;
   previewMaxPixels: number;
   waveformPeaks: number;
-  activeChannel: "visual" | "audio";
 }
 
 export interface DirectorState {
   version: typeof DIRECTOR_STATE_VERSION;
   items: Record<string, MediaItem>;
-  visualOrder: string[];
+  imageOrder: string[];
+  videoOrder: string[];
   audioOrder: string[];
   videoAudioPolicy: typeof VIDEO_AUDIO_POLICY;
   ui: DirectorUiPreferences;
@@ -104,16 +106,17 @@ export interface ItemRuntime {
 
 export const DEFAULT_UI_PREFERENCES: DirectorUiPreferences = {
   cardAspectRatio: "4 / 3",
+  gridColumns: 3,
   previewMaxPixels: 1_000_000,
   waveformPeaks: 300,
-  activeChannel: "visual",
 };
 
 export function createEmptyDirectorState(): DirectorState {
   return {
     version: DIRECTOR_STATE_VERSION,
     items: {},
-    visualOrder: [],
+    imageOrder: [],
+    videoOrder: [],
     audioOrder: [],
     videoAudioPolicy: VIDEO_AUDIO_POLICY,
     ui: { ...DEFAULT_UI_PREFERENCES },
@@ -126,18 +129,15 @@ export function createMediaItem(
   id: string = globalThis.crypto?.randomUUID?.() ?? `reference-${Date.now()}-${Math.random()}`,
   options: { hasAudio?: boolean } = {},
 ): MediaItem {
-  const base = { id, kind, source, caption: "" };
+  const sourceFilename = source.path.split("/").pop() ?? source.path;
+  const base = { id, kind, source, sourceFilename, caption: "" };
   if (kind === "image") {
-    return { ...base, kind, visualEnabled: true };
+    return { ...base, kind, imageEnabled: true };
   }
   if (kind === "audio") {
     return { ...base, kind, audioEnabled: true };
   }
-  return { ...base, kind, visualEnabled: true, audioEnabled: options.hasAudio !== false };
-}
-
-export function isVisualItem(item: MediaItem): item is ImageItem | VideoItem {
-  return item.kind === "image" || item.kind === "video";
+  return { ...base, kind, videoEnabled: true, audioEnabled: options.hasAudio !== false };
 }
 
 export function isAudioItem(item: MediaItem): item is AudioItem | VideoItem {

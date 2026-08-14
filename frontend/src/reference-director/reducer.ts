@@ -1,6 +1,5 @@
 import {
   isAudioItem,
-  isVisualItem,
   type DirectorState,
   type DirectorUiPreferences,
   type ImageEditRecipe,
@@ -9,7 +8,7 @@ import {
 } from "./types";
 import { validateDirectorState } from "./validation";
 
-export type DirectorChannel = "visual" | "audio";
+export type DirectorChannel = "image" | "video" | "audio";
 
 export type DirectorAction =
   | { type: "replace"; state: DirectorState }
@@ -19,8 +18,8 @@ export type DirectorAction =
   | { type: "toggle"; id: string; channel: DirectorChannel }
   | { type: "reorder"; channel: DirectorChannel; id: string; toIndex: number }
   | { type: "move"; channel: DirectorChannel; id: string; delta: -1 | 1 }
-  | { type: "apply-image-edit"; id: string; edit: ImageEditRecipe; source?: MediaItem["source"] }
-  | { type: "apply-time-range"; id: string; crop?: TimeRange }
+  | { type: "apply-image-edit"; id: string; edit: ImageEditRecipe; source?: MediaItem["source"]; caption?: string }
+  | { type: "apply-time-range"; id: string; crop?: TimeRange; caption?: string; channel?: DirectorChannel }
   | { type: "set-ui"; values: Partial<DirectorUiPreferences> };
 
 function replaceItem(state: DirectorState, item: MediaItem): DirectorState {
@@ -45,7 +44,8 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
       return {
         ...state,
         items: { ...state.items, [action.item.id]: action.item },
-        visualOrder: isVisualItem(action.item) ? [...state.visualOrder, action.item.id] : state.visualOrder,
+        imageOrder: action.item.kind === "image" ? [...state.imageOrder, action.item.id] : state.imageOrder,
+        videoOrder: action.item.kind === "video" ? [...state.videoOrder, action.item.id] : state.videoOrder,
         audioOrder: isAudioItem(action.item) ? [...state.audioOrder, action.item.id] : state.audioOrder,
       };
     }
@@ -56,7 +56,8 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
       return {
         ...state,
         items,
-        visualOrder: state.visualOrder.filter((id) => id !== action.id),
+        imageOrder: state.imageOrder.filter((id) => id !== action.id),
+        videoOrder: state.videoOrder.filter((id) => id !== action.id),
         audioOrder: state.audioOrder.filter((id) => id !== action.id),
       };
     }
@@ -72,8 +73,11 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
     case "toggle": {
       const item = state.items[action.id];
       if (!item) return state;
-      if (action.channel === "visual" && isVisualItem(item)) {
-        return replaceItem(state, { ...item, visualEnabled: !item.visualEnabled });
+      if (action.channel === "image" && item.kind === "image") {
+        return replaceItem(state, { ...item, imageEnabled: !item.imageEnabled });
+      }
+      if (action.channel === "video" && item.kind === "video") {
+        return replaceItem(state, { ...item, videoEnabled: !item.videoEnabled });
       }
       if (action.channel === "audio" && isAudioItem(item)) {
         return replaceItem(state, { ...item, audioEnabled: !item.audioEnabled });
@@ -81,12 +85,12 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
       return state;
     }
     case "reorder": {
-      const key = action.channel === "visual" ? "visualOrder" : "audioOrder";
+      const key = action.channel === "image" ? "imageOrder" : action.channel === "video" ? "videoOrder" : "audioOrder";
       const next = moveInOrder(state[key], action.id, action.toIndex);
       return next === state[key] ? state : { ...state, [key]: next };
     }
     case "move": {
-      const order = action.channel === "visual" ? state.visualOrder : state.audioOrder;
+      const order = action.channel === "image" ? state.imageOrder : action.channel === "video" ? state.videoOrder : state.audioOrder;
       const index = order.indexOf(action.id);
       if (index < 0) return state;
       const target = Math.max(0, Math.min(order.length - 1, index + action.delta));
@@ -101,16 +105,29 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
     case "apply-image-edit": {
       const item = state.items[action.id];
       if (!item || item.kind !== "image") return state;
-      return replaceItem(state, {
+      const edited = replaceItem(state, {
         ...item,
         ...(action.source ? { source: action.source } : {}),
         edit: action.edit,
       });
+      return action.caption === undefined
+        ? edited
+        : directorReducer(edited, { type: "set-caption", id: action.id, caption: action.caption });
     }
     case "apply-time-range": {
       const item = state.items[action.id];
       if (!item || item.kind === "image") return state;
-      if (action.crop) return replaceItem(state, { ...item, crop: action.crop });
+      if (action.crop) {
+        const trimmed = replaceItem(state, { ...item, crop: action.crop });
+        return action.caption === undefined
+          ? trimmed
+          : directorReducer(trimmed, {
+            type: "set-caption",
+            id: action.id,
+            caption: action.caption,
+            ...(action.channel ? { channel: action.channel } : {}),
+          });
+      }
       const { crop: _discarded, ...withoutCrop } = item;
       return replaceItem(state, withoutCrop);
     }

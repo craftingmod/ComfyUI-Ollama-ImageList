@@ -25,6 +25,8 @@ ROUTE_PREFIX = "/ollama_multimodal/reference_director"
 UPLOAD_ROUTE = f"{ROUTE_PREFIX}/upload"
 METADATA_ROUTE = f"{ROUTE_PREFIX}/metadata"
 IMAGE_PROXY_ROUTE = f"{ROUTE_PREFIX}/image_proxy"
+AUDIO_PREVIEW_ROUTE = f"{ROUTE_PREFIX}/audio_preview"
+VIDEO_PREVIEW_ROUTE = f"{ROUTE_PREFIX}/video_preview"
 WAVEFORM_ROUTE = f"{ROUTE_PREFIX}/waveform"
 APPLY_EDIT_ROUTE = f"{ROUTE_PREFIX}/apply_edit"
 CACHE_VIEW_ROUTE = f"{ROUTE_PREFIX}/cache/{{kind}}/{{filename}}"
@@ -53,8 +55,14 @@ MIN_WAVEFORM_PAIRS = 200
 MAX_WAVEFORM_PAIRS = 500
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
-_CACHE_FILE_RE = re.compile(r"^[0-9a-f]{64}\.webp$")
+_CACHE_FILE_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?\.webp$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_INVALID_UPLOAD_FILENAME_RE = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
+_WINDOWS_RESERVED_FILENAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
 _ALLOWED_SOURCE_AREAS = frozenset({"sources", "edits", "masks"})
 _SOURCE_SUFFIXES = frozenset(
     {
@@ -88,6 +96,7 @@ _AREA_SUFFIXES = {
 }
 _registered_route_ids: set[int] = set()
 _CACHE_LOCKS = tuple(threading.Lock() for _ in range(64))
+_UPLOAD_STORAGE_LOCK = threading.Lock()
 _MEDIA_WORK_SEMAPHORE = threading.BoundedSemaphore(4)
 
 
@@ -275,18 +284,24 @@ def _resolve_source(source: Any) -> ResolvedSource:
     except OSError as exc:
         raise ReferenceRouteError(404, "source_not_found", "The media source was not found.") from exc
 
-    stem_hash = resolved.stem.lower()
-    if resolved.name.endswith("-mask.png"):
-        stem_hash = resolved.name.removesuffix("-mask.png").lower()
-    if not _HASH_RE.fullmatch(stem_hash):
-        raise _bad_request("invalid_source", "The media source name is invalid.")
     supplied_hash = source.get("sha256")
-    if supplied_hash is not None and (
+    if (
         not isinstance(supplied_hash, str)
         or not _HASH_RE.fullmatch(supplied_hash.lower())
-        or supplied_hash.lower() != stem_hash
     ):
-        raise _bad_request("source_mismatch", "The media source identity does not match its path.")
+        raise _bad_request("source_mismatch", "The media source identity is missing or invalid.")
+    supplied_hash = supplied_hash.lower()
+    area = PurePosixPath(relative).parts[1]
+    if area == "sources":
+        source_hash = supplied_hash
+    else:
+        source_hash = resolved.stem.lower()
+        if resolved.name.endswith("-mask.png"):
+            source_hash = resolved.name.removesuffix("-mask.png").lower()
+        if not _HASH_RE.fullmatch(source_hash):
+            raise _bad_request("invalid_source", "The media source name is invalid.")
+        if supplied_hash != source_hash:
+            raise _bad_request("source_mismatch", "The media source identity does not match its path.")
     expected_mime = _mime_from_suffix(resolved)
     mime = source.get("mime", source.get("mime_type"))
     if mime is None:
@@ -317,9 +332,9 @@ def _resolve_source(source: Any) -> ResolvedSource:
         actual_hash = _sha256_file(resolved)
     except OSError as exc:
         raise ReferenceRouteError(404, "source_not_found", "The media source was not found.") from exc
-    if actual_hash != stem_hash:
+    if actual_hash != source_hash:
         raise _bad_request("source_mismatch", "The media source content does not match its identity.")
-    return ResolvedSource(resolved, relative, stem_hash, mime.lower(), size)
+    return ResolvedSource(resolved, relative, source_hash, mime.lower(), size)
 
 
 def _sha256_file(path: Path) -> str:
@@ -611,6 +626,49 @@ def _cache_lock(key: str) -> threading.Lock:
     return _CACHE_LOCKS[int(key[:8], 16) % len(_CACHE_LOCKS)]
 
 
+def _safe_upload_filename(value: str, *, extension: str, mime: str) -> str:
+    basename = value.replace("\\", "/").rsplit("/", 1)[-1]
+    basename = _INVALID_UPLOAD_FILENAME_RE.sub("_", basename).strip().rstrip(".")
+    original = Path(basename)
+    if basename and _mime_from_suffix(original) == mime:
+        suffix = original.suffix
+        stem = original.stem
+    else:
+        suffix = f".{extension}"
+        stem = original.stem if original.suffix else original.name
+    stem = stem.strip().rstrip(".") or "reference"
+    if stem.upper() in _WINDOWS_RESERVED_FILENAMES:
+        stem = f"_{stem}"
+    maximum_stem = max(1, 180 - len(suffix))
+    return f"{stem[:maximum_stem]}{suffix}"
+
+
+def _store_uploaded_source(
+    temporary: Path,
+    sources: Path,
+    filename: str,
+    sha256: str,
+    size: int,
+) -> tuple[Path, bool]:
+    with _UPLOAD_STORAGE_LOCK:
+        original = Path(filename)
+        for index in range(1, 10_001):
+            candidate = sources / (
+                original.name
+                if index == 1
+                else f"{original.stem} ({index}){original.suffix}"
+            )
+            if candidate.exists():
+                if _is_link_like(candidate):
+                    raise ReferenceRouteError(409, "storage_conflict", "A media identity conflict was detected.")
+                if candidate.stat().st_size == size and _sha256_file(candidate) == sha256:
+                    return candidate, False
+                continue
+            os.replace(temporary, candidate)
+            return candidate, True
+    raise ReferenceRouteError(409, "storage_conflict", "Too many media files use the same name.")
+
+
 def _atomic_json(path: Path, payload: Any) -> None:
     try:
         if path.exists() and _is_link_like(path):
@@ -746,7 +804,7 @@ def _proxy_payload(source_value: Any, max_pixels_value: Any) -> dict[str, Any]:
     kind, _extension, mime, _metadata = _inspect_media(source.path)
     if kind not in {"image", "video"}:
         raise _bad_request("invalid_media_kind", "Only image and video sources can have an image proxy.")
-    key = _cache_key("image_proxy_v1", {"sha256": source.sha256, "max_pixels": max_pixels})
+    key = _cache_key("image_proxy_v1", {"sha256": source.sha256, "max_pixels": max_pixels})[:32]
     directory = _ensure_managed_directory("cache", "image_proxy")
     destination = directory / f"{key}.webp"
     with _cache_lock(key):
@@ -1351,15 +1409,20 @@ async def upload_endpoint(request: Any):
         )
         sha256 = digest.hexdigest()
         sources = await asyncio.to_thread(_ensure_managed_directory, "sources")
-        destination = sources / f"{sha256}.{extension}"
-        if destination.exists():
-            if _is_link_like(destination):
-                raise ReferenceRouteError(409, "storage_conflict", "A media identity conflict was detected.")
-            existing_size = destination.stat().st_size
-            if existing_size != size or await asyncio.to_thread(_sha256_file, destination) != sha256:
-                raise ReferenceRouteError(409, "storage_conflict", "A media identity conflict was detected.")
-        else:
-            os.replace(temporary, destination)
+        upload_filename = _safe_upload_filename(
+            str(part.filename),
+            extension=extension,
+            mime=mime,
+        )
+        destination, moved = await asyncio.to_thread(
+            _store_uploaded_source,
+            temporary,
+            sources,
+            upload_filename,
+            sha256,
+            size,
+        )
+        if moved:
             temporary = None
         source = ResolvedSource(
             destination,
@@ -1411,6 +1474,54 @@ async def image_proxy_endpoint(request: Any):
         return _error_response(error)
     except Exception:
         return _error_response(ReferenceRouteError(500, "internal_error", "The media preview could not be created."))
+
+
+async def _media_preview_response(request: Any, *, expected_kind: str):
+    query = getattr(request, "query", {})
+    query_get = getattr(query, "get", None)
+    source_json = query_get("source") if callable(query_get) else None
+    if not isinstance(source_json, str) or not source_json or len(source_json) > 4096:
+        raise _bad_request("invalid_source", "A bounded source descriptor is required.")
+    try:
+        source_value = json.loads(source_json)
+    except (TypeError, ValueError) as exc:
+        raise _bad_request("invalid_source", "The source descriptor is invalid JSON.") from exc
+    source = await asyncio.to_thread(_resolve_source, source_value)
+    kind, _extension, mime, _metadata = await asyncio.to_thread(_inspect_media, source.path)
+    if kind != expected_kind:
+        raise _bad_request(
+            "invalid_media_kind",
+            f"Only {expected_kind} sources can use this preview route.",
+        )
+    from aiohttp import web
+
+    return web.FileResponse(
+        source.path,
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": "inline",
+            "Content-Type": mime,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+async def audio_preview_endpoint(request: Any):
+    try:
+        return await _media_preview_response(request, expected_kind="audio")
+    except ReferenceRouteError as error:
+        return _error_response(error)
+    except Exception:
+        return _error_response(ReferenceRouteError(500, "internal_error", "The audio preview could not be served."))
+
+
+async def video_preview_endpoint(request: Any):
+    try:
+        return await _media_preview_response(request, expected_kind="video")
+    except ReferenceRouteError as error:
+        return _error_response(error)
+    except Exception:
+        return _error_response(ReferenceRouteError(500, "internal_error", "The video preview could not be served."))
 
 
 async def waveform_endpoint(request: Any):
@@ -1493,6 +1604,8 @@ def register_reference_routes(routes: Any | None = None) -> None:
     routes.post(UPLOAD_ROUTE)(upload_endpoint)
     routes.post(METADATA_ROUTE)(metadata_endpoint)
     routes.post(IMAGE_PROXY_ROUTE)(image_proxy_endpoint)
+    routes.get(AUDIO_PREVIEW_ROUTE)(audio_preview_endpoint)
+    routes.get(VIDEO_PREVIEW_ROUTE)(video_preview_endpoint)
     routes.post(WAVEFORM_ROUTE)(waveform_endpoint)
     routes.post(APPLY_EDIT_ROUTE)(apply_edit_endpoint)
     routes.get(CACHE_VIEW_ROUTE)(cache_view_endpoint)
@@ -1501,6 +1614,7 @@ def register_reference_routes(routes: Any | None = None) -> None:
 
 __all__ = [
     "APPLY_EDIT_ROUTE",
+    "AUDIO_PREVIEW_ROUTE",
     "CACHE_VIEW_ROUTE",
     "IMAGE_PROXY_ROUTE",
     "MAX_AUDIO_DURATION_SECONDS",
@@ -1512,12 +1626,15 @@ __all__ = [
     "PROXY_PIXEL_BUCKETS",
     "ROUTE_PREFIX",
     "UPLOAD_ROUTE",
+    "VIDEO_PREVIEW_ROUTE",
     "WAVEFORM_ROUTE",
     "apply_edit_endpoint",
+    "audio_preview_endpoint",
     "cache_view_endpoint",
     "image_proxy_endpoint",
     "metadata_endpoint",
     "register_reference_routes",
     "upload_endpoint",
+    "video_preview_endpoint",
     "waveform_endpoint",
 ]

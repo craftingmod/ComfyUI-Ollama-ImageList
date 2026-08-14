@@ -238,6 +238,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "/ollama_multimodal/reference_director/upload",
         "/ollama_multimodal/reference_director/metadata",
         "/ollama_multimodal/reference_director/image_proxy",
+        "/ollama_multimodal/reference_director/audio_preview",
+        "/ollama_multimodal/reference_director/video_preview",
         "/ollama_multimodal/reference_director/waveform",
         "/ollama_multimodal/reference_director/apply_edit",
         "/ollama_multimodal/reference_director/cache/{kind}/{filename}",

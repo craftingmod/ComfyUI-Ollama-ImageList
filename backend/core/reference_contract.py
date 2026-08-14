@@ -115,7 +115,8 @@ class ReferenceItem:
     kind: MediaKind
     source: ReferenceSource
     caption: str
-    visual_enabled: bool | None = None
+    image_enabled: bool | None = None
+    video_enabled: bool | None = None
     audio_enabled: bool | None = None
     audio_caption_override: str | None = None
     crop: TimeRange | None = None
@@ -126,7 +127,8 @@ class ReferenceItem:
 class ReferenceState:
     version: int
     items: Mapping[str, ReferenceItem]
-    visual_order: tuple[str, ...]
+    image_order: tuple[str, ...]
+    video_order: tuple[str, ...]
     audio_order: tuple[str, ...]
     video_audio_policy: Literal["preserve"]
 
@@ -290,14 +292,19 @@ def _item(key: str, value: Any) -> ReferenceItem:
     source = _source(item.get("source"), f"{path}.source", kind)
 
     if kind == "image":
-        if "audioEnabled" in item or "crop" in item or "audioCaptionOverride" in item:
+        if (
+            "videoEnabled" in item
+            or "audioEnabled" in item
+            or "crop" in item
+            or "audioCaptionOverride" in item
+        ):
             raise _error(path, "image items cannot contain audio or time-crop fields")
         return ReferenceItem(
             id=item_id,
             kind=kind,
             source=source,
             caption=caption,
-            visual_enabled=_boolean(item.get("visualEnabled"), f"{path}.visualEnabled"),
+            image_enabled=_boolean(item.get("imageEnabled"), f"{path}.imageEnabled"),
             edit=_image_edit(item["edit"], f"{path}.edit") if "edit" in item else None,
         )
 
@@ -305,8 +312,8 @@ def _item(key: str, value: Any) -> ReferenceItem:
         raise _error(path, "only image items can contain edit recipes")
     crop = _time_range(item["crop"], f"{path}.crop") if "crop" in item else None
     if kind == "audio":
-        if "visualEnabled" in item or "audioCaptionOverride" in item:
-            raise _error(path, "audio items cannot contain visual or video-caption fields")
+        if "imageEnabled" in item or "videoEnabled" in item or "audioCaptionOverride" in item:
+            raise _error(path, "audio items cannot contain image, video, or video-caption fields")
         return ReferenceItem(
             id=item_id,
             kind=kind,
@@ -328,7 +335,7 @@ def _item(key: str, value: Any) -> ReferenceItem:
         kind=kind,
         source=source,
         caption=caption,
-        visual_enabled=_boolean(item.get("visualEnabled"), f"{path}.visualEnabled"),
+        video_enabled=_boolean(item.get("videoEnabled"), f"{path}.videoEnabled"),
         audio_enabled=_boolean(item.get("audioEnabled"), f"{path}.audioEnabled"),
         audio_caption_override=override,
         crop=crop,
@@ -394,9 +401,11 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
     if video_count > MAX_VIDEO_ITEMS:
         raise _error("state.items", f"video count exceeds {MAX_VIDEO_ITEMS}")
 
-    visual_ids = {item.id for item in items.values() if item.kind in {"image", "video"}}
+    image_ids = {item.id for item in items.values() if item.kind == "image"}
+    video_ids = {item.id for item in items.values() if item.kind == "video"}
     audio_ids = {item.id for item in items.values() if item.kind in {"audio", "video"}}
-    visual_order = _order(state.get("visualOrder"), "state.visualOrder", expected=visual_ids)
+    image_order = _order(state.get("imageOrder"), "state.imageOrder", expected=image_ids)
+    video_order = _order(state.get("videoOrder"), "state.videoOrder", expected=video_ids)
     audio_order = _order(state.get("audioOrder"), "state.audioOrder", expected=audio_ids)
     if state.get("videoAudioPolicy") != VIDEO_AUDIO_POLICY:
         raise _error("state.videoAudioPolicy", f"must equal {VIDEO_AUDIO_POLICY!r}")
@@ -404,7 +413,8 @@ def parse_reference_state(value: str | Mapping[str, Any]) -> ReferenceState:
     return ReferenceState(
         version=REFERENCE_STATE_VERSION,
         items=MappingProxyType(items),
-        visual_order=visual_order,
+        image_order=image_order,
+        video_order=video_order,
         audio_order=audio_order,
         video_audio_policy=VIDEO_AUDIO_POLICY,
     )
@@ -441,10 +451,12 @@ def execution_projection(state: ReferenceState) -> dict[str, Any]:
     images: list[dict[str, Any]] = []
     videos: list[dict[str, Any]] = []
     audios: list[dict[str, Any]] = []
-    for item_id in state.visual_order:
+    for item_id in state.image_order:
         item = state.items[item_id]
-        projected = _execution_item(item, enabled=bool(item.visual_enabled))
-        (images if item.kind == "image" else videos).append(projected)
+        images.append(_execution_item(item, enabled=bool(item.image_enabled)))
+    for item_id in state.video_order:
+        item = state.items[item_id]
+        videos.append(_execution_item(item, enabled=bool(item.video_enabled)))
     for item_id in state.audio_order:
         item = state.items[item_id]
         if item.kind == "audio":
@@ -466,7 +478,8 @@ def execution_projection(state: ReferenceState) -> dict[str, Any]:
             )
     return {
         "version": state.version,
-        "visualOrder": list(state.visual_order),
+        "imageOrder": list(state.image_order),
+        "videoOrder": list(state.video_order),
         "audioOrder": list(state.audio_order),
         "videoAudioPolicy": state.video_audio_policy,
         "images": images,

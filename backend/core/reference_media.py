@@ -557,9 +557,9 @@ def validate_reference_sources(
 
     root = _input_root(input_directory)
     sources: set[ReferenceSource] = set()
-    for item_id in state.visual_order:
+    for item_id in state.image_order:
         item = state.items[item_id]
-        if not item.visual_enabled:
+        if not item.image_enabled:
             continue
         sources.add(item.source)
         if (
@@ -569,6 +569,10 @@ def validate_reference_sources(
             and item.edit.mask is not None
         ):
             sources.add(item.edit.mask)
+    for item_id in state.video_order:
+        item = state.items[item_id]
+        if item.video_enabled:
+            sources.add(item.source)
     for item_id in state.audio_order:
         item = state.items[item_id]
         if item.audio_enabled:
@@ -611,34 +615,36 @@ def load_reference_media(
             )
         output.append(value)
 
-    for item_id in state.visual_order:
+    for item_id in state.image_order:
         item = state.items[item_id]
-        if not item.visual_enabled:
+        if not item.image_enabled:
             continue
         path = source_path(item.source)
-        if item.kind == "image":
-            mask_path = (
-                source_path(item.edit.mask)
-                if (
-                    not _is_materialized_edit(item.source)
-                    and item.edit is not None
-                    and item.edit.mask is not None
-                )
-                else None
+        mask_path = (
+            source_path(item.edit.mask)
+            if (
+                not _is_materialized_edit(item.source)
+                and item.edit is not None
+                and item.edit.mask is not None
             )
-            retain(
-                _load_image(
-                    path,
-                    item.source,
-                    item.edit,
-                    mask_path,
-                    max_output_bytes=MAX_DECODED_OUTPUT_BYTES
-                    - decoded_output_bytes,
-                ),
-                images,
-            )
-        else:
-            videos.append(_load_video(path, item.crop))
+            else None
+        )
+        retain(
+            _load_image(
+                path,
+                item.source,
+                item.edit,
+                mask_path,
+                max_output_bytes=MAX_DECODED_OUTPUT_BYTES
+                - decoded_output_bytes,
+            ),
+            images,
+        )
+    for item_id in state.video_order:
+        item = state.items[item_id]
+        if not item.video_enabled:
+            continue
+        videos.append(_load_video(source_path(item.source), item.crop))
     for item_id in state.audio_order:
         item = state.items[item_id]
         if not item.audio_enabled:

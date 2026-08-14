@@ -6,14 +6,20 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- `Reference Director` under `Ollama / Multimodal`, with a persistent custom board for local image, audio, and video uploads; independent Visual/Audio ordering; raw user captions; enable toggles; drag/keyboard reordering; and undo/redo.
+- `Reference Director` under `Ollama / Multimodal`, with a persistent custom board for local image, audio, and video uploads; independent Images/Videos/Audio ordering; raw user captions; category-specific enable toggles; drag/keyboard reordering; and undo/redo.
 - Non-destructive image crop, erase/restore mask painting with bounded local undo/redo, horizontal/vertical flip, transparent/solid background editing, plus per-item audio/video trim ranges, bounded preview proxies, and waveform summaries.
 - Explicit IMAGE/STRING, AUDIO/STRING, and VIDEO/STRING list pairs plus a deterministic payload-free manifest containing stable IDs, source hashes, disabled items, edit/crop state, output order, and video-audio derivation.
-- Managed, content-addressed Reference Director upload/edit/cache routes and a minimal `workflows/Reference_Director.json` example.
+- Managed Reference Director upload/edit/cache routes and a minimal `workflows/Reference_Director.json` example. Original uploads retain safe source filenames, while generated edits and caches remain content-addressed.
 
 ### Changed
 
-- Stacked the Reference Director Visual and Audio boards vertically, expanded drag arming from the six-dot handle to each card's non-control surface, and made the × delete action visibly red.
+- Reference Director now highlights the destination card during drag reordering, overlays the red × on the preview, and groups duration beside the media-type badge.
+- Reference Director card controls now sit below Caption without obscuring media, every media preview includes a lighter original-filename gradient strip with ellipsis and a full-name tooltip, disabled outputs moderately desaturate only their media visual while leaving surrounding information and controls at full brightness, and image-proxy URLs use 32-character SHA-derived cache keys.
+- `grid_columns`, float `preview_pixels` (MPixel), and `show_captions` are native V3 advanced inputs while remaining display-only for execution caching; hidden card captions stay editable in the detail dialogs.
+- Split playback into strict, validated, Range-capable `audio_preview` and `video_preview` routes. Standalone AUDIO uses the former; sound-enabled VIDEO Grid playback and VIDEO-derived Audio auditioning share the latter's original container without extraction or transcoding. Audio and video previews are mutually exclusive, and VIDEO returns to its first-frame WebP poster after the applied range stops.
+- Added a shared frontend audio player, Audio-card play/stop controls, a unified Play/Pause/Resume action, and a runtime-only Seekbar for draft trim auditioning. Playback visuals use timestamp-based 30fps RAF updates with per-RAF trim-boundary checks rather than assuming a display refresh rate.
+- Native advanced display fields now act strictly as socketless write-only proxies; the versioned Director state always wins during restoration and queueing.
+- Split Reference Director into equal, vertically stacked Images, Videos, and Audio boards with compact empty states and no tab-selection state; expanded drag arming from the six-dot handle to each card's non-control surface; and made the × delete action visibly red.
 - Added optional lazy `rembg` foreground extraction to image edits; the existing node pack remains usable when the extra is absent.
 - Frontend extensions now build from strict TypeScript with Vite 8 into one shipped `web/index.js`; Bun 1.3.14 or newer is required only for development, not for installation or runtime.
 - VIDEO uses the fixed `preserve` policy: its native VIDEO value retains embedded audio, while an enabled video Audio channel also emits a separately decoded `<video-id>:audio` item.

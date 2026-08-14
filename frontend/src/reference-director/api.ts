@@ -159,6 +159,20 @@ export class ReferenceDirectorApi {
     return normalizeMetadata(isRecord(payload) && "metadata" in payload ? payload.metadata : payload);
   }
 
+  audioPreviewUrl(source: MediaSource): string {
+    const route = `${REFERENCE_DIRECTOR_API_BASE}/audio_preview?${new URLSearchParams({
+      source: JSON.stringify(source),
+    })}`;
+    return this.api.apiURL ? this.api.apiURL(route) : route;
+  }
+
+  videoPreviewUrl(source: MediaSource): string {
+    const route = `${REFERENCE_DIRECTOR_API_BASE}/video_preview?${new URLSearchParams({
+      source: JSON.stringify(source),
+    })}`;
+    return this.api.apiURL ? this.api.apiURL(route) : route;
+  }
+
   async imageProxy(
     source: MediaSource,
     maxPixels: number,

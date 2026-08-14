@@ -578,11 +578,12 @@ def test_loader_preserves_independent_output_order_and_video_audio(monkeypatch, 
     raw = {
         "version": 1,
         "items": {
-            "img": {"id": "img", "kind": "image", "source": source("img.png", b"i", "image/png"), "caption": "", "visualEnabled": True},
-            "vid": {"id": "vid", "kind": "video", "source": source("vid.mp4", b"v", "video/mp4"), "caption": "", "visualEnabled": True, "audioEnabled": True},
+            "img": {"id": "img", "kind": "image", "source": source("img.png", b"i", "image/png"), "caption": "", "imageEnabled": True},
+            "vid": {"id": "vid", "kind": "video", "source": source("vid.mp4", b"v", "video/mp4"), "caption": "", "videoEnabled": True, "audioEnabled": True},
             "aud": {"id": "aud", "kind": "audio", "source": source("aud.wav", b"a", "audio/wav"), "caption": "", "audioEnabled": True},
         },
-        "visualOrder": ["vid", "img"],
+        "imageOrder": ["img"],
+        "videoOrder": ["vid"],
         "audioOrder": ["vid", "aud"],
         "videoAudioPolicy": "preserve",
     }
@@ -627,7 +628,7 @@ def test_materialized_image_edit_does_not_require_the_brush_mask_at_execution(
                     "size": len(payload),
                 },
                 "caption": "",
-                "visualEnabled": True,
+                "imageEnabled": True,
                 "edit": {
                     "mask": {
                         "path": f"reference_director/sources/{'a' * 64}.png",
@@ -639,7 +640,8 @@ def test_materialized_image_edit_does_not_require_the_brush_mask_at_execution(
                 },
             }
         },
-        "visualOrder": ["img"],
+        "imageOrder": ["img"],
+        "videoOrder": [],
         "audioOrder": [],
         "videoAudioPolicy": "preserve",
     }
@@ -680,17 +682,18 @@ def test_loader_passes_and_enforces_the_aggregate_tensor_memory_budget(
                 "kind": "image",
                 "source": source("a.png", b"a"),
                 "caption": "",
-                "visualEnabled": True,
+                "imageEnabled": True,
             },
             "b": {
                 "id": "b",
                 "kind": "image",
                 "source": source("b.png", b"b"),
                 "caption": "",
-                "visualEnabled": True,
+                "imageEnabled": True,
             },
         },
-        "visualOrder": ["a", "b"],
+        "imageOrder": ["a", "b"],
+        "videoOrder": [],
         "audioOrder": [],
         "videoAudioPolicy": "preserve",
     }
@@ -739,10 +742,11 @@ def test_fingerprint_source_validation_detects_same_size_content_replacement(tmp
                     "size": len(original),
                 },
                 "caption": "",
-                "visualEnabled": True,
+                "imageEnabled": True,
             }
         },
-        "visualOrder": ["img"],
+        "imageOrder": ["img"],
+        "videoOrder": [],
         "audioOrder": [],
         "videoAudioPolicy": "preserve",
     }

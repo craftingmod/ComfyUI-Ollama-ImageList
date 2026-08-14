@@ -17,7 +17,6 @@ export function deserializeDirectorState(value: unknown): DirectorValidationResu
     return {
       state: createEmptyDirectorState(),
       issues: ["State JSON exceeded the 1,000,000-character limit."],
-      migrated: false,
     };
   }
   if (typeof value !== "string" || value.trim() === "") {
@@ -29,7 +28,6 @@ export function deserializeDirectorState(value: unknown): DirectorValidationResu
     return {
       state: createEmptyDirectorState(),
       issues: [`State JSON could not be parsed: ${error instanceof Error ? error.message : "unknown error"}.`],
-      migrated: false,
     };
   }
 }

@@ -21,8 +21,13 @@ describe("Reference Director state", () => {
     state = directorReducer(state, { type: "add", item: createMediaItem("audio", source("a.wav", "audio/wav"), "a") });
     state = directorReducer(state, { type: "add", item: createMediaItem("video", source("v.mp4", "video/mp4"), "v") });
 
-    expect(state.visualOrder).toEqual(["i", "v"]);
+    expect(state.imageOrder).toEqual(["i"]);
+    expect(state.videoOrder).toEqual(["v"]);
     expect(state.audioOrder).toEqual(["a", "v"]);
+
+    const withoutVideo = directorReducer(state, { type: "remove", id: "v" });
+    expect(withoutVideo.videoOrder).toEqual([]);
+    expect(withoutVideo.audioOrder).toEqual(["a"]);
   });
 
   test("reorders, moves, toggles and removes without mutating previous state", () => {
@@ -31,20 +36,20 @@ describe("Reference Director state", () => {
     let state = directorReducer(createEmptyDirectorState(), { type: "add", item: first });
     state = directorReducer(state, { type: "add", item: second });
     const previous = state;
-    state = directorReducer(state, { type: "move", channel: "visual", id: "a", delta: 1 });
-    state = directorReducer(state, { type: "toggle", channel: "visual", id: "a" });
+    state = directorReducer(state, { type: "move", channel: "image", id: "a", delta: 1 });
+    state = directorReducer(state, { type: "toggle", channel: "image", id: "a" });
     state = directorReducer(state, { type: "remove", id: "b" });
 
-    expect(previous.visualOrder).toEqual(["a", "b"]);
-    expect(state.visualOrder).toEqual(["a"]);
-    expect(state.items.a?.kind === "image" && state.items.a.visualEnabled).toBe(false);
+    expect(previous.imageOrder).toEqual(["a", "b"]);
+    expect(state.imageOrder).toEqual(["a"]);
+    expect(state.items.a?.kind === "image" && state.items.a.imageEnabled).toBe(false);
     expect(state.items.b).toBeUndefined();
   });
 
   test("keeps a video audio caption override separate from its visual caption", () => {
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
     let state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
-    state = directorReducer(state, { type: "set-caption", id: "v", channel: "visual", caption: "visual" });
+    state = directorReducer(state, { type: "set-caption", id: "v", channel: "video", caption: "visual" });
     state = directorReducer(state, { type: "set-caption", id: "v", channel: "audio", caption: "spoken" });
     expect(state.items.v).toMatchObject({ caption: "visual", audioCaptionOverride: "spoken" });
   });
@@ -56,29 +61,32 @@ describe("Reference Director state", () => {
 });
 
 describe("validation and serialization", () => {
-  test("migrates snake_case state and repairs missing orders", () => {
+  test("validates only the current state schema and repairs missing orders", () => {
     const result = validateDirectorState({
-      version: 0,
+      version: 1,
       items: {
         video: {
           id: "video",
           kind: "video",
           source: source("v.mp4", "video/mp4"),
           caption: "clip",
-          visual_enabled: false,
-          audio_enabled: true,
-          audio_caption_override: "voice",
+          videoEnabled: false,
+          audioEnabled: true,
+          audioCaptionOverride: "voice",
         },
       },
-      visual_order: [],
-      audio_order: [],
-      ui: { waveform_peaks: 999, active_channel: "audio" },
+      imageOrder: [],
+      videoOrder: [],
+      audioOrder: [],
+      ui: { gridColumns: 99, previewMaxPixels: 1_750_000, waveformPeaks: 999 },
     });
-    expect(result.migrated).toBe(true);
-    expect(result.state.visualOrder).toEqual(["video"]);
+    expect(result.state.imageOrder).toEqual([]);
+    expect(result.state.videoOrder).toEqual(["video"]);
     expect(result.state.audioOrder).toEqual(["video"]);
     expect(result.state.ui.waveformPeaks).toBe(500);
-    expect(result.state.ui.activeChannel).toBe("audio");
+    expect(result.state.ui.gridColumns).toBe(8);
+    expect(result.state.ui.previewMaxPixels).toBe(1_750_000);
+    expect(validateDirectorState({ version: 0 }).state).toEqual(createEmptyDirectorState());
   });
 
   test("falls back safely for malformed JSON and unsupported versions", () => {
@@ -100,6 +108,7 @@ describe("validation and serialization", () => {
     expect(serialized.indexOf('"a"')).toBeLessThan(serialized.indexOf('"z"'));
     expect(serialized).not.toContain("blob:");
     expect(deserializeDirectorState(serialized).state).toEqual(state);
+    expect(deserializeDirectorState(serialized).state.items.a?.sourceFilename).toBe("i.png");
   });
 
   test("keeps a portable content-addressed mask in state and execution", () => {

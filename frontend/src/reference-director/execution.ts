@@ -14,7 +14,8 @@ export interface ExecutionItem {
 
 export interface DirectorExecutionProjection {
   version: 1;
-  visualOrder: string[];
+  imageOrder: string[];
+  videoOrder: string[];
   audioOrder: string[];
   videoAudioPolicy: "preserve";
   images: ExecutionItem[];
@@ -41,21 +42,29 @@ export function projectDirectorExecution(state: DirectorState): DirectorExecutio
   const videos: ExecutionItem[] = [];
   const audios: ExecutionItem[] = [];
 
-  for (const id of canonical.visualOrder) {
+  for (const id of canonical.imageOrder) {
     const item = canonical.items[id];
-    if (!item || item.kind === "audio") continue;
+    if (!item || item.kind !== "image") continue;
     const projected: ExecutionItem = {
       id,
       kind: item.kind,
       source: executionSource(item.source),
       caption: item.caption,
-      enabled: item.visualEnabled,
+      enabled: item.imageEnabled,
     };
-    if (item.kind === "image") {
-      images.push(item.edit ? { ...projected, edit: executionEdit(item.edit) } : projected);
-    } else {
-      videos.push(optionalCrop(projected, item.crop));
-    }
+    images.push(item.edit ? { ...projected, edit: executionEdit(item.edit) } : projected);
+  }
+
+  for (const id of canonical.videoOrder) {
+    const item = canonical.items[id];
+    if (!item || item.kind !== "video") continue;
+    videos.push(optionalCrop({
+      id,
+      kind: item.kind,
+      source: executionSource(item.source),
+      caption: item.caption,
+      enabled: item.videoEnabled,
+    }, item.crop));
   }
 
   for (const id of canonical.audioOrder) {
@@ -93,7 +102,8 @@ export function projectDirectorExecution(state: DirectorState): DirectorExecutio
 
   return {
     version: 1,
-    visualOrder: [...canonical.visualOrder],
+    imageOrder: [...canonical.imageOrder],
+    videoOrder: [...canonical.videoOrder],
     audioOrder: [...canonical.audioOrder],
     videoAudioPolicy: canonical.videoAudioPolicy,
     images,

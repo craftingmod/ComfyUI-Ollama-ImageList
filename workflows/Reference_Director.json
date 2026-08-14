@@ -21,6 +21,33 @@
             "name": "director_state"
           },
           "link": null
+        },
+        {
+          "localized_name": "grid_columns",
+          "name": "grid_columns",
+          "type": "INT",
+          "widget": {
+            "name": "grid_columns"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "preview_pixels (MPixel)",
+          "name": "preview_pixels",
+          "type": "FLOAT",
+          "widget": {
+            "name": "preview_pixels"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "show_captions",
+          "name": "show_captions",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "show_captions"
+          },
+          "link": null
         }
       ],
       "outputs": [
@@ -74,10 +101,16 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "OllamaImageList_ReferenceDirector"
+        "Node name for S&R": "OllamaImageList_ReferenceDirector",
+        "referenceDirector": {
+          "showCaptions": true
+        }
       },
       "widgets_values": [
-        "{\"version\":1,\"items\":{},\"visualOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"previewMaxPixels\":1000000,\"waveformPeaks\":300,\"activeChannel\":\"visual\"}}"
+        "{\"version\":1,\"items\":{},\"imageOrder\":[],\"videoOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"gridColumns\":3,\"previewMaxPixels\":1000000,\"waveformPeaks\":300}}",
+        3,
+        1.0,
+        true
       ]
     }
   ],

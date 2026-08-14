@@ -42,8 +42,10 @@ def _original_item_manifest(item: ReferenceItem) -> dict[str, Any]:
         "caption": {"text": item.caption, "source": "user"},
         "enabled": {},
     }
-    if item.visual_enabled is not None:
-        value["enabled"]["visual"] = item.visual_enabled
+    if item.image_enabled is not None:
+        value["enabled"]["image"] = item.image_enabled
+    if item.video_enabled is not None:
+        value["enabled"]["video"] = item.video_enabled
     if item.audio_enabled is not None:
         value["enabled"]["audio"] = item.audio_enabled
     if item.crop is not None:
@@ -88,7 +90,8 @@ def build_reference_manifest(state: ReferenceState) -> dict[str, Any]:
     return {
         "version": state.version,
         "video_audio_policy": state.video_audio_policy,
-        "visual_order": list(state.visual_order),
+        "image_order": list(state.image_order),
+        "video_order": list(state.video_order),
         # audio_order deliberately stores original item IDs, including videos.
         "audio_order": list(state.audio_order),
         "outputs": {

@@ -52,6 +52,12 @@ describe("Reference Director API", () => {
     };
     const client = new ReferenceDirectorApi(api);
     const source = { path: "reference_director/sources/a.wav", mime: "audio/wav", sha256: "hash" };
+    const previewUrl = new URL(client.audioPreviewUrl(source), "http://localhost");
+    const videoPreviewUrl = new URL(client.videoPreviewUrl(source), "http://localhost");
+    expect(previewUrl.pathname).toBe(`${REFERENCE_DIRECTOR_API_BASE}/audio_preview`);
+    expect(JSON.parse(previewUrl.searchParams.get("source") ?? "{}")).toEqual(source);
+    expect(videoPreviewUrl.pathname).toBe(`${REFERENCE_DIRECTOR_API_BASE}/video_preview`);
+    expect(JSON.parse(videoPreviewUrl.searchParams.get("source") ?? "{}")).toEqual(source);
     expect(await client.imageProxy(source, 123)).toEqual({ url: "/api/cache/x.webp", cacheKey: "x" });
     expect(await client.waveform(source, 300, { start: 0, end: 1 })).toEqual({ pairs: [[-0.4, 0.8]], duration: 2, cacheKey: "w" });
     expect(calls[0]?.body.maxPixels).toBe(123);
@@ -72,6 +78,12 @@ describe("Reference Director API", () => {
     };
     const client = new ReferenceDirectorApi(api);
     const source = { path: "reference_director/sources/x.png", mime: "image/png", sha256: "a".repeat(64) };
+    expect(client.audioPreviewUrl(source)).toStartWith(
+      "/comfy/api/ollama_multimodal/reference_director/audio_preview?",
+    );
+    expect(client.videoPreviewUrl(source)).toStartWith(
+      "/comfy/api/ollama_multimodal/reference_director/video_preview?",
+    );
     expect((await client.imageProxy(source, 100)).url).toBe(
       "/comfy/api/ollama_multimodal/reference_director/cache/image_proxy/x.webp",
     );

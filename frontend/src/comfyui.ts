@@ -36,6 +36,7 @@ export interface ComfyNode {
   type?: string;
   widgets?: ComfyWidget[];
   inputs?: ComfyNodeInput[];
+  properties?: Record<string, unknown>;
   size?: [number, number];
   graph?: ComfyGraphLike | null;
   addWidget(

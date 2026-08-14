@@ -35,7 +35,7 @@ def director_state():
                     "size": 123,
                 },
                 "caption": "image caption",
-                "visualEnabled": True,
+                "imageEnabled": True,
                 "edit": {
                     "crop": {"x": 0.1, "y": 0.2, "width": 0.8, "height": 0.7},
                     "flipX": True,
@@ -72,12 +72,13 @@ def director_state():
                 },
                 "caption": "video caption",
                 "audioCaptionOverride": "video audio caption",
-                "visualEnabled": False,
+                "videoEnabled": False,
                 "audioEnabled": True,
                 "crop": {"start": 1.0, "end": 3.0},
             },
         },
-        "visualOrder": ["vid-c", "img-a"],
+        "imageOrder": ["img-a"],
+        "videoOrder": ["vid-c"],
         "audioOrder": ["aud-b", "vid-c"],
         "videoAudioPolicy": "preserve",
         "ui": {
@@ -99,6 +100,8 @@ def test_contract_projection_is_deterministic_and_excludes_ui_state():
     )
     projection = execution_projection(parsed)
     assert "ui" not in projection
+    assert projection["imageOrder"] == ["img-a"]
+    assert projection["videoOrder"] == ["vid-c"]
     assert [item["id"] for item in projection["images"]] == ["img-a"]
     assert [item["id"] for item in projection["videos"]] == ["vid-c"]
     assert [item["id"] for item in projection["audios"]] == [
@@ -114,7 +117,7 @@ def test_contract_projection_is_deterministic_and_excludes_ui_state():
     ("mutate", "match"),
     [
         (lambda state: state["items"]["img-a"]["source"].update(path="../secret.png"), "path"),
-        (lambda state: state.update(visualOrder=["img-a", "img-a"]), "duplicate"),
+        (lambda state: state.update(imageOrder=["img-a", "img-a"]), "duplicate"),
         (lambda state: state.update(audioOrder=["aud-b"]), "missing"),
         (
             lambda state: state["items"]["vid-c"].update(
@@ -142,7 +145,8 @@ def test_manifest_keeps_disabled_items_and_aligns_active_ids_and_captions():
     assert plan.audio_ids == ("vid-c:audio",)
     assert plan.audio_captions == ("video audio caption",)
     assert plan.video_ids == ()
-    assert manifest["visual_order"] == ["vid-c", "img-a"]
+    assert manifest["image_order"] == ["img-a"]
+    assert manifest["video_order"] == ["vid-c"]
     assert manifest["audio_order"] == ["aud-b", "vid-c"]
     assert manifest["outputs"] == {
         "images": ["img-a"],
@@ -150,6 +154,11 @@ def test_manifest_keeps_disabled_items_and_aligns_active_ids_and_captions():
         "videos": [],
     }
     assert manifest["items"]["aud-b"]["enabled"] == {"audio": False}
+    assert manifest["items"]["img-a"]["enabled"] == {"image": True}
+    assert manifest["items"]["vid-c"]["enabled"] == {
+        "video": False,
+        "audio": True,
+    }
     assert manifest["items"]["vid-c:audio"]["derived_from"] == "vid-c"
     assert manifest["items"]["img-a"]["edit"]["maskMode"] == "keep"
     serialized = json.dumps(manifest)

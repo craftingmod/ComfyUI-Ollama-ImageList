@@ -23,14 +23,15 @@ EMPTY_DIRECTOR_STATE_JSON = json.dumps(
     {
         "version": 1,
         "items": {},
-        "visualOrder": [],
+        "imageOrder": [],
+        "videoOrder": [],
         "audioOrder": [],
         "videoAudioPolicy": "preserve",
         "ui": {
             "cardAspectRatio": "4 / 3",
+            "gridColumns": 3,
             "previewMaxPixels": 1_000_000,
             "waveformPeaks": 300,
-            "activeChannel": "visual",
         },
     },
     separators=(",", ":"),
@@ -58,7 +59,40 @@ class ReferenceDirectorNode(io.ComfyNode):
                     dynamic_prompts=False,
                     socketless=True,
                     extra_dict={"widgetType": "OLLAMA_REFERENCE_DIRECTOR"},
-                )
+                ),
+                io.Int.Input(
+                    "grid_columns",
+                    display_name="grid_columns",
+                    default=3,
+                    min=1,
+                    max=8,
+                    step=1,
+                    advanced=True,
+                    socketless=True,
+                    tooltip="Number of card columns used by each Director channel.",
+                ),
+                io.Float.Input(
+                    "preview_pixels",
+                    display_name="preview_pixels (MPixel)",
+                    default=1.0,
+                    min=0.25,
+                    max=16.0,
+                    step=0.25,
+                    round=0.01,
+                    advanced=True,
+                    socketless=True,
+                    tooltip="Maximum preview resolution in megapixels; execution media is unchanged.",
+                ),
+                io.Boolean.Input(
+                    "show_captions",
+                    display_name="show_captions",
+                    default=True,
+                    label_on="Shown",
+                    label_off="Hidden",
+                    advanced=True,
+                    socketless=True,
+                    tooltip="Show caption fields on Director cards; captions remain available in Edit when hidden.",
+                ),
             ],
             outputs=[
                 io.Image.Output("images", is_output_list=True),
@@ -72,13 +106,27 @@ class ReferenceDirectorNode(io.ComfyNode):
         )
 
     @classmethod
-    def fingerprint_inputs(cls, director_state: str) -> str:
+    def fingerprint_inputs(
+        cls,
+        director_state: str,
+        grid_columns: int = 3,
+        preview_pixels: float = 1.0,
+        show_captions: bool = True,
+    ) -> str:
+        _ = grid_columns, preview_pixels, show_captions
         state = parse_reference_state(director_state)
         validate_reference_sources(state)
         return execution_fingerprint(state)
 
     @classmethod
-    def execute(cls, director_state: str) -> io.NodeOutput:
+    def execute(
+        cls,
+        director_state: str,
+        grid_columns: int = 3,
+        preview_pixels: float = 1.0,
+        show_captions: bool = True,
+    ) -> io.NodeOutput:
+        _ = grid_columns, preview_pixels, show_captions
         state = parse_reference_state(director_state)
         plan = build_reference_output_plan(state)
         loaded = load_reference_media(state)

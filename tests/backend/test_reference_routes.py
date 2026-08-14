@@ -41,10 +41,10 @@ class ChunkedJsonRequest:
 
 class UploadPart:
     name = "file"
-    filename = "../untrusted name.png"
 
-    def __init__(self, chunks):
+    def __init__(self, chunks, filename="../untrusted name.png"):
         self.chunks = list(chunks)
+        self.filename = filename
 
     async def read_chunk(self, *, size):
         assert size == routes.UPLOAD_CHUNK_BYTES
@@ -67,6 +67,11 @@ class UploadRequest:
 
     async def multipart(self):
         return self.reader
+
+
+class QueryRequest:
+    def __init__(self, source):
+        self.query = {"source": json.dumps(source)}
 
 
 def install_runtime_stubs(monkeypatch, input_root: Path):
@@ -116,6 +121,8 @@ def test_register_reference_routes_is_idempotent():
         ("POST", routes.UPLOAD_ROUTE),
         ("POST", routes.METADATA_ROUTE),
         ("POST", routes.IMAGE_PROXY_ROUTE),
+        ("GET", routes.AUDIO_PREVIEW_ROUTE),
+        ("GET", routes.VIDEO_PREVIEW_ROUTE),
         ("POST", routes.WAVEFORM_ROUTE),
         ("POST", routes.APPLY_EDIT_ROUTE),
         ("GET", routes.CACHE_VIEW_ROUTE),
@@ -154,7 +161,7 @@ def test_decoder_work_runs_inside_the_global_concurrency_gate(monkeypatch):
     assert events == ["enter", "work", "exit"]
 
 
-def test_upload_streams_to_content_addressed_managed_source(monkeypatch, tmp_path):
+def test_upload_streams_to_original_named_managed_source(monkeypatch, tmp_path):
     install_runtime_stubs(monkeypatch, tmp_path)
     body = b"trusted-bytes"
     monkeypatch.setattr(
@@ -174,7 +181,7 @@ def test_upload_streams_to_content_addressed_managed_source(monkeypatch, tmp_pat
     assert response.status == 201
     assert response.payload == {
         "source": {
-            "path": f"reference_director/sources/{digest}.png",
+            "path": "reference_director/sources/untrusted name.png",
             "mime": "image/png",
             "sha256": digest,
             "size": len(body),
@@ -183,7 +190,30 @@ def test_upload_streams_to_content_addressed_managed_source(monkeypatch, tmp_pat
         "metadata": {"width": 2, "height": 3, "mode": "RGB", "frame_count": 1},
     }
     assert (tmp_path / response.payload["source"]["path"]).read_bytes() == body
-    assert "untrusted" not in response.payload["source"]["path"]
+    assert routes._resolve_source(response.payload["source"]).sha256 == digest
+
+
+def test_upload_preserves_names_and_numbers_only_true_name_collisions(monkeypatch, tmp_path):
+    install_runtime_stubs(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        routes,
+        "_inspect_media",
+        lambda path, **_kwargs: (
+            "image",
+            "png",
+            "image/png",
+            {"width": 2, "height": 3, "mode": "RGB", "frame_count": 1},
+        ),
+    )
+
+    first = asyncio.run(routes.upload_endpoint(UploadRequest([UploadPart([b"first"], "photo.png")])))
+    duplicate = asyncio.run(routes.upload_endpoint(UploadRequest([UploadPart([b"first"], "photo.png")])))
+    collision = asyncio.run(routes.upload_endpoint(UploadRequest([UploadPart([b"second"], "photo.png")])))
+
+    assert first.payload["source"]["path"] == "reference_director/sources/photo.png"
+    assert duplicate.payload["source"]["path"] == first.payload["source"]["path"]
+    assert collision.payload["source"]["path"] == "reference_director/sources/photo (2).png"
+    assert (tmp_path / "reference_director" / "sources" / "photo (2).png").read_bytes() == b"second"
 
 
 def test_upload_enforces_streaming_limit_and_removes_partial_file(monkeypatch, tmp_path):
@@ -455,10 +485,122 @@ def test_image_proxy_never_exceeds_requested_total_pixels(monkeypatch, tmp_path)
     assert result["width"] * result["height"] <= 65_536
     assert result["max_pixels"] == 65_536
     assert same_bucket["cache_key"] == result["cache_key"]
+    assert len(result["cache_key"]) == 32
     assert result["url"].startswith("/api/ollama_multimodal/reference_director/cache/image_proxy/")
     cache_file = tmp_path / "reference_director" / "cache" / "image_proxy" / f"{result['cache_key']}.webp"
     with Image.open(cache_file) as preview:
         assert preview.size == (result["width"], result["height"])
+
+
+def test_audio_preview_serves_only_a_validated_managed_audio_source(monkeypatch, tmp_path):
+    install_runtime_stubs(monkeypatch, tmp_path)
+    source_path, source = write_managed_source(tmp_path, b"audio", "wav")
+    monkeypatch.setattr(
+        routes,
+        "_inspect_media",
+        lambda _path, **_kwargs: (
+            "audio",
+            "wav",
+            "audio/wav",
+            {"duration": 1.0},
+        ),
+    )
+
+    response = asyncio.run(routes.audio_preview_endpoint(QueryRequest(source)))
+
+    assert response.status == 200
+    assert response.path == source_path
+    assert response.headers == {
+        "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": "inline",
+        "Content-Type": "audio/wav",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "extension", "mime"),
+    [
+        ("image", "png", "image/png"),
+        ("video", "mp4", "video/mp4"),
+    ],
+)
+def test_audio_preview_rejects_non_audio_media(
+    monkeypatch,
+    tmp_path,
+    kind,
+    extension,
+    mime,
+):
+    install_runtime_stubs(monkeypatch, tmp_path)
+    _source_path, source = write_managed_source(
+        tmp_path,
+        kind.encode("ascii"),
+        extension,
+    )
+    monkeypatch.setattr(
+        routes,
+        "_inspect_media",
+        lambda _path, **_kwargs: (
+            kind,
+            extension,
+            mime,
+            {"has_audio": True} if kind == "video" else {},
+        ),
+    )
+
+    response = asyncio.run(routes.audio_preview_endpoint(QueryRequest(source)))
+
+    assert response.status == 400
+    assert "Only audio sources" in response.payload["error"]["message"]
+
+
+def test_video_preview_serves_a_silent_video_source(monkeypatch, tmp_path):
+    install_runtime_stubs(monkeypatch, tmp_path)
+    source_path, source = write_managed_source(tmp_path, b"silent-video", "mp4")
+    monkeypatch.setattr(
+        routes,
+        "_inspect_media",
+        lambda _path, **_kwargs: (
+            "video",
+            "mp4",
+            "video/mp4",
+            {"duration": 1.0, "has_audio": False},
+        ),
+    )
+
+    response = asyncio.run(routes.video_preview_endpoint(QueryRequest(source)))
+
+    assert response.status == 200
+    assert response.path == source_path
+    assert response.headers == {
+        "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": "inline",
+        "Content-Type": "video/mp4",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "extension", "mime"),
+    [
+        ("image", "png", "image/png"),
+        ("audio", "wav", "audio/wav"),
+    ],
+)
+def test_video_preview_rejects_non_video_media(monkeypatch, tmp_path, kind, extension, mime):
+    install_runtime_stubs(monkeypatch, tmp_path)
+    _source_path, source = write_managed_source(tmp_path, kind.encode("ascii"), extension)
+    monkeypatch.setattr(
+        routes,
+        "_inspect_media",
+        lambda _path, **_kwargs: (kind, extension, mime, {}),
+    )
+
+    response = asyncio.run(routes.video_preview_endpoint(QueryRequest(source)))
+
+    assert response.status == 400
+    assert "Only video sources" in response.payload["error"]["message"]
 
 
 def test_image_proxy_accepts_video_and_uses_first_decodable_frame(monkeypatch, tmp_path):

@@ -19,10 +19,33 @@ def test_reference_director_schema_and_aligned_execute(monkeypatch):
     module = load_node_module(monkeypatch)
     schema = module.ReferenceDirectorNode.define_schema()
     assert schema.node_id == "OllamaImageList_ReferenceDirector"
-    assert [field.name for field in schema.inputs] == ["director_state"]
+    assert [field.name for field in schema.inputs] == [
+        "director_state",
+        "grid_columns",
+        "preview_pixels",
+        "show_captions",
+    ]
     assert schema.inputs[0].options["extra_dict"] == {
         "widgetType": "OLLAMA_REFERENCE_DIRECTOR"
     }
+    grid_columns = schema.inputs[1]
+    assert grid_columns.data_type == "int"
+    assert grid_columns.options["display_name"] == "grid_columns"
+    assert grid_columns.options["default"] == 3
+    assert grid_columns.options["advanced"] is True
+    assert grid_columns.options["socketless"] is True
+    preview_pixels = schema.inputs[2]
+    assert preview_pixels.data_type == "float"
+    assert preview_pixels.options["display_name"] == "preview_pixels (MPixel)"
+    assert preview_pixels.options["default"] == 1.0
+    assert preview_pixels.options["advanced"] is True
+    assert preview_pixels.options["socketless"] is True
+    show_captions = schema.inputs[3]
+    assert show_captions.data_type == "boolean"
+    assert show_captions.options["display_name"] == "show_captions"
+    assert show_captions.options["default"] is True
+    assert show_captions.options["advanced"] is True
+    assert show_captions.options["socketless"] is True
     assert [field.name for field in schema.outputs] == [
         "images",
         "image_captions",
@@ -54,10 +77,11 @@ def test_reference_director_schema_and_aligned_execute(monkeypatch):
                     "sha256": "a" * 64,
                 },
                 "caption": "caption",
-                "visualEnabled": True,
+                "imageEnabled": True,
             }
         },
-        "visualOrder": ["img"],
+        "imageOrder": ["img"],
+        "videoOrder": [],
         "audioOrder": [],
         "videoAudioPolicy": "preserve",
         "ui": {"previewMaxPixels": 1},
@@ -110,6 +134,13 @@ def test_fingerprint_strongly_validates_sources_before_returning_cache_key(
     fingerprint = module.ReferenceDirectorNode.fingerprint_inputs(
         module.EMPTY_DIRECTOR_STATE_JSON
     )
+    display_only_fingerprint = module.ReferenceDirectorNode.fingerprint_inputs(
+        module.EMPTY_DIRECTOR_STATE_JSON,
+        grid_columns=8,
+        preview_pixels=16.0,
+        show_captions=False,
+    )
 
     assert len(fingerprint) == 64
-    assert len(calls) == 1
+    assert display_only_fingerprint == fingerprint
+    assert len(calls) == 2

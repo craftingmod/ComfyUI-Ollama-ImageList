@@ -30,11 +30,26 @@ export interface ImageEditorOptions {
 
 export interface ImageEditorResult {
   edit: ImageEditRecipe;
+  caption: string;
   maskFile?: File;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;",
+  })[character] ?? character);
+}
+
+function filename(path: string): string {
+  return path.split("/").pop() ?? path;
 }
 
 export function updateNormalizedCrop(
@@ -136,7 +151,8 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     dialog.setAttribute("aria-label", "Image reference editor");
     dialog.innerHTML = `
       <form method="dialog" class="rd-modal__panel">
-        <header><div><strong>Image editor</strong><small>Crop, mask, flip, and background changes are non-destructive.</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
+        <header><div><strong>Image editor</strong><small>Crop, mask, flip, and background changes are non-destructive.</small><small class="rd-modal__filename" title="${escapeHtml(options.item.source.path)}">File: ${escapeHtml(options.item.sourceFilename || filename(options.item.source.path))}</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
+        <label class="rd-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.item.caption)}</textarea></label>
         <div class="rd-editor-layout">
           <div class="rd-editor-preview"><div class="rd-editor-stage"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div></div>
           <div class="rd-editor-controls">
@@ -394,7 +410,8 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
             const maskFile = history.value.maskTouched && maskCanvas
               ? await canvasFile(maskCanvas, `${options.item.id}-mask.png`)
               : undefined;
-            finish({ edit, ...(maskFile ? { maskFile } : {}) });
+            const caption = dialog.querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]')?.value.slice(0, 16_384) ?? options.item.caption;
+            finish({ edit, caption, ...(maskFile ? { maskFile } : {}) });
           } catch (error) {
             button.disabled = false;
             const message = dialog.querySelector<HTMLElement>(".rd-modal__error");
