@@ -29,6 +29,11 @@ interface PendingUpload {
   objectUrl: string;
 }
 
+interface RuntimeLoadOptions {
+  renderStart?: boolean;
+  completionRender?: "immediate" | "scheduled";
+}
+
 export interface DirectorChangeEvents {
   beforeChange?(): void;
   afterChange?(): void;
@@ -202,6 +207,7 @@ export class ReferenceDirectorController {
   #dropTarget: HTMLElement | undefined;
   #composing = false;
   #renderPending = false;
+  #renderFrame: number | undefined;
   #destroyed = false;
   #changeEvents: DirectorChangeEvents;
 
@@ -222,8 +228,7 @@ export class ReferenceDirectorController {
     this.#installEvents();
     this.#unsubscribeAudioPreview = this.#audioPreview.subscribe(() => this.#syncPlaybackUi());
     this.#unsubscribeVideoPreview = this.#videoPreview.subscribe(() => this.#syncPlaybackUi());
-    this.render();
-    for (const item of Object.values(this.state.items)) void this.#loadRuntime(item);
+    this.#hydrateRestoredRuntime();
   }
 
   get state(): DirectorState {
@@ -281,8 +286,8 @@ export class ReferenceDirectorController {
     this.#runtimeSequences.clear();
     this.#runtimeSequence = 0;
     this.#status = parsed.issues.length > 0 ? parsed.issues.join(" ") : "Workflow state restored.";
-    this.render(true);
-    for (const item of Object.values(this.state.items)) void this.#loadRuntime(item);
+    this.#cancelScheduledRender();
+    this.#hydrateRestoredRuntime(true);
   }
 
   serialize(): string {
@@ -292,6 +297,7 @@ export class ReferenceDirectorController {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#cancelScheduledRender();
     this.#modalController?.abort();
     this.#stateController.abort();
     this.#destroyController.abort();
@@ -309,6 +315,7 @@ export class ReferenceDirectorController {
 
   render(force = false): void {
     if (this.#destroyed) return;
+    this.#cancelScheduledRender();
     const active = document.activeElement;
     if (
       !force &&
@@ -341,6 +348,29 @@ export class ReferenceDirectorController {
       </div>`;
     this.#drawWaveforms();
     this.#syncPlaybackUi();
+  }
+
+  #hydrateRestoredRuntime(force = false): void {
+    const items = Object.values(this.state.items);
+    for (const item of items) this.#runtime.set(item.id, { loading: true });
+    this.render(force);
+    for (const item of items) {
+      void this.#loadRuntime(item, { renderStart: false, completionRender: "scheduled" });
+    }
+  }
+
+  #scheduleRender(): void {
+    if (this.#destroyed || this.#renderFrame !== undefined) return;
+    this.#renderFrame = globalThis.requestAnimationFrame(() => {
+      this.#renderFrame = undefined;
+      this.render();
+    });
+  }
+
+  #cancelScheduledRender(): void {
+    if (this.#renderFrame === undefined) return;
+    globalThis.cancelAnimationFrame(this.#renderFrame);
+    this.#renderFrame = undefined;
   }
 
   #pendingMarkup(): string {
@@ -513,8 +543,7 @@ export class ReferenceDirectorController {
     if (!button) {
       const card = (event.target as Element).closest<HTMLElement>(".rd-card");
       if (card?.dataset.id && !(event.target instanceof HTMLTextAreaElement)) {
-        this.#selectedId = card.dataset.id;
-        this.render();
+        this.#selectItem(card.dataset.id);
       }
       return;
     }
@@ -567,9 +596,20 @@ export class ReferenceDirectorController {
   #onDoubleClick(event: MouseEvent): void {
     const target = event.target as Element;
     if (target.closest("button, textarea, input, select, a, [contenteditable='true']")) return;
-    const card = target.closest<HTMLElement>(".rd-card");
+    const media = target.closest<HTMLElement>(".rd-card__media");
+    if (!media) return;
+    const card = media.closest<HTMLElement>(".rd-card");
     if (card?.dataset.id) {
       void this.#editItem(card.dataset.id, card.dataset.channel as DirectorChannel | undefined);
+    }
+  }
+
+  #selectItem(id: string): void {
+    this.#selectedId = id;
+    for (const card of this.root.querySelectorAll<HTMLElement>(".rd-card")) {
+      const selected = card.dataset.id === id;
+      card.classList.toggle("is-selected", selected);
+      card.setAttribute("aria-selected", String(selected));
     }
   }
 
@@ -850,7 +890,7 @@ export class ReferenceDirectorController {
     }
   }
 
-  async #loadRuntime(item: MediaItem): Promise<void> {
+  async #loadRuntime(item: MediaItem, options: RuntimeLoadOptions = {}): Promise<void> {
     if (this.#destroyed) return;
     const epoch = this.#runtimeEpoch;
     const stateController = this.#stateController;
@@ -859,7 +899,7 @@ export class ReferenceDirectorController {
     const current = this.#runtime.get(item.id) ?? { loading: true };
     const { error: _previousError, ...withoutError } = current;
     this.#runtime.set(item.id, { ...withoutError, loading: true });
-    this.render();
+    if (options.renderStart !== false) this.render();
     const release = await this.#runtimeLimiter.acquire(stateController.signal);
     if (!release) return;
     try {
@@ -891,7 +931,8 @@ export class ReferenceDirectorController {
     } finally {
       release();
     }
-    this.render();
+    if (options.completionRender === "scheduled") this.#scheduleRender();
+    else this.render();
   }
 
   async #editItem(id: string, channel?: DirectorChannel): Promise<void> {

@@ -68,6 +68,23 @@ describe("Reference Director DOM lifecycle", () => {
     const imageFilename = card?.querySelector<HTMLElement>(".rd-media-filename");
     expect(imageFilename?.textContent).toBe("a.png");
     expect(imageFilename?.title).toBe("a.png");
+
+    card?.querySelector<HTMLButtonElement>('[data-action="remove"]')?.dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true }),
+    );
+    expect(document.querySelector(".rd-image-editor")).toBeNull();
+    expect(controller.state.items.a).toBeDefined();
+    card?.querySelector<HTMLElement>(".rd-card__body")?.dispatchEvent(
+      new MouseEvent("dblclick", { bubbles: true }),
+    );
+    expect(document.querySelector(".rd-image-editor")).toBeNull();
+    surface?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(card?.classList.contains("is-selected")).toBe(true);
+    expect(card?.querySelector(".rd-card__media")).toBe(surface);
+    surface?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    surface?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(document.querySelector(".rd-image-editor")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
     controller.destroy();
     root.remove();
   });
@@ -412,6 +429,74 @@ describe("Reference Director DOM lifecycle", () => {
     expect(root.querySelectorAll("img")).toHaveLength(6);
     controller.destroy();
     root.remove();
+  });
+
+  test("renders restored loading cards once and batches runtime completions into one frame", async () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    };
+    const api: ComfyApiLike = {
+      fetchApi(route) {
+        return Promise.resolve(route.endsWith("metadata")
+          ? new Response(JSON.stringify({ metadata: { width: 1, height: 1 } }), { status: 200 })
+          : new Response(JSON.stringify({ url: "/restored.webp" }), { status: 200 }));
+      },
+    };
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 1;
+    globalThis.requestAnimationFrame = (callback): number => {
+      const frame = nextFrame;
+      nextFrame += 1;
+      frames.set(frame, callback);
+      return frame;
+    };
+    globalThis.cancelAnimationFrame = (frame): void => {
+      frames.delete(frame);
+    };
+
+    const controller = new ReferenceDirectorController(root, node, new ReferenceDirectorApi(api), serializeDirectorState(createEmptyDirectorState()));
+    const originalRender = controller.render.bind(controller);
+    let renderCalls = 0;
+    controller.render = (force = false): void => {
+      renderCalls += 1;
+      originalRender(force);
+    };
+    let state = createEmptyDirectorState();
+    for (let index = 0; index < 2; index += 1) {
+      state = directorReducer(state, {
+        type: "add",
+        item: createMediaItem("image", {
+          path: `reference_director/sources/restored-${index}.png`,
+          mime: "image/png",
+          sha256: String(index + 1).repeat(64),
+        }, `restored-${index}`),
+      });
+    }
+
+    try {
+      controller.restore(serializeDirectorState(state));
+      expect(renderCalls).toBe(1);
+      expect(root.querySelectorAll(".rd-card__media > .rd-spinner")).toHaveLength(2);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(frames).toHaveLength(1);
+      const [frame, callback] = frames.entries().next().value as [number, FrameRequestCallback];
+      frames.delete(frame);
+      callback(globalThis.performance.now());
+      expect(renderCalls).toBe(2);
+      expect(root.querySelectorAll(".rd-card__media > .rd-spinner")).toHaveLength(0);
+      expect(root.querySelectorAll("img")).toHaveLength(2);
+    } finally {
+      controller.destroy();
+      root.remove();
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
   });
 
   test("keeps a silent video's proxy without requesting a waveform", async () => {
