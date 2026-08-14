@@ -49,6 +49,7 @@ interface BaseItem {
 
 export interface ImageItem extends BaseItem {
   kind: "image";
+  originalSource: MediaSource;
   imageEnabled: boolean;
   edit?: ImageEditRecipe;
 }
@@ -132,7 +133,7 @@ export function createMediaItem(
   const sourceFilename = source.path.split("/").pop() ?? source.path;
   const base = { id, kind, source, sourceFilename, caption: "" };
   if (kind === "image") {
-    return { ...base, kind, imageEnabled: true };
+    return { ...base, kind, originalSource: source, imageEnabled: true };
   }
   if (kind === "audio") {
     return { ...base, kind, audioEnabled: true };

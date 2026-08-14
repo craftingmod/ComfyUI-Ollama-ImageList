@@ -189,6 +189,18 @@ export class ReferenceDirectorApi {
     return result;
   }
 
+  async backgroundPreview(source: MediaSource, signal?: AbortSignal): Promise<ProxyResult> {
+    const payload = await this.#post("background_preview", { source }, signal);
+    if (!isRecord(payload) || typeof payload.url !== "string") {
+      throw new Error("The server returned an invalid background preview URL.");
+    }
+    const result: ProxyResult = { url: apiAssetUrl(this.api, payload.url) };
+    const cacheKey = payload.cacheKey ?? payload.cache_key;
+    if (typeof cacheKey === "string") result.cacheKey = cacheKey;
+    if (payload.source !== undefined) result.source = normalizeApiSource(payload.source);
+    return result;
+  }
+
   async waveform(
     source: MediaSource,
     peaks: number,

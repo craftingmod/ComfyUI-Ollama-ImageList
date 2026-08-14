@@ -2,9 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import {
   applyMaskBrush,
+  constrainCropViewport,
   initialImageEditorRecipe,
+  moveNormalizedCrop,
+  normalizedCropToPixels,
   openImageEditor,
-  updateNormalizedCrop,
+  pixelCropToNormalized,
+  projectCropToViewport,
+  resizeNormalizedCrop,
+  unprojectCropFromViewport,
+  updatePixelCrop,
+  viewportPanBounds,
 } from "../src/reference-director/editors/image-editor";
 import { AudioPreviewPlayer } from "../src/reference-director/audio-preview-player";
 import { openTrimEditor } from "../src/reference-director/editors/trim-editor";
@@ -79,6 +87,11 @@ describe("image editor revision semantics", () => {
         mime: "image/png",
         sha256: "a".repeat(64),
       },
+      originalSource: {
+        path: "reference_director/sources/original.png",
+        mime: "image/png",
+        sha256: "b".repeat(64),
+      },
       caption: "",
       imageEnabled: true,
       edit: {
@@ -114,6 +127,7 @@ describe("image editor revision semantics", () => {
       id: "loading",
       kind: "image",
       source: { path: "reference_director/sources/loading.png", mime: "image/png", sha256: "a".repeat(64) },
+      originalSource: { path: "reference_director/sources/loading.png", mime: "image/png", sha256: "a".repeat(64) },
       caption: "",
       imageEnabled: true,
     };
@@ -123,17 +137,313 @@ describe("image editor revision semantics", () => {
     expect(document.querySelector(".rd-image-editor .rd-modal__filename")?.textContent).toBe("File: loading.png");
     expect(canvas?.getAttribute("aria-disabled")).toBe("true");
     image?.dispatchEvent(new Event("load"));
+    expect(canvas?.getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelector('[data-action="mode-crop"]')?.getAttribute("aria-pressed")).toBe("true");
+    document.querySelector<HTMLButtonElement>('[data-action="mode-mask"]')?.click();
     expect(canvas?.getAttribute("aria-disabled")).toBe("false");
     document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
     expect(await result).toBeNull();
   });
 
-  test("keeps crop dimensions non-zero when an edge is moved to its limit", () => {
+  test("converts normalized crops to clamped source-pixel integer controls", () => {
+    const normalized = { x: 0.25, y: 0.1, width: 0.5, height: 0.6 };
+    expect(normalizedCropToPixels(normalized, 4000, 3000)).toEqual({
+      x: 1000,
+      y: 300,
+      width: 2000,
+      height: 1800,
+    });
+    expect(updatePixelCrop({ x: 1000, y: 300, width: 2000, height: 1800 }, "width", 5000.4, 4000, 3000)).toEqual({
+      x: 1000,
+      y: 300,
+      width: 3000,
+      height: 1800,
+    });
+    expect(pixelCropToNormalized({ x: 1000, y: 300, width: 2000, height: 1800 }, 4000, 3000)).toEqual(normalized);
+  });
+
+  test("resizes a normalized crop from each corner without crossing its opposite edge", () => {
     const crop = { x: 0.2, y: 0.1, width: 0.5, height: 0.6 };
-    expect(updateNormalizedCrop(crop, "x", 1)).toEqual({ ...crop, x: 0.5 });
-    expect(updateNormalizedCrop(crop, "y", 1)).toEqual({ ...crop, y: 0.4 });
-    expect(updateNormalizedCrop({ ...crop, x: 0.99 }, "width", 0)).toMatchObject({ width: 0.01 });
-    expect(updateNormalizedCrop({ ...crop, y: 0.99 }, "height", 0)).toMatchObject({ height: 0.01 });
+    const northWest = resizeNormalizedCrop(crop, "north-west", 0.1, 0.2);
+    expect(northWest.x).toBeCloseTo(0.3);
+    expect(northWest.y).toBeCloseTo(0.3);
+    expect(northWest.width).toBeCloseTo(0.4);
+    expect(northWest.height).toBeCloseTo(0.4);
+    const southEast = resizeNormalizedCrop(crop, "south-east", 0.2, 0.2);
+    expect(southEast.width).toBeCloseTo(0.7);
+    expect(southEast.height).toBeCloseTo(0.8);
+    const northEast = resizeNormalizedCrop(crop, "north-east", 1, -1);
+    expect(northEast).toMatchObject({ x: 0.2, y: 0 });
+    expect(northEast.width).toBeCloseTo(0.8);
+    expect(northEast.height).toBeCloseTo(0.7);
+    const southWest = resizeNormalizedCrop(crop, "south-west", 1, 1);
+    expect(southWest.width).toBeCloseTo(0.01);
+    expect(southWest.height).toBeCloseTo(0.9);
+  });
+
+  test("round-trips crop coordinates through a zoomed, panned, and flipped viewport", () => {
+    const crop = { x: 0.2, y: 0.1, width: 0.5, height: 0.6 };
+    const viewport = { zoom: 1.75, panX: 0.08, panY: -0.04, flipX: true, flipY: false };
+    const projected = projectCropToViewport(crop, viewport);
+    const restored = unprojectCropFromViewport(projected, viewport);
+    expect(restored.x).toBeCloseTo(crop.x);
+    expect(restored.y).toBeCloseTo(crop.y);
+    expect(restored.width).toBeCloseTo(crop.width);
+    expect(restored.height).toBeCloseTo(crop.height);
+  });
+
+  test("moves a crop frame without changing its size and clamps it to the stage", () => {
+    const crop = { x: 0.2, y: 0.3, width: 0.5, height: 0.4 };
+    const moved = moveNormalizedCrop(crop, 0.1, -0.2);
+    expect(moved.x).toBeCloseTo(0.3);
+    expect(moved.y).toBeCloseTo(0.1);
+    expect(moved.width).toBe(0.5);
+    expect(moved.height).toBe(0.4);
+    expect(moveNormalizedCrop(crop, 10, 10)).toEqual({ x: 0.5, y: 0.6, width: 0.5, height: 0.4 });
+  });
+
+  test("constrains pan so a zoomed image always covers the crop viewport", () => {
+    expect(viewportPanBounds({ x: 0, y: 0, width: 1, height: 1 }, 1, 100, 80)).toEqual({
+      minX: 0,
+      maxX: 0,
+      minY: 0,
+      maxY: 0,
+    });
+    expect(viewportPanBounds({ x: 0, y: 0, width: 1, height: 1 }, 2, 100, 80)).toEqual({
+      minX: -50,
+      maxX: 50,
+      minY: -40,
+      maxY: 40,
+    });
+    const constrained = constrainCropViewport(
+      { x: 0, y: 0, width: 1, height: 1 },
+      { zoom: 0.1, panX: 1000, panY: -1000 },
+      100,
+      100,
+    );
+    expect(constrained.zoom).toBe(1);
+    expect(constrained.panX).toBe(0);
+    expect(constrained.panY).toBe(0);
+  });
+
+  test("zooms the image with the wheel while keeping the crop box fixed", async () => {
+    const item: ImageItem = {
+      id: "wheel-crop-zoom",
+      kind: "image",
+      source: { path: "reference_director/sources/wheel.png", mime: "image/png", sha256: "b".repeat(64) },
+      originalSource: { path: "reference_director/sources/wheel.png", mime: "image/png", sha256: "b".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+      edit: { crop: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const overlay = document.querySelector<HTMLElement>(".rd-image-editor .rd-crop-overlay");
+    const zoom = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="zoom"]');
+    stage?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 50, clientY: 50, deltaY: -100 }));
+    const firstZoom = zoom?.valueAsNumber ?? 1;
+    expect(firstZoom).toBeGreaterThan(1);
+    expect(parseFloat(overlay?.style.left ?? "NaN")).toBeCloseTo(20);
+    expect(parseFloat(overlay?.style.top ?? "NaN")).toBeCloseTo(20);
+    expect(parseFloat(overlay?.style.width ?? "NaN")).toBeCloseTo(50);
+    expect(parseFloat(overlay?.style.height ?? "NaN")).toBeCloseTo(50);
+    const cropWidth = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]');
+    expect(Number(cropWidth?.value)).toBeLessThan(50);
+
+    stage?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 50, clientY: 50, deltaY: -100 }));
+    expect(zoom?.valueAsNumber).toBeGreaterThan(firstZoom);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="undo"]')?.click();
+    expect(zoom?.valueAsNumber).toBe(1);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber).toBe(50);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await resultPromise).toBeNull();
+  });
+
+  test("keeps crop state and its fixed frame unchanged while View or Mask changes the viewport", async () => {
+    const item: ImageItem = {
+      id: "viewport-modes",
+      kind: "image",
+      source: { path: "reference_director/sources/modes.png", mime: "image/png", sha256: "c".repeat(64) },
+      originalSource: { path: "reference_director/sources/modes.png", mime: "image/png", sha256: "c".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+      edit: { crop: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const overlay = document.querySelector<HTMLElement>(".rd-image-editor .rd-crop-overlay");
+    const width = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]');
+    const zoom = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="zoom"]');
+    expect(zoom?.min).toBe("1");
+
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="mode-view"]')?.click();
+    expect(width?.disabled).toBe(true);
+    expect(overlay?.classList.contains("is-inactive")).toBe(true);
+    if (zoom) {
+      zoom.value = "2";
+      zoom.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    expect(Number(width?.value)).toBe(50);
+    expect(overlay?.style.left).toBe("20%");
+    expect(overlay?.style.width).toBe("50%");
+
+    stage?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 50, clientY: 50, deltaY: 10000 }));
+    expect(Number(zoom?.value)).toBe(1);
+    expect(Number(width?.value)).toBe(50);
+    expect(overlay?.style.width).toBe("50%");
+
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="mode-mask"]')?.click();
+    expect(document.querySelector(".rd-image-editor canvas")?.getAttribute("aria-disabled")).toBe("false");
+    stage?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 50, clientY: 50, deltaY: -100 }));
+    expect(Number(zoom?.value)).toBeGreaterThan(1);
+    expect(Number(width?.value)).toBe(50);
+    expect(overlay?.style.left).toBe("20%");
+    expect(overlay?.style.width).toBe("50%");
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await resultPromise).toBeNull();
+  });
+
+  test("moves the crop frame when dragging inside it", async () => {
+    const item: ImageItem = {
+      id: "crop-move",
+      kind: "image",
+      source: { path: "reference_director/sources/move.png", mime: "image/png", sha256: "a".repeat(64) },
+      originalSource: { path: "reference_director/sources/move.png", mime: "image/png", sha256: "a".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+      edit: { crop: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const overlay = document.querySelector<HTMLElement>(".rd-image-editor .rd-crop-overlay");
+    overlay?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 30, clientY: 30 }));
+    overlay?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 45, clientY: 40 }));
+    overlay?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 45, clientY: 40 }));
+    expect(Number(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="pan-x"]')?.value)).toBe(0);
+    expect(Number(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="pan-y"]')?.value)).toBe(0);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="x"]')?.valueAsNumber).toBe(35);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="y"]')?.valueAsNumber).toBe(30);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber).toBe(50);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="height"]')?.valueAsNumber).toBe(50);
+    expect(overlay?.style.left).toBe("35%");
+    expect(parseFloat(overlay?.style.top ?? "NaN")).toBeCloseTo(30);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="apply"]')?.click();
+    const result = await resultPromise;
+    if (result?.action !== "apply") throw new Error("Expected an applied image edit.");
+    expect(result.edit.crop?.x).toBeCloseTo(0.35);
+    expect(result.edit.crop?.y).toBeCloseTo(0.3);
+    expect(result.edit.crop?.width).toBeCloseTo(0.5);
+    expect(result.edit.crop?.height).toBeCloseTo(0.5);
+  });
+
+  test("pans from outside the crop frame and clamps at the stage bounds", async () => {
+    const item: ImageItem = {
+      id: "bounded-pan",
+      kind: "image",
+      source: { path: "reference_director/sources/bounds.png", mime: "image/png", sha256: "d".repeat(64) },
+      originalSource: { path: "reference_director/sources/bounds.png", mime: "image/png", sha256: "d".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+      edit: { crop: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const zoom = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="zoom"]');
+    if (zoom) {
+      zoom.value = "2";
+      zoom.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    stage?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 5, clientY: 5 }));
+    stage?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 1000, clientY: 1000 }));
+    stage?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 1000, clientY: 1000 }));
+    expect(Number(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="pan-x"]')?.value)).toBe(50);
+    expect(Number(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="pan-y"]')?.value)).toBe(50);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="x"]')?.valueAsNumber).toBe(10);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="y"]')?.valueAsNumber).toBe(10);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await resultPromise).toBeNull();
+  });
+
+  test("holds Space to pan from inside the crop frame", async () => {
+    const item: ImageItem = {
+      id: "space-pan",
+      kind: "image",
+      source: { path: "reference_director/sources/space.png", mime: "image/png", sha256: "e".repeat(64) },
+      originalSource: { path: "reference_director/sources/space.png", mime: "image/png", sha256: "e".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+      edit: { crop: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const zoom = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="zoom"]');
+    if (zoom) {
+      zoom.value = "2";
+      zoom.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Space" }));
+    const overlay = document.querySelector<HTMLElement>(".rd-image-editor .rd-crop-overlay");
+    overlay?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 30, clientY: 30 }));
+    overlay?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 45, clientY: 40 }));
+    overlay?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 45, clientY: 40 }));
+    document.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, code: "Space" }));
+    expect(Number(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="pan-x"]')?.value)).toBe(15);
+    expect(Number(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="pan-y"]')?.value)).toBe(10);
+    expect(overlay?.style.left).toBe("20%");
+    expect(overlay?.style.top).toBe("20%");
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await resultPromise).toBeNull();
+  });
+
+  test("commits a four-corner crop drag to the applied edit", async () => {
+    const item: ImageItem = {
+      id: "crop-handles",
+      kind: "image",
+      source: { path: "reference_director/sources/crop.png", mime: "image/png", sha256: "c".repeat(64) },
+      originalSource: { path: "reference_director/sources/crop.png", mime: "image/png", sha256: "c".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+      edit: { crop: { x: 0.2, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const handle = document.querySelector<HTMLElement>('.rd-image-editor [data-crop-handle="south-east"]');
+    handle?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 70, clientY: 70 }));
+    handle?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 90, clientY: 80 }));
+    handle?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 90, clientY: 80 }));
+    expect(document.querySelectorAll(".rd-image-editor [data-crop-handle]")).toHaveLength(4);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber).toBe(70);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="height"]')?.valueAsNumber).toBe(60);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="apply"]')?.click();
+    const result = await resultPromise;
+    expect(result?.action).toBe("apply");
+    if (result?.action !== "apply") throw new Error("Expected an applied image edit.");
+    expect(result.edit.crop?.width).toBeCloseTo(0.7);
+    expect(result.edit.crop?.height).toBeCloseTo(0.6);
   });
 
   test("adds optional rembg removal to the applied edit recipe", async () => {
@@ -141,17 +451,77 @@ describe("image editor revision semantics", () => {
       id: "foreground",
       kind: "image",
       source: { path: "reference_director/sources/foreground.png", mime: "image/png", sha256: "b".repeat(64) },
+      originalSource: { path: "reference_director/sources/foreground.png", mime: "image/png", sha256: "b".repeat(64) },
       caption: "",
       imageEnabled: true,
     };
-    const resultPromise = openImageEditor({ item });
+    let resolvePreview: ((url: string) => void) | undefined;
+    const resultPromise = openImageEditor({
+      item,
+      backgroundPreview: () => new Promise((resolve) => {
+        resolvePreview = resolve;
+      }),
+    });
     const caption = document.querySelector<HTMLTextAreaElement>('.rd-image-editor textarea[data-field="caption"]');
     if (caption) caption.value = "foreground subject";
     const removeButton = document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="remove-background"]');
     removeButton?.click();
     expect(removeButton?.getAttribute("aria-pressed")).toBe("true");
-    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="apply"]')?.click();
+    const apply = document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="apply"]');
+    expect(apply?.disabled).toBe(true);
+    resolvePreview?.("/foreground-without-background.png");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector<HTMLImageElement>(".rd-image-editor img")?.getAttribute("src")).toBe("/foreground-without-background.png");
+    expect(apply?.disabled).toBe(false);
+    apply?.click();
     expect(await resultPromise).toMatchObject({ caption: "foreground subject", edit: { removeBackground: true, revision: 1 } });
+  });
+
+  test("restores the original preview when rembg preview generation fails", async () => {
+    const item: ImageItem = {
+      id: "missing-rembg",
+      kind: "image",
+      source: { path: "reference_director/sources/original.png", mime: "image/png", sha256: "d".repeat(64) },
+      originalSource: { path: "reference_director/sources/original.png", mime: "image/png", sha256: "d".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+    };
+    const resultPromise = openImageEditor({
+      item,
+      previewUrl: "/original.webp",
+      backgroundPreview: async () => {
+        throw new Error("Install the optional rembg dependency.");
+      },
+    });
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="remove-background"]')?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="remove-background"]')?.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelector<HTMLImageElement>(".rd-image-editor img")?.getAttribute("src")).toBe("/original.webp");
+    expect(document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="apply"]')?.disabled).toBe(false);
+    expect(document.querySelector(".rd-image-editor .rd-modal__error")?.textContent).toContain("optional rembg");
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await resultPromise).toBeNull();
+  });
+
+  test("returns a restore-original action for materialized image edits", async () => {
+    const item: ImageItem = {
+      id: "restore-original",
+      kind: "image",
+      source: { path: "reference_director/edits/edited.png", mime: "image/png", sha256: "e".repeat(64) },
+      originalSource: { path: "reference_director/sources/original.png", mime: "image/png", sha256: "f".repeat(64) },
+      caption: "before",
+      imageEnabled: false,
+      edit: { crop: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }, revision: 2 },
+    };
+    const resultPromise = openImageEditor({ item });
+    const caption = document.querySelector<HTMLTextAreaElement>('.rd-image-editor [data-field="caption"]');
+    if (caption) caption.value = "restored caption";
+    const restore = document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="restore-original"]');
+    expect(restore?.hidden).toBe(false);
+    restore?.click();
+    expect(await resultPromise).toEqual({ action: "restore-original", caption: "restored caption" });
   });
 });
 

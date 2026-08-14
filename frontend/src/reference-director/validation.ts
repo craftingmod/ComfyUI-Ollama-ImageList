@@ -146,10 +146,13 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
   ).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 255);
 
   if (kind === "image") {
+    const originalSource = sanitizeSource(value.originalSource);
+    if (!originalSource?.mime.startsWith("image/")) return undefined;
     const item: MediaItem = {
       id,
       kind,
       source,
+      originalSource,
       sourceFilename,
       caption,
       imageEnabled: booleanValue(value.imageEnabled, true),

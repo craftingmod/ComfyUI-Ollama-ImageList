@@ -25,6 +25,7 @@ ROUTE_PREFIX = "/ollama_multimodal/reference_director"
 UPLOAD_ROUTE = f"{ROUTE_PREFIX}/upload"
 METADATA_ROUTE = f"{ROUTE_PREFIX}/metadata"
 IMAGE_PROXY_ROUTE = f"{ROUTE_PREFIX}/image_proxy"
+BACKGROUND_PREVIEW_ROUTE = f"{ROUTE_PREFIX}/background_preview"
 AUDIO_PREVIEW_ROUTE = f"{ROUTE_PREFIX}/audio_preview"
 VIDEO_PREVIEW_ROUTE = f"{ROUTE_PREFIX}/video_preview"
 WAVEFORM_ROUTE = f"{ROUTE_PREFIX}/waveform"
@@ -55,7 +56,8 @@ MIN_WAVEFORM_PAIRS = 200
 MAX_WAVEFORM_PAIRS = 500
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
-_CACHE_FILE_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?\.webp$")
+_IMAGE_PROXY_CACHE_FILE_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?\.webp$")
+_BACKGROUND_PREVIEW_CACHE_FILE_RE = re.compile(r"^[0-9a-f]{32}\.(?:png|webp)$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _INVALID_UPLOAD_FILENAME_RE = re.compile(r'[\x00-\x1f<>:"/\\|?*]')
 _WINDOWS_RESERVED_FILENAMES = frozenset(
@@ -822,6 +824,87 @@ def _proxy_payload(source_value: Any, max_pixels_value: Any) -> dict[str, Any]:
     }
 
 
+def _load_or_create_background_preview(source: ResolvedSource) -> tuple[Path, int, int, str]:
+    key = _cache_key("background_preview_v1", {"sha256": source.sha256})[:32]
+    directory = _ensure_managed_directory("cache", "background_preview")
+    destination = directory / f"{key}.png"
+    with _cache_lock(key):
+        if destination.exists() and _is_link_like(destination):
+            raise ReferenceRouteError(500, "cache_error", "The background preview cache could not be read.")
+        if not destination.exists():
+            image = _load_edit_image(source.path)
+            try:
+                original = image
+                try:
+                    image = remove_reference_background(image)
+                except ReferenceBackgroundRemovalUnavailable as exc:
+                    raise ReferenceRouteError(501, "rembg_unavailable", str(exc)) from exc
+                except ReferenceBackgroundRemovalError as exc:
+                    raise ReferenceRouteError(422, "background_removal_failed", str(exc)) from exc
+                if image is not original:
+                    original.close()
+                temporary = destination.with_name(f".{destination.name}.{secrets.token_hex(8)}.tmp")
+                try:
+                    image.save(temporary, format="PNG", optimize=True)
+                    if temporary.stat().st_size > MAX_UPLOAD_BYTES:
+                        raise ReferenceRouteError(413, "preview_too_large", "The background preview exceeds 256 MiB.")
+                    os.replace(temporary, destination)
+                finally:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            finally:
+                image.close()
+        try:
+            from PIL import Image
+
+            with Image.open(destination) as cached:
+                cached.load()
+                width, height = cached.size
+                if width <= 0 or height <= 0 or width * height > MAX_DECODE_PIXELS:
+                    raise ValueError("invalid background preview dimensions")
+        except ReferenceRouteError:
+            raise
+        except Exception as exc:
+            raise ReferenceRouteError(500, "cache_error", "The background preview cache could not be read.") from exc
+    return destination, width, height, key
+
+
+def _background_preview_payload(source_value: Any) -> dict[str, Any]:
+    source = _resolve_source(source_value)
+    kind, _extension, mime, _metadata = _inspect_media(source.path)
+    if kind != "image":
+        raise _bad_request("invalid_media_kind", "Only image sources can have a background preview.")
+    foreground, _width, _height, foreground_key = _load_or_create_background_preview(source)
+    key = _cache_key(
+        "background_preview_proxy_v1",
+        {"sha256": source.sha256, "max_pixels": DEFAULT_PROXY_PIXELS},
+    )[:32]
+    directory = _ensure_managed_directory("cache", "background_preview")
+    destination = directory / f"{key}.webp"
+    preview_source = ResolvedSource(
+        foreground,
+        f"reference_director/cache/background_preview/{foreground.name}",
+        source.sha256,
+        "image/png",
+        foreground.stat().st_size,
+    )
+    with _cache_lock(key):
+        width, height = _load_or_create_proxy(destination, preview_source, "image", DEFAULT_PROXY_PIXELS)
+    canonical = ResolvedSource(source.path, source.relative_path, source.sha256, mime, source.size)
+    return {
+        "source": canonical.descriptor(),
+        "kind": "image",
+        "url": f"/api{ROUTE_PREFIX}/cache/background_preview/{key}.webp",
+        "cache_key": key,
+        "foreground_cache_key": foreground_key,
+        "mime": "image/webp",
+        "width": width,
+        "height": height,
+    }
+
+
 def _audio_frame_envelope(frame: Any):
     try:
         import numpy as np
@@ -1197,20 +1280,12 @@ def _apply_edit_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
             raise _bad_request("invalid_edit", "edit mask must be an image source.")
         edit["mask"] = mask_source.descriptor()
 
-    image = _load_edit_image(source.path)
+    image_path = source.path
+    if edit.get("removeBackground"):
+        image_path, _width, _height, _key = _load_or_create_background_preview(source)
+    image = _load_edit_image(image_path)
     try:
         from PIL import Image, ImageChops, ImageColor, ImageOps, PngImagePlugin
-
-        if edit.get("removeBackground"):
-            original = image
-            try:
-                image = remove_reference_background(image)
-            except ReferenceBackgroundRemovalUnavailable as exc:
-                raise ReferenceRouteError(501, "rembg_unavailable", str(exc)) from exc
-            except ReferenceBackgroundRemovalError as exc:
-                raise ReferenceRouteError(422, "background_removal_failed", str(exc)) from exc
-            if image is not original:
-                original.close()
         crop = edit["crop"]
         left = max(0, min(image.width - 1, math.floor(crop["x"] * image.width)))
         top = max(0, min(image.height - 1, math.floor(crop["y"] * image.height)))
@@ -1476,6 +1551,21 @@ async def image_proxy_endpoint(request: Any):
         return _error_response(ReferenceRouteError(500, "internal_error", "The media preview could not be created."))
 
 
+async def background_preview_endpoint(request: Any):
+    try:
+        payload = await _request_json(request)
+        result = await asyncio.to_thread(
+            _limited_media_work,
+            _background_preview_payload,
+            payload.get("source"),
+        )
+        return _json_response(result)
+    except ReferenceRouteError as error:
+        return _error_response(error)
+    except Exception:
+        return _error_response(ReferenceRouteError(500, "internal_error", "The background preview could not be created."))
+
+
 async def _media_preview_response(request: Any, *, expected_kind: str):
     query = getattr(request, "query", {})
     query_get = getattr(query, "get", None)
@@ -1565,9 +1655,13 @@ async def cache_view_endpoint(request: Any):
         match_info = getattr(request, "match_info", {})
         kind = match_info.get("kind")
         filename = match_info.get("filename")
-        if kind != "image_proxy" or not isinstance(filename, str) or not _CACHE_FILE_RE.fullmatch(filename):
+        cache_pattern = {
+            "image_proxy": _IMAGE_PROXY_CACHE_FILE_RE,
+            "background_preview": _BACKGROUND_PREVIEW_CACHE_FILE_RE,
+        }.get(kind)
+        if not isinstance(filename, str) or cache_pattern is None or not cache_pattern.fullmatch(filename):
             raise ReferenceRouteError(404, "cache_not_found", "The cached asset was not found.")
-        directory = await asyncio.to_thread(_ensure_managed_directory, "cache", "image_proxy")
+        directory = await asyncio.to_thread(_ensure_managed_directory, "cache", kind)
         candidate = directory / filename
         try:
             if candidate.exists() and _is_link_like(candidate):
@@ -1583,7 +1677,7 @@ async def cache_view_endpoint(request: Any):
             resolved,
             headers={
                 "Cache-Control": "public, max-age=31536000, immutable",
-                "Content-Type": "image/webp",
+                "Content-Type": "image/png" if filename.endswith(".png") else "image/webp",
                 "X-Content-Type-Options": "nosniff",
             },
         )
@@ -1604,6 +1698,7 @@ def register_reference_routes(routes: Any | None = None) -> None:
     routes.post(UPLOAD_ROUTE)(upload_endpoint)
     routes.post(METADATA_ROUTE)(metadata_endpoint)
     routes.post(IMAGE_PROXY_ROUTE)(image_proxy_endpoint)
+    routes.post(BACKGROUND_PREVIEW_ROUTE)(background_preview_endpoint)
     routes.get(AUDIO_PREVIEW_ROUTE)(audio_preview_endpoint)
     routes.get(VIDEO_PREVIEW_ROUTE)(video_preview_endpoint)
     routes.post(WAVEFORM_ROUTE)(waveform_endpoint)
@@ -1615,6 +1710,7 @@ def register_reference_routes(routes: Any | None = None) -> None:
 __all__ = [
     "APPLY_EDIT_ROUTE",
     "AUDIO_PREVIEW_ROUTE",
+    "BACKGROUND_PREVIEW_ROUTE",
     "CACHE_VIEW_ROUTE",
     "IMAGE_PROXY_ROUTE",
     "MAX_AUDIO_DURATION_SECONDS",
@@ -1630,6 +1726,7 @@ __all__ = [
     "WAVEFORM_ROUTE",
     "apply_edit_endpoint",
     "audio_preview_endpoint",
+    "background_preview_endpoint",
     "cache_view_endpoint",
     "image_proxy_endpoint",
     "metadata_endpoint",

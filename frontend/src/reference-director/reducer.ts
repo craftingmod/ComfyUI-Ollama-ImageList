@@ -19,6 +19,7 @@ export type DirectorAction =
   | { type: "reorder"; channel: DirectorChannel; id: string; toIndex: number }
   | { type: "move"; channel: DirectorChannel; id: string; delta: -1 | 1 }
   | { type: "apply-image-edit"; id: string; edit: ImageEditRecipe; source?: MediaItem["source"]; caption?: string }
+  | { type: "restore-image-original"; id: string; caption?: string }
   | { type: "apply-time-range"; id: string; crop?: TimeRange; caption?: string; channel?: DirectorChannel }
   | { type: "set-ui"; values: Partial<DirectorUiPreferences> };
 
@@ -113,6 +114,16 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
       return action.caption === undefined
         ? edited
         : directorReducer(edited, { type: "set-caption", id: action.id, caption: action.caption });
+    }
+    case "restore-image-original": {
+      const item = state.items[action.id];
+      if (!item || item.kind !== "image") return state;
+      const { edit: _discarded, ...withoutEdit } = item;
+      return replaceItem(state, {
+        ...withoutEdit,
+        source: item.originalSource,
+        caption: action.caption === undefined ? item.caption : action.caption.slice(0, 16_384),
+      });
     }
     case "apply-time-range": {
       const item = state.items[action.id];

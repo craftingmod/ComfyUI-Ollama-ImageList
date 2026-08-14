@@ -47,6 +47,7 @@ describe("Reference Director API", () => {
       async fetchApi(route, init) {
         calls.push({ route, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
         if (route.endsWith("image_proxy")) return jsonResponse({ url: "/api/cache/x.webp", cache_key: "x" });
+        if (route.endsWith("background_preview")) return jsonResponse({ url: "/api/cache/foreground.png", cache_key: "r" });
         return jsonResponse({ pairs: [[-0.4, 0.8]], duration: 2, cache_key: "w" });
       },
     };
@@ -59,9 +60,11 @@ describe("Reference Director API", () => {
     expect(videoPreviewUrl.pathname).toBe(`${REFERENCE_DIRECTOR_API_BASE}/video_preview`);
     expect(JSON.parse(videoPreviewUrl.searchParams.get("source") ?? "{}")).toEqual(source);
     expect(await client.imageProxy(source, 123)).toEqual({ url: "/api/cache/x.webp", cacheKey: "x" });
+    expect(await client.backgroundPreview(source)).toEqual({ url: "/api/cache/foreground.png", cacheKey: "r" });
     expect(await client.waveform(source, 300, { start: 0, end: 1 })).toEqual({ pairs: [[-0.4, 0.8]], duration: 2, cacheKey: "w" });
     expect(calls[0]?.body.maxPixels).toBe(123);
-    expect(calls[1]?.body.peakCount).toBe(300);
+    expect(calls[1]?.body.source).toEqual(source);
+    expect(calls[2]?.body.peakCount).toBe(300);
   });
 
   test("rebases backend /api asset URLs through ComfyUI's configured API base", async () => {

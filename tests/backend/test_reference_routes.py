@@ -121,6 +121,7 @@ def test_register_reference_routes_is_idempotent():
         ("POST", routes.UPLOAD_ROUTE),
         ("POST", routes.METADATA_ROUTE),
         ("POST", routes.IMAGE_PROXY_ROUTE),
+        ("POST", routes.BACKGROUND_PREVIEW_ROUTE),
         ("GET", routes.AUDIO_PREVIEW_ROUTE),
         ("GET", routes.VIDEO_PREVIEW_ROUTE),
         ("POST", routes.WAVEFORM_ROUTE),
@@ -805,6 +806,12 @@ def test_apply_edit_uses_optional_rembg_before_materializing(monkeypatch, tmp_pa
         return output
 
     monkeypatch.setattr(routes, "remove_reference_background", fake_remove_background)
+    preview = routes._background_preview_payload(source)
+    assert preview["url"].endswith(".webp")
+    assert preview["mime"] == "image/webp"
+    with Image.open(tmp_path / "reference_director" / "cache" / "background_preview" / f"{preview['foreground_cache_key']}.png") as foreground:
+        assert foreground.mode == "RGBA"
+        assert foreground.getpixel((0, 0))[3] == 127
     result = routes._apply_edit_payload(
         {
             "source": source,

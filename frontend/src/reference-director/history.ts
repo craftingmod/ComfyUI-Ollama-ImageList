@@ -72,8 +72,8 @@ export class LocalHistory<T> {
     return canRedo(this.#history);
   }
 
-  commit(value: T): T {
-    this.#history = commitHistory(this.#history, value, { limit: this.#limit });
+  commit(value: T, options: { mergeKey?: string } = {}): T {
+    this.#history = commitHistory(this.#history, value, { limit: this.#limit, ...options });
     return value;
   }
 

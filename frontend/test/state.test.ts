@@ -131,6 +131,32 @@ describe("validation and serialization", () => {
     expect(projectDirectorExecution(restored).images[0]?.edit?.maskMode).toBe("keep");
     expect(executionFingerprintSource(restored)).not.toBe(before);
   });
+
+  test("preserves the immutable original source and restores it after workflow serialization", () => {
+    const original = source("original.png", "image/png");
+    const image = createMediaItem("image", original, "i");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
+    state = directorReducer(state, {
+      type: "apply-image-edit",
+      id: "i",
+      source: { ...source("edited.png", "image/png"), sha256: "e".repeat(64), revision: 1 },
+      edit: { crop: { x: 0.1, y: 0.2, width: 0.7, height: 0.6 }, revision: 1 },
+      caption: "edited",
+    });
+    state = deserializeDirectorState(serializeDirectorState(state)).state;
+    expect(state.items.i).toMatchObject({ originalSource: original, imageEnabled: true });
+
+    state = directorReducer(state, { type: "toggle", channel: "image", id: "i" });
+    state = directorReducer(state, { type: "restore-image-original", id: "i", caption: "restored" });
+    expect(state.items.i).toMatchObject({
+      source: original,
+      originalSource: original,
+      caption: "restored",
+      imageEnabled: false,
+    });
+    expect(state.items.i).not.toHaveProperty("edit");
+    expect(state.imageOrder).toEqual(["i"]);
+  });
 });
 
 describe("history and execution projection", () => {

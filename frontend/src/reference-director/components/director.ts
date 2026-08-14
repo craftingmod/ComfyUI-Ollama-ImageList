@@ -946,12 +946,33 @@ export class ReferenceDirectorController {
     const runtime = this.#runtime.get(id);
     try {
       if (item.kind === "image") {
+        const imageMetadata = runtime?.metadata;
         const editorResult = await openImageEditor({
           item,
           signal: modalController.signal,
           ...(runtime?.previewUrl ? { previewUrl: runtime.previewUrl } : {}),
+          ...(imageMetadata?.width !== undefined ? { imageWidth: imageMetadata.width } : {}),
+          ...(imageMetadata?.height !== undefined ? { imageHeight: imageMetadata.height } : {}),
+          ...(imageMetadata?.width === undefined || imageMetadata.height === undefined
+            ? { imageMetadata: (signal: AbortSignal) => this.#api.metadata(item.source, signal) }
+            : {}),
+          backgroundPreview: async (signal) => (await this.#api.backgroundPreview(item.source, signal)).url,
         });
         if (!editorResult) return;
+        if (!this.#isEditCurrent(id, item, modalController)) return;
+        if (editorResult.action === "restore-original") {
+          this.#invalidateRuntime(id);
+          this.#runtime.set(id, { loading: true });
+          this.#dispatch({
+            type: "restore-image-original",
+            id,
+            caption: editorResult.caption,
+          });
+          this.render(true);
+          const restored = this.state.items[id];
+          if (restored) await this.#loadRuntime(restored);
+          return;
+        }
         let edit = editorResult.edit;
         if (editorResult.maskFile) {
           const uploadedMask = await this.#api.upload(editorResult.maskFile, modalController.signal);
