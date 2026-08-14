@@ -3,8 +3,41 @@ import type { ImageEditRecipe, ImageItem, NormalizedCrop } from "../types";
 
 export type MaskBrushTool = "erase" | "restore";
 export type CropHandle = "north-west" | "north-east" | "south-west" | "south-east";
+export type ImageEditorInteractionMode = "view" | "crop" | "mask";
+export type CropSelectionMode = "unfocused" | "focused" | "clipped";
+export type ImageEditorPointerSurface = "stage" | "crop-body" | "crop-handle" | "mask";
+export type ImageEditorPointerIntent =
+  | "ignore"
+  | "pan"
+  | "unfocus-and-pan"
+  | "pending-select"
+  | "pending-pan"
+  | "move-crop"
+  | "resize-crop"
+  | "paint-mask";
+
+export interface ImageEditorPointerContext {
+  interactionMode: ImageEditorInteractionMode;
+  cropSelection: CropSelectionMode;
+  surface: ImageEditorPointerSurface;
+  ctrlKey: boolean;
+  viewportFilling: boolean;
+}
+
+export function resolveImageEditorPointerIntent(context: ImageEditorPointerContext): ImageEditorPointerIntent {
+  if (context.ctrlKey) return "pan";
+  if (context.interactionMode === "view") return context.surface === "stage" ? "pan" : "ignore";
+  if (context.interactionMode === "mask") return context.surface === "mask" ? "paint-mask" : "ignore";
+  if (context.surface === "stage") return "unfocus-and-pan";
+  if (context.surface === "crop-handle") return "resize-crop";
+  if (context.surface !== "crop-body") return "ignore";
+  if (context.cropSelection === "unfocused") return "pending-select";
+  if (context.cropSelection === "clipped") return "pending-pan";
+  return context.viewportFilling ? "pan" : "move-crop";
+}
 
 export interface ImageEditorDraft {
+  interactionMode: ImageEditorInteractionMode;
   crop: NormalizedCrop;
   cropFrame: NormalizedCrop;
   flipX: boolean;
@@ -23,6 +56,30 @@ export interface ImageEditorDraft {
   maskHeight?: number;
   maskTouched: boolean;
 }
+
+type ImageEditorGesture =
+  | { kind: "idle" }
+  | {
+    kind: "pending-pan";
+    start: readonly [number, number];
+    initialDraft: ImageEditorDraft;
+    focusCropOnClick: boolean;
+  }
+  | {
+    kind: "pan";
+    start: readonly [number, number];
+    initialDraft: ImageEditorDraft;
+    draft: ImageEditorDraft;
+  }
+  | {
+    kind: "move-crop" | "resize-crop";
+    handle: CropHandle | undefined;
+    initialFrame: NormalizedCrop;
+    start: readonly [number, number];
+    initialDraft: ImageEditorDraft;
+    draft: ImageEditorDraft;
+  }
+  | { kind: "paint-mask"; lastPoint: readonly [number, number] };
 
 export interface ImageEditorOptions {
   item: ImageItem;
@@ -108,6 +165,11 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function cssPercentage(value: number): string {
+  const percentage = Math.abs(value) < 1e-10 ? 0 : value * 100;
+  return `${percentage}%`;
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({
     "&": "&amp;",
@@ -150,6 +212,31 @@ export function moveNormalizedCrop(
     x: clamp(crop.x + deltaX, 0, 1 - crop.width),
     y: clamp(crop.y + deltaY, 0, 1 - crop.height),
   };
+}
+
+export function isNormalizedCropFullyVisible(crop: NormalizedCrop, epsilon = 1e-9): boolean {
+  return crop.x >= -epsilon && crop.y >= -epsilon &&
+    crop.x + crop.width <= 1 + epsilon && crop.y + crop.height <= 1 + epsilon;
+}
+
+export function isNormalizedCropViewportFilling(crop: NormalizedCrop, epsilon = 1e-9): boolean {
+  return Math.abs(crop.x) <= epsilon && Math.abs(crop.y) <= epsilon &&
+    Math.abs(crop.x + crop.width - 1) <= epsilon &&
+    Math.abs(crop.y + crop.height - 1) <= epsilon;
+}
+
+export function cropSelectionModeForFrame(crop: NormalizedCrop): Exclude<CropSelectionMode, "unfocused"> {
+  return isNormalizedCropFullyVisible(crop) ? "focused" : "clipped";
+}
+
+export function isCropHandleVisible(
+  crop: NormalizedCrop,
+  handle: CropHandle,
+  epsilon = 1e-9,
+): boolean {
+  const x = handle.endsWith("west") ? crop.x : crop.x + crop.width;
+  const y = handle.startsWith("north") ? crop.y : crop.y + crop.height;
+  return x >= -epsilon && x <= 1 + epsilon && y >= -epsilon && y <= 1 + epsilon;
 }
 
 function viewportCoordinate(value: number, zoom: number, pan: number, flipped: boolean): number {
@@ -241,6 +328,7 @@ function isMaterializedEdit(item: ImageItem): boolean {
 export function createInitialImageDraft(item: ImageItem): ImageEditorDraft {
   const materialized = isMaterializedEdit(item);
   return {
+    interactionMode: "view",
     crop: materialized ? { x: 0, y: 0, width: 1, height: 1 } : item.edit?.crop ?? { x: 0, y: 0, width: 1, height: 1 },
     cropFrame: materialized ? { x: 0, y: 0, width: 1, height: 1 } : item.edit?.crop ?? { x: 0, y: 0, width: 1, height: 1 },
     flipX: materialized ? false : item.edit?.flipX ?? false,
@@ -328,13 +416,15 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     dialog.innerHTML = `
       <form method="dialog" class="rd-modal__panel">
         <header><div><strong>Image editor</strong><small>Crop, mask, flip, and background changes are non-destructive.</small><small class="rd-modal__filename" title="${escapeHtml(options.item.source.path)}">File: ${escapeHtml(options.item.sourceFilename || filename(options.item.source.path))}</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
-        <label class="rd-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.item.caption)}</textarea></label>
         <div class="rd-editor-layout">
-          <div class="rd-editor-preview"><div class="rd-editor-stage"><div class="rd-editor-visual"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div><div class="rd-crop-overlay" aria-label="Crop viewport; drag inside to move the crop, drag outside or hold Space to pan, and use the mouse wheel to zoom"><button type="button" data-crop-handle="north-west" aria-label="Resize crop from top left"></button><button type="button" data-crop-handle="north-east" aria-label="Resize crop from top right"></button><button type="button" data-crop-handle="south-west" aria-label="Resize crop from bottom left"></button><button type="button" data-crop-handle="south-east" aria-label="Resize crop from bottom right"></button></div></div></div>
+          <div class="rd-editor-media-column">
+            <div class="rd-editor-preview"><div class="rd-editor-stage"><div class="rd-editor-visual"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div><div class="rd-crop-overlay" aria-label="Crop viewport; drag inside to move the crop, drag outside or use Ctrl-drag to pan, and use the mouse wheel to zoom"><button type="button" data-crop-handle="north-west" aria-label="Resize crop from top left"></button><button type="button" data-crop-handle="north-east" aria-label="Resize crop from top right"></button><button type="button" data-crop-handle="south-west" aria-label="Resize crop from bottom left"></button><button type="button" data-crop-handle="south-east" aria-label="Resize crop from bottom right"></button></div></div></div>
+            <label class="rd-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.item.caption)}</textarea></label>
+          </div>
           <div class="rd-editor-controls">
             <fieldset class="rd-interaction-modes"><legend>Interaction</legend>
-              <button type="button" data-action="mode-view" aria-pressed="false">View</button>
-              <button type="button" data-action="mode-crop" aria-pressed="true">Crop</button>
+              <button type="button" data-action="mode-view" aria-pressed="true">View</button>
+              <button type="button" data-action="mode-crop" aria-pressed="false">Crop</button>
               <button type="button" data-action="mode-mask" aria-pressed="false">Mask</button>
             </fieldset>
             <fieldset><legend>Viewport</legend>
@@ -380,62 +470,19 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     // At most ~20 MiB of 512px RGBA mask snapshots, plus lightweight recipe references.
     const history = new LocalHistory(createInitialImageDraft(options.item), 20);
     let settled = false;
-    let painting = false;
     let canvasReady = false;
-    let interactionMode: "view" | "crop" | "mask" = "crop";
     let resolvedImageWidth = options.imageWidth;
     let resolvedImageHeight = options.imageHeight;
     let sourceWidth = Math.max(1, Math.round(resolvedImageWidth ?? 1024));
     let sourceHeight = Math.max(1, Math.round(resolvedImageHeight ?? 1024));
     const metadataController = new AbortController();
-    let lastPoint: readonly [number, number] | undefined;
     let backgroundPreviewUrl: string | undefined;
     let backgroundPreviewLoading = false;
     let backgroundPreviewController: AbortController | undefined;
     let wheelMergeSequence = 0;
     let wheelMergeTimer: ReturnType<typeof setTimeout> | undefined;
-    let spacePanActive = false;
-    let cropDrag: {
-      kind: "move" | "resize";
-      handle: CropHandle | undefined;
-      initialFrame: NormalizedCrop;
-      start: readonly [number, number];
-      initialDraft: ImageEditorDraft;
-      draft: ImageEditorDraft;
-    } | undefined;
-
-    const isTextEntryTarget = (target: EventTarget | null): boolean =>
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target instanceof HTMLButtonElement ||
-      (target instanceof HTMLElement && target.isContentEditable);
-
-    const setSpacePanActive = (active: boolean): void => {
-      spacePanActive = active;
-      stage?.classList.toggle("is-space-pan-ready", active);
-    };
-
-    const onSpaceKeyDown = (event: KeyboardEvent): void => {
-      if (event.code !== "Space" || isTextEntryTarget(event.target)) return;
-      event.preventDefault();
-      setSpacePanActive(true);
-    };
-
-    const onSpaceKeyUp = (event: KeyboardEvent): void => {
-      if (event.code !== "Space") return;
-      setSpacePanActive(false);
-    };
-
-    const onWindowBlur = (): void => setSpacePanActive(false);
-    document.addEventListener("keydown", onSpaceKeyDown);
-    document.addEventListener("keyup", onSpaceKeyUp);
-    globalThis.addEventListener?.("blur", onWindowBlur);
-    let panDrag: {
-      start: readonly [number, number];
-      initialDraft: ImageEditorDraft;
-      draft: ImageEditorDraft;
-    } | undefined;
+    let cropSelection: CropSelectionMode = "focused";
+    let gesture: ImageEditorGesture = { kind: "idle" };
 
     const getInput = (field: string): HTMLInputElement | HTMLSelectElement | null =>
       dialog.querySelector(`[data-field="${field}"]`);
@@ -482,9 +529,16 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     };
 
     const render = (restoreCanvas = true): void => {
-      const draft = panDrag?.draft ?? cropDrag?.draft ?? history.value;
+      const draft = gesture.kind === "pan" || gesture.kind === "move-crop" || gesture.kind === "resize-crop"
+        ? gesture.draft
+        : history.value;
+      const interactionMode = draft.interactionMode;
       const crop = draft.crop;
       const cropFrame = draft.cropFrame;
+      const cropFocused = cropSelection !== "unfocused";
+      const resizeOnly = cropSelection === "clipped";
+      const viewportFillCrop = interactionMode === "crop" && cropSelection === "focused" &&
+        isNormalizedCropViewportFilling(cropFrame);
       const pixelCrop = normalizedCropToPixels(crop, sourceWidth, sourceHeight);
       for (const field of ["x", "y", "width", "height"] as const) {
         const input = getInput(field);
@@ -567,8 +621,11 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       const transform = `translate(${draft.panX}px, ${draft.panY}px) scale(${draft.zoom}) scaleX(${draft.flipX ? -1 : 1}) scaleY(${draft.flipY ? -1 : 1})`;
       if (stage) {
         stage.dataset.interactionMode = interactionMode;
-        stage.classList.toggle("is-panning", Boolean(panDrag));
-        stage.classList.toggle("is-moving-crop", cropDrag?.kind === "move");
+        stage.classList.toggle("is-pan-available", panBounds.maxX > panBounds.minX || panBounds.maxY > panBounds.minY);
+        stage.classList.toggle("is-panning", gesture.kind === "pan");
+        stage.classList.toggle("is-moving-crop", gesture.kind === "move-crop");
+        stage.classList.toggle("is-resize-only", interactionMode === "crop" && resizeOnly);
+        stage.classList.toggle("is-viewport-fill-crop", viewportFillCrop);
         stage.style.background = draft.backgroundMode === "solid" ? draft.backgroundColor : "repeating-conic-gradient(#666 0 25%, #888 0 50%) 0 / 18px 18px";
       }
       if (visual) visual.style.transform = transform;
@@ -582,13 +639,32 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         if (restoreCanvas) restoreMask(draft);
       }
       if (cropOverlay) {
+        const clippedSelection = interactionMode === "crop" && resizeOnly;
         cropOverlay.classList.toggle("is-inactive", interactionMode !== "crop");
-        cropOverlay.style.left = `${cropFrame.x * 100}%`;
-        cropOverlay.style.top = `${cropFrame.y * 100}%`;
-        cropOverlay.style.width = `${cropFrame.width * 100}%`;
-        cropOverlay.style.height = `${cropFrame.height * 100}%`;
+        cropOverlay.classList.toggle("is-focused", interactionMode === "crop" && cropSelection === "focused");
+        cropOverlay.classList.toggle("is-resize-only", clippedSelection);
+        cropOverlay.classList.toggle("is-unfocused", interactionMode === "crop" && !cropFocused);
+        cropOverlay.dataset.cropFocused = String(cropFocused);
+        cropOverlay.dataset.cropFocusMode = !cropFocused ? "unfocused" : resizeOnly ? "resize-only" : "focused";
+        cropOverlay.setAttribute(
+          "aria-label",
+          clippedSelection
+            ? "Clipped crop viewport; drag to pan the image or use a visible corner to resize the crop"
+            : viewportFillCrop
+            ? "Full-viewport crop; drag to pan the image or use a corner to resize the crop"
+            : cropFocused
+            ? "Selected crop viewport; drag inside to move it, use a corner to resize it, or click outside to pan"
+            : "Unselected crop viewport; click to select it or drag to pan the image",
+        );
+        cropOverlay.style.left = cssPercentage(cropFrame.x);
+        cropOverlay.style.top = cssPercentage(cropFrame.y);
+        cropOverlay.style.width = cssPercentage(cropFrame.width);
+        cropOverlay.style.height = cssPercentage(cropFrame.height);
         for (const handle of cropOverlay.querySelectorAll<HTMLButtonElement>("[data-crop-handle]")) {
-          handle.disabled = !canvasReady || interactionMode !== "crop";
+          const cropHandle = handle.dataset.cropHandle as CropHandle;
+          const visible = !clippedSelection || isCropHandleVisible(cropFrame, cropHandle);
+          handle.hidden = interactionMode !== "crop" || !cropFocused || !visible;
+          handle.disabled = !canvasReady || interactionMode !== "crop" || !cropFocused || !visible;
         }
       }
       const undo = dialog.querySelector<HTMLButtonElement>('[data-action="undo"]');
@@ -605,9 +681,6 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       backgroundPreviewController?.abort();
       metadataController.abort();
       if (wheelMergeTimer !== undefined) clearTimeout(wheelMergeTimer);
-      document.removeEventListener("keydown", onSpaceKeyDown);
-      document.removeEventListener("keyup", onSpaceKeyUp);
-      globalThis.removeEventListener?.("blur", onWindowBlur);
       options.signal?.removeEventListener("abort", onAbort);
       dialog.remove();
       resolve(value);
@@ -744,9 +817,11 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         Math.max(1, rect?.height ?? 1),
       );
       const next = { ...draft, ...viewport, cropFrame: frame };
-      return interactionMode === "crop"
-        ? { ...next, crop: cropFromFrame(next, frame) }
-        : next;
+      if (draft.interactionMode !== "crop") return next;
+      if (cropSelection === "focused" || gesture.kind === "resize-crop") {
+        return { ...next, crop: cropFromFrame(next, frame) };
+      }
+      return { ...next, cropFrame: frameFromCrop(next, draft.crop) };
     };
 
     const paint = (from: readonly [number, number], to: readonly [number, number]): void => {
@@ -775,37 +850,12 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       context.restore();
     };
 
-    maskCanvas?.addEventListener("pointerdown", (event) => {
-      if (!canvasReady || interactionMode !== "mask" || spacePanActive) return;
-      const point = canvasPoint(event);
-      if (!point) return;
-      event.preventDefault();
-      painting = true;
-      lastPoint = point;
-      maskCanvas.setPointerCapture?.(event.pointerId);
-      paint(point, point);
-    });
-    maskCanvas?.addEventListener("pointermove", (event) => {
-      if (!painting || !lastPoint) return;
-      const point = canvasPoint(event);
-      if (!point) return;
-      paint(lastPoint, point);
-      lastPoint = point;
-    });
-    const stopPainting = (): void => {
-      if (!painting) return;
-      painting = false;
-      lastPoint = undefined;
-      commitMask();
-    };
-    maskCanvas?.addEventListener("pointerup", stopPainting);
-    maskCanvas?.addEventListener("pointercancel", stopPainting);
-
-    const beginPan = (event: PointerEvent, captureTarget: HTMLElement, force = false): void => {
-      if (!canvasReady || event.button !== 0 || (!force && interactionMode !== "view" && interactionMode !== "crop")) return;
+    const beginPan = (event: PointerEvent, captureTarget: HTMLElement): void => {
+      if (!canvasReady || event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
-      panDrag = {
+      gesture = {
+        kind: "pan",
         start: [event.clientX, event.clientY],
         initialDraft: history.value,
         draft: history.value,
@@ -814,61 +864,151 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       render(false);
     };
 
-    cropOverlay?.addEventListener("pointerdown", (event) => {
-      if (!canvasReady || interactionMode !== "crop" || event.button !== 0) return;
-      const handleElement = (event.target as Element).closest<HTMLElement>("[data-crop-handle]");
-      const handle = handleElement?.dataset.cropHandle as CropHandle | undefined;
-      if (spacePanActive) {
-        beginPan(event, cropOverlay, true);
-        return;
-      }
+    const beginPendingPan = (
+      event: PointerEvent,
+      captureTarget: HTMLElement,
+      focusCropOnClick: boolean,
+    ): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      gesture = {
+        kind: "pending-pan",
+        start: [event.clientX, event.clientY],
+        initialDraft: history.value,
+        focusCropOnClick,
+      };
+      captureTarget.setPointerCapture?.(event.pointerId);
+    };
+
+    const beginCropDrag = (
+      event: PointerEvent,
+      captureTarget: HTMLElement,
+      kind: "move-crop" | "resize-crop",
+      handle?: CropHandle,
+    ): void => {
       const start = stagePoint(event);
       if (!start) return;
       event.preventDefault();
       event.stopPropagation();
-      cropDrag = {
-        kind: handleElement && handle ? "resize" : "move",
+      gesture = {
+        kind,
         handle,
         initialFrame: history.value.cropFrame,
         start,
         initialDraft: history.value,
         draft: history.value,
       };
-      (handleElement ?? cropOverlay).setPointerCapture?.(event.pointerId);
+      captureTarget.setPointerCapture?.(event.pointerId);
+    };
+
+    const beginPointerGesture = (
+      event: PointerEvent,
+      surface: ImageEditorPointerSurface,
+      captureTarget: HTMLElement,
+      handle?: CropHandle,
+    ): void => {
+      if (!canvasReady || event.button !== 0) return;
+      const intent = resolveImageEditorPointerIntent({
+        interactionMode: history.value.interactionMode,
+        cropSelection,
+        surface,
+        ctrlKey: event.ctrlKey,
+        viewportFilling: isNormalizedCropViewportFilling(history.value.cropFrame),
+      });
+      if (intent === "pan") beginPan(event, captureTarget);
+      else if (intent === "unfocus-and-pan") {
+        cropSelection = "unfocused";
+        beginPan(event, captureTarget);
+      } else if (intent === "pending-select") beginPendingPan(event, captureTarget, true);
+      else if (intent === "pending-pan") beginPendingPan(event, captureTarget, false);
+      else if (intent === "move-crop") beginCropDrag(event, captureTarget, "move-crop");
+      else if (intent === "resize-crop" && handle) beginCropDrag(event, captureTarget, "resize-crop", handle);
+      else if (intent === "paint-mask" && maskCanvas) {
+        const point = canvasPoint(event);
+        if (!point) return;
+        event.preventDefault();
+        event.stopPropagation();
+        gesture = { kind: "paint-mask", lastPoint: point };
+        maskCanvas.setPointerCapture?.(event.pointerId);
+        paint(point, point);
+      }
+    };
+
+    maskCanvas?.addEventListener("pointerdown", (event) => beginPointerGesture(event, "mask", maskCanvas));
+    maskCanvas?.addEventListener("pointermove", (event) => {
+      if (gesture.kind !== "paint-mask") return;
+      const point = canvasPoint(event);
+      if (!point) return;
+      paint(gesture.lastPoint, point);
+      gesture = { kind: "paint-mask", lastPoint: point };
+    });
+    const stopPainting = (): void => {
+      if (gesture.kind !== "paint-mask") return;
+      gesture = { kind: "idle" };
+      commitMask();
+    };
+    maskCanvas?.addEventListener("pointerup", stopPainting);
+    maskCanvas?.addEventListener("pointercancel", stopPainting);
+
+    cropOverlay?.addEventListener("pointerdown", (event) => {
+      const handleElement = (event.target as Element).closest<HTMLElement>("[data-crop-handle]");
+      const handle = handleElement?.dataset.cropHandle as CropHandle | undefined;
+      beginPointerGesture(event, handle ? "crop-handle" : "crop-body", handleElement ?? cropOverlay, handle);
     });
 
     stage?.addEventListener("pointerdown", (event) => {
-      if (interactionMode === "view" || interactionMode === "crop" || spacePanActive) {
-        beginPan(event, stage, spacePanActive);
-      }
+      beginPointerGesture(event, "stage", stage);
     });
 
     stage?.addEventListener("pointermove", (event) => {
-      if (panDrag) {
-        const panX = panDrag.initialDraft.panX + event.clientX - panDrag.start[0];
-        const panY = panDrag.initialDraft.panY + event.clientY - panDrag.start[1];
-        panDrag.draft = withViewport(panDrag.initialDraft, { panX, panY });
+      if (gesture.kind === "pending-pan") {
+        const deltaX = event.clientX - gesture.start[0];
+        const deltaY = event.clientY - gesture.start[1];
+        if (Math.hypot(deltaX, deltaY) < 4) return;
+        gesture = {
+          kind: "pan",
+          start: gesture.start,
+          initialDraft: gesture.initialDraft,
+          draft: gesture.initialDraft,
+        };
+      }
+      if (gesture.kind === "pan") {
+        const panX = gesture.initialDraft.panX + event.clientX - gesture.start[0];
+        const panY = gesture.initialDraft.panY + event.clientY - gesture.start[1];
+        gesture.draft = withViewport(gesture.initialDraft, { panX, panY });
         render(false);
         return;
       }
-      if (!cropDrag) return;
+      if (gesture.kind !== "move-crop" && gesture.kind !== "resize-crop") return;
       const point = stagePoint(event);
       if (!point) return;
-      const deltaX = point[0] - cropDrag.start[0];
-      const deltaY = point[1] - cropDrag.start[1];
-      const frame = cropDrag.kind === "resize" && cropDrag.handle
-        ? resizeNormalizedCrop(cropDrag.initialFrame, cropDrag.handle, deltaX, deltaY)
-        : moveNormalizedCrop(cropDrag.initialFrame, deltaX, deltaY);
-      cropDrag.draft = withViewport(cropDrag.initialDraft, {}, frame);
+      const deltaX = point[0] - gesture.start[0];
+      const deltaY = point[1] - gesture.start[1];
+      const frame = gesture.kind === "resize-crop" && gesture.handle
+        ? resizeNormalizedCrop(gesture.initialFrame, gesture.handle, deltaX, deltaY)
+        : moveNormalizedCrop(gesture.initialFrame, deltaX, deltaY);
+      gesture.draft = withViewport(gesture.initialDraft, {}, frame);
       render(false);
     });
 
     const stopPointerDrag = (commit: boolean): void => {
-      const drag = panDrag ?? cropDrag;
-      if (!drag) return;
-      panDrag = undefined;
-      cropDrag = undefined;
-      if (commit && drag.draft !== drag.initialDraft) history.commit(drag.draft);
+      if (gesture.kind === "pending-pan") {
+        const focusCrop = commit && gesture.focusCropOnClick;
+        gesture = { kind: "idle" };
+        if (focusCrop) cropSelection = cropSelectionModeForFrame(history.value.cropFrame);
+        render(false);
+        return;
+      }
+      if (gesture.kind !== "pan" && gesture.kind !== "move-crop" && gesture.kind !== "resize-crop") return;
+      const drag = gesture;
+      gesture = { kind: "idle" };
+      if (commit && drag.draft !== drag.initialDraft) {
+        if (drag.kind === "pan" && drag.initialDraft.interactionMode === "view") history.replace(drag.draft);
+        else history.commit(drag.draft);
+      }
+      if (cropSelection === "clipped") {
+        cropSelection = cropSelectionModeForFrame(commit ? drag.draft.cropFrame : history.value.cropFrame);
+      }
       render();
     };
     stage?.addEventListener("pointerup", () => stopPointerDrag(true));
@@ -902,8 +1042,13 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       else clearTimeout(wheelMergeTimer);
       wheelMergeTimer = setTimeout(() => {
         wheelMergeTimer = undefined;
+        if (cropSelection === "clipped") {
+          cropSelection = cropSelectionModeForFrame(history.value.cropFrame);
+          render(false);
+        }
       }, 250);
-      history.commit(next, { mergeKey: `wheel-${interactionMode}-zoom-${wheelMergeSequence}` });
+      if (draft.interactionMode === "view") history.replace(next);
+      else history.commit(next, { mergeKey: `wheel-${draft.interactionMode}-zoom-${wheelMergeSequence}` });
       render(false);
     }, { passive: false });
 
@@ -917,18 +1062,24 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         const caption = dialog.querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]')?.value.slice(0, 16_384) ?? options.item.caption;
         finish({ action: "restore-original", caption });
       } else if (action === "mode-view" || action === "mode-crop" || action === "mode-mask") {
-        interactionMode = action === "mode-view" ? "view" : action === "mode-crop" ? "crop" : "mask";
+        const interactionMode: ImageEditorInteractionMode = action === "mode-view" ? "view" : action === "mode-crop" ? "crop" : "mask";
+        if (interactionMode === draft.interactionMode) return;
+        let next: ImageEditorDraft = { ...draft, interactionMode };
         if (interactionMode === "crop") {
-          const crop = pixelCropToNormalized(
-            normalizedCropToPixels(cropFromFrame(draft), sourceWidth, sourceHeight),
-            sourceWidth,
-            sourceHeight,
-          );
-          if (
-            crop.x !== draft.crop.x || crop.y !== draft.crop.y ||
-            crop.width !== draft.crop.width || crop.height !== draft.crop.height
-          ) history.commit({ ...draft, crop });
+          if (cropSelection === "focused") {
+            const crop = pixelCropToNormalized(
+              normalizedCropToPixels(cropFromFrame(next), sourceWidth, sourceHeight),
+              sourceWidth,
+              sourceHeight,
+            );
+            next = { ...next, crop };
+          } else {
+            const cropFrame = frameFromCrop(next, next.crop);
+            next = { ...next, cropFrame };
+            if (cropSelection !== "unfocused") cropSelection = cropSelectionModeForFrame(cropFrame);
+          }
         }
+        history.commit(next);
         render(false);
       } else if (action === "undo") {
         history.undo();
@@ -955,7 +1106,10 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         history.commit({ ...draft, tool: action });
         render();
       } else if (action === "reset-view") {
-        history.commit(withViewport(draft, { zoom: 1, panX: 0, panY: 0 }));
+        const next = withViewport(draft, { zoom: 1, panX: 0, panY: 0 });
+        if (draft.interactionMode === "view") history.replace(next);
+        else history.commit(next);
+        if (cropSelection === "clipped") cropSelection = cropSelectionModeForFrame(next.cropFrame);
         render();
       } else if (action === "apply") {
         button.disabled = true;
@@ -981,9 +1135,13 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       const value = Number(target.value);
       if (!Number.isFinite(value)) return;
       const draft = history.value;
-      if (target.dataset.field === "zoom") history.commit(withViewport(draft, { zoom: clamp(value, 1, 3) }));
-      else if (target.dataset.field === "pan-x") history.commit(withViewport(draft, { panX: value }));
-      else if (target.dataset.field === "pan-y") history.commit(withViewport(draft, { panY: value }));
+      const updateViewport = (next: ImageEditorDraft): void => {
+        if (draft.interactionMode === "view") history.replace(next);
+        else history.commit(next);
+      };
+      if (target.dataset.field === "zoom") updateViewport(withViewport(draft, { zoom: clamp(value, 1, 3) }));
+      else if (target.dataset.field === "pan-x") updateViewport(withViewport(draft, { panX: value }));
+      else if (target.dataset.field === "pan-y") updateViewport(withViewport(draft, { panY: value }));
       else if (target.dataset.field === "brush-size") history.commit({ ...draft, brushSize: clamp(value, 4, 200) });
       else if (target.dataset.field === "brush-opacity") history.commit({ ...draft, brushOpacity: clamp(value, 0.05, 1) });
       else return;
@@ -995,7 +1153,9 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
       const field = target.dataset.field;
       const draft = history.value;
-      if (field === "background-mode" && (target.value === "solid" || target.value === "transparent")) {
+      if ((field === "zoom" || field === "pan-x" || field === "pan-y") && cropSelection === "clipped") {
+        cropSelection = cropSelectionModeForFrame(draft.cropFrame);
+      } else if (field === "background-mode" && (target.value === "solid" || target.value === "transparent")) {
         history.commit({ ...draft, backgroundMode: target.value });
       } else if (field === "background-color" && /^#[\da-f]{6}$/i.test(target.value)) {
         history.commit({ ...draft, backgroundColor: target.value });

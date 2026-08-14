@@ -77,6 +77,11 @@ export class LocalHistory<T> {
     return value;
   }
 
+  replace(value: T): T {
+    this.#history = { ...this.#history, present: value };
+    return value;
+  }
+
   undo(): T {
     this.#history = undoHistory(this.#history);
     return this.value;

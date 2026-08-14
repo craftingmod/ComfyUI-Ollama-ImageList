@@ -180,6 +180,16 @@ describe("history and execution projection", () => {
     expect(history.value).toBe(10);
   });
 
+  test("replaces transient state without creating an undo entry", () => {
+    const history = new LocalHistory(0);
+    history.replace(1);
+    expect(history.value).toBe(1);
+    expect(history.canUndo).toBe(false);
+    history.commit(2);
+    history.replace(3);
+    expect(history.undo()).toBe(1);
+  });
+
   test("maps video sound to a derived audio id and excludes UI from fingerprint", () => {
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
     let state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
