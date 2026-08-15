@@ -5,11 +5,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_registry_runtime_avoids_dynamic_import_scanner_trigger():
+    runtime_sources = [
+        REPO_ROOT / "__init__.py",
+        *(REPO_ROOT / "backend").rglob("*.py"),
+    ]
+
+    for source_path in runtime_sources:
+        source = source_path.read_text(encoding="utf-8")
+        assert "importlib.import_module" not in source, source_path.relative_to(REPO_ROOT)
+
+
 def test_release_identity_and_archive_defaults_are_stable():
     metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert metadata["project"]["name"] == "ollama-image-list"
-    assert metadata["project"]["version"] == "0.6.0"
+    assert metadata["project"]["version"] == "0.6.1"
     assert metadata["project"]["description"] == (
         "Analyze ComfyUI image, audio, and video lists with Ollama, llama.cpp GGUF, "
         "or native generative CLIP backends"

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.6.1 - 2026-08-15
+
+### Changed
+
+- Replaced runtime `importlib.import_module()` calls with lazy static imports so optional llama.cpp integrations preserve their existing failure behavior without triggering the Registry's dynamic-import security rule.
+
 ## 0.6.0 - 2026-08-13
 
 ### Added

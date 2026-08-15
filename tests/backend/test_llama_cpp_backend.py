@@ -1,4 +1,6 @@
 import base64
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -234,10 +236,7 @@ def gguf_files(tmp_path):
 
 
 def test_missing_optional_dependency_points_to_supported_fork(monkeypatch):
-    def missing_import(_module_name):
-        raise ModuleNotFoundError("No module named 'llama_cpp'")
-
-    monkeypatch.setattr(llama_cpp_backend.importlib, "import_module", missing_import)
+    monkeypatch.setitem(sys.modules, "llama_cpp", None)
 
     with pytest.raises(BackendError) as error:
         llama_cpp_backend._import_bindings()
@@ -249,11 +248,10 @@ def test_missing_optional_dependency_points_to_supported_fork(monkeypatch):
 
 
 def test_missing_experimental_speculative_api_has_actionable_error(monkeypatch):
-    def missing_import(module_name):
-        assert module_name == "llama_cpp.llama_speculative"
-        raise ModuleNotFoundError("No module named 'llama_cpp.llama_speculative'")
-
-    monkeypatch.setattr(llama_cpp_backend.importlib, "import_module", missing_import)
+    llama_cpp_package = ModuleType("llama_cpp")
+    llama_cpp_package.__path__ = []
+    monkeypatch.setitem(sys.modules, "llama_cpp", llama_cpp_package)
+    monkeypatch.setitem(sys.modules, "llama_cpp.llama_speculative", None)
 
     with pytest.raises(BackendError) as error:
         llama_cpp_backend._import_native_speculative_class()
@@ -267,11 +265,10 @@ def test_missing_experimental_speculative_api_has_actionable_error(monkeypatch):
 
 
 def test_missing_ngram_speculative_api_fails_only_when_requested(monkeypatch):
-    def missing_import(module_name):
-        assert module_name == "llama_cpp.llama_speculative"
-        raise ModuleNotFoundError("No module named 'llama_cpp.llama_speculative'")
-
-    monkeypatch.setattr(llama_cpp_backend.importlib, "import_module", missing_import)
+    llama_cpp_package = ModuleType("llama_cpp")
+    llama_cpp_package.__path__ = []
+    monkeypatch.setitem(sys.modules, "llama_cpp", llama_cpp_package)
+    monkeypatch.setitem(sys.modules, "llama_cpp.llama_speculative", None)
 
     with pytest.raises(BackendError) as error:
         llama_cpp_backend._import_ngram_speculative_class()

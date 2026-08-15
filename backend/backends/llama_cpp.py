@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import gc
-import importlib
 import logging
 import time
 from dataclasses import dataclass
@@ -175,7 +174,7 @@ class _SequentialLlamaSession:
 
 def _import_bindings() -> LlamaCppBindings:
     try:
-        llama_cpp = importlib.import_module("llama_cpp")
+        import llama_cpp
     except (ImportError, OSError) as exc:
         raise BackendError(
             "llama-cpp-python could not be imported. Install a wheel compatible with "
@@ -183,16 +182,13 @@ def _import_bindings() -> LlamaCppBindings:
             + _fork_install_hint()
         ) from exc
 
-    handler_module = None
-    for module_name in (
-        "llama_cpp.llama_multimodal",
-        "llama_cpp.llama_chat_format",
-    ):
+    try:
+        from llama_cpp import llama_multimodal as handler_module
+    except (ImportError, OSError):
         try:
-            handler_module = importlib.import_module(module_name)
-            break
+            from llama_cpp import llama_chat_format as handler_module
         except (ImportError, OSError):
-            continue
+            handler_module = None
 
     handlers: dict[str, type] = {}
     if handler_module is not None:
@@ -202,7 +198,7 @@ def _import_bindings() -> LlamaCppBindings:
                 handlers[name] = handler_class
 
     try:
-        chat_format_module = importlib.import_module("llama_cpp.llama_chat_format")
+        from llama_cpp import llama_chat_format as chat_format_module
     except (ImportError, OSError):
         chat_format_module = None
     jinja_formatter_class = (
@@ -232,7 +228,7 @@ def _import_bindings() -> LlamaCppBindings:
 
 def _import_native_speculative_class() -> type:
     try:
-        speculative_module = importlib.import_module("llama_cpp.llama_speculative")
+        from llama_cpp import llama_speculative as speculative_module
     except (ImportError, OSError) as exc:
         raise BackendError(
             "Native speculative decoding is not installed in the Python environment "
@@ -442,7 +438,7 @@ def _create_native_speculative_decoder(
 
 def _import_ngram_speculative_class() -> type:
     try:
-        speculative_module = importlib.import_module("llama_cpp.llama_speculative")
+        from llama_cpp import llama_speculative as speculative_module
     except (ImportError, OSError) as exc:
         raise BackendError(
             "N-gram speculative decoding is unavailable in the installed "
