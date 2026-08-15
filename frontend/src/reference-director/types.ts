@@ -74,6 +74,7 @@ export interface DirectorUiPreferences {
   cardAspectRatio: string;
   gridColumns: number;
   previewMaxPixels: number;
+  previewFit: "contain" | "cover";
   waveformPeaks: number;
 }
 
@@ -99,6 +100,7 @@ export interface MediaMetadata {
 
 export interface ItemRuntime {
   loading: boolean;
+  applyingEdit?: boolean;
   error?: string;
   previewUrl?: string;
   waveform?: ReadonlyArray<readonly [number, number]>;
@@ -109,6 +111,7 @@ export const DEFAULT_UI_PREFERENCES: DirectorUiPreferences = {
   cardAspectRatio: "4 / 3",
   gridColumns: 3,
   previewMaxPixels: 1_000_000,
+  previewFit: "contain",
   waveformPeaks: 300,
 };
 
@@ -128,7 +131,6 @@ export function createMediaItem(
   kind: MediaKind,
   source: MediaSource,
   id: string = globalThis.crypto?.randomUUID?.() ?? `reference-${Date.now()}-${Math.random()}`,
-  options: { hasAudio?: boolean } = {},
 ): MediaItem {
   const sourceFilename = source.path.split("/").pop() ?? source.path;
   const base = { id, kind, source, sourceFilename, caption: "" };
@@ -138,7 +140,7 @@ export function createMediaItem(
   if (kind === "audio") {
     return { ...base, kind, audioEnabled: true };
   }
-  return { ...base, kind, videoEnabled: true, audioEnabled: options.hasAudio !== false };
+  return { ...base, kind, videoEnabled: true, audioEnabled: false };
 }
 
 export function isAudioItem(item: MediaItem): item is AudioItem | VideoItem {

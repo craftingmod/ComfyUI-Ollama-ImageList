@@ -97,16 +97,30 @@ function bindNativeDisplayProxies(
   const gridColumns = node.widgets?.find((widget) => widget.name === "grid_columns");
   const previewPixels = node.widgets?.find((widget) => widget.name === "preview_pixels");
   const showCaptions = node.widgets?.find((widget) => widget.name === "show_captions");
-  if (!gridColumns || !previewPixels || !showCaptions) return undefined;
+  const cardAspect = node.widgets?.find((widget) => widget.name === "card_aspect");
+  const previewFit = node.widgets?.find((widget) => widget.name === "preview_fit");
+  const waveformPairs = node.widgets?.find((widget) => widget.name === "waveform_pairs");
+  if (
+    !gridColumns || !previewPixels || !showCaptions || !cardAspect || !previewFit ||
+    !waveformPairs
+  ) {
+    return undefined;
+  }
 
   const originalGridCallback = gridColumns.callback;
   const originalPreviewCallback = previewPixels.callback;
   const originalShowCaptionsCallback = showCaptions.callback;
+  const originalCardAspectCallback = cardAspect.callback;
+  const originalPreviewFitCallback = previewFit.callback;
+  const originalWaveformPairsCallback = waveformPairs.callback;
   const syncFromState = (): void => {
     const values = controller.displayState;
     gridColumns.value = values.gridColumns;
     previewPixels.value = values.previewPixels;
     showCaptions.value = values.showCaptions;
+    cardAspect.value = values.cardAspect;
+    previewFit.value = values.previewFit;
+    waveformPairs.value = values.waveformPairs;
   };
   const gridCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
     const result = originalGridCallback?.call(gridColumns, value, ...args);
@@ -130,9 +144,32 @@ function bindNativeDisplayProxies(
     syncFromState();
     return result;
   };
+  const cardAspectCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalCardAspectCallback?.call(cardAspect, value, ...args);
+    controller.writeDisplayProxy({ cardAspect: String(value) });
+    syncFromState();
+    return result;
+  };
+  const previewFitCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalPreviewFitCallback?.call(previewFit, value, ...args);
+    controller.writeDisplayProxy({ previewFit: value === "cover" ? "cover" : "contain" });
+    syncFromState();
+    return result;
+  };
+  const waveformPairsCallback: NonNullable<ComfyWidget["callback"]> = (value, ...args) => {
+    const result = originalWaveformPairsCallback?.call(waveformPairs, value, ...args);
+    controller.writeDisplayProxy({
+      waveformPairs: typeof value === "number" ? value : Number(value),
+    });
+    syncFromState();
+    return result;
+  };
   gridColumns.callback = gridCallback;
   previewPixels.callback = previewCallback;
   showCaptions.callback = showCaptionsCallback;
+  cardAspect.callback = cardAspectCallback;
+  previewFit.callback = previewFitCallback;
+  waveformPairs.callback = waveformPairsCallback;
   syncFromState();
   return {
     syncFromState,
@@ -148,6 +185,18 @@ function bindNativeDisplayProxies(
       if (showCaptions.callback === showCaptionsCallback) {
         if (originalShowCaptionsCallback) showCaptions.callback = originalShowCaptionsCallback;
         else delete showCaptions.callback;
+      }
+      if (cardAspect.callback === cardAspectCallback) {
+        if (originalCardAspectCallback) cardAspect.callback = originalCardAspectCallback;
+        else delete cardAspect.callback;
+      }
+      if (previewFit.callback === previewFitCallback) {
+        if (originalPreviewFitCallback) previewFit.callback = originalPreviewFitCallback;
+        else delete previewFit.callback;
+      }
+      if (waveformPairs.callback === waveformPairsCallback) {
+        if (originalWaveformPairsCallback) waveformPairs.callback = originalWaveformPairsCallback;
+        else delete waveformPairs.callback;
       }
     },
   };

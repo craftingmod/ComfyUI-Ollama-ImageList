@@ -20,11 +20,100 @@ describe("Reference Director DOM lifecycle", () => {
     const controller = new ReferenceDirectorController(root, node, new ReferenceDirectorApi(api), undefined);
     expect(root.querySelectorAll(".rd-channel")).toHaveLength(3);
     expect(root.querySelectorAll(".rd-card-grid.is-empty")).toHaveLength(3);
+    expect(root.querySelectorAll(".rd-grid-add.is-wide")).toHaveLength(3);
+    expect(root.querySelector<HTMLInputElement>('[data-upload-kind="image"]')?.accept).toBe("image/*");
+    expect(root.querySelector<HTMLInputElement>('[data-upload-kind="video"]')?.accept).toBe("video/*");
+    expect(root.querySelector<HTMLInputElement>('[data-upload-kind="audio"]')?.accept).toBe("audio/*");
     expect(root.textContent).toContain("Images");
     expect(root.textContent).toContain("Videos");
     expect(root.textContent).toContain("Audio");
     controller.destroy();
     expect(root.childElementCount).toBe(0);
+    root.remove();
+  });
+
+  test("clears all references as one undoable toolbar action", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    };
+    const image = createMediaItem("image", {
+      path: "reference_director/sources/clear.png",
+      mime: "image/png",
+      sha256: "f".repeat(64),
+    }, "clear-image");
+    const state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
+    const controller = new ReferenceDirectorController(
+      root,
+      node,
+      new ReferenceDirectorApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
+      serializeDirectorState(state),
+    );
+
+    const clear = root.querySelector<HTMLButtonElement>('[data-action="clear"]');
+    expect(clear?.textContent).toBe("Clear");
+    expect(clear?.classList.contains("rd-clear")).toBe(true);
+    expect(clear?.disabled).toBe(false);
+    clear?.click();
+    expect(controller.state.items).toEqual({});
+    expect(root.querySelector<HTMLButtonElement>('[data-action="clear"]')?.disabled).toBe(true);
+    expect(root.textContent).toContain("All references cleared. Undo is available.");
+
+    root.querySelector<HTMLButtonElement>('[data-action="undo"]')?.click();
+    expect(controller.state.items[image.id]).toBeDefined();
+    expect(root.querySelector<HTMLButtonElement>('[data-action="clear"]')?.disabled).toBe(false);
+    controller.destroy();
+    root.remove();
+  });
+
+  test("numbers only enabled outputs independently in each media channel", () => {
+    const root = document.createElement("div");
+    document.body.append(root);
+    const node: ComfyNode = {
+      addWidget: () => ({ name: "unused", value: null }),
+      addDOMWidget: () => ({ name: "unused", value: null }),
+      setDirtyCanvas: () => undefined,
+    };
+    const media = [
+      createMediaItem("image", { path: "reference_director/sources/i1.png", mime: "image/png", sha256: "1".repeat(64) }, "i1"),
+      createMediaItem("image", { path: "reference_director/sources/i2.png", mime: "image/png", sha256: "2".repeat(64) }, "i2"),
+      createMediaItem("image", { path: "reference_director/sources/i3.png", mime: "image/png", sha256: "3".repeat(64) }, "i3"),
+      createMediaItem("video", { path: "reference_director/sources/v1.mp4", mime: "video/mp4", sha256: "4".repeat(64) }, "v1"),
+      createMediaItem("video", { path: "reference_director/sources/v2.mp4", mime: "video/mp4", sha256: "5".repeat(64) }, "v2"),
+      createMediaItem("audio", { path: "reference_director/sources/a1.wav", mime: "audio/wav", sha256: "6".repeat(64) }, "a1"),
+      createMediaItem("audio", { path: "reference_director/sources/a2.wav", mime: "audio/wav", sha256: "7".repeat(64) }, "a2"),
+    ];
+    for (const item of media) {
+      if (item.kind === "video") item.audioEnabled = true;
+    }
+    let state = createEmptyDirectorState();
+    for (const item of media) state = directorReducer(state, { type: "add", item });
+    state = directorReducer(state, { type: "toggle", id: "i2", channel: "image" });
+    state = directorReducer(state, { type: "toggle", id: "v2", channel: "video" });
+    state = directorReducer(state, { type: "toggle", id: "a1", channel: "audio" });
+    const controller = new ReferenceDirectorController(
+      root,
+      node,
+      new ReferenceDirectorApi({ fetchApi: async () => new Promise<Response>(() => undefined) }),
+      serializeDirectorState(state),
+    );
+
+    const channelIndices = (channel: string): string[] => [...root.querySelectorAll<HTMLElement>(`.rd-channel[data-channel="${channel}"] .rd-output-index`)]
+      .map((badge) => badge.textContent ?? "");
+    expect(channelIndices("image")).toEqual(["#1", "#2"]);
+    expect(channelIndices("video")).toEqual(["#1"]);
+    expect(channelIndices("audio")).toEqual(["#1", "#2", "#3"]);
+    expect(root.querySelector('.rd-card[data-id="i2"][data-channel="image"] .rd-output-index')).toBeNull();
+    expect(root.querySelector('.rd-card[data-id="v2"][data-channel="video"] .rd-output-index')).toBeNull();
+    expect(root.querySelector('.rd-card[data-id="v2"][data-channel="audio"] .rd-output-index')?.textContent).toBe("#2");
+    expect(root.querySelector('.rd-card[data-id="a1"][data-channel="audio"] .rd-output-index')).toBeNull();
+
+    root.querySelector<HTMLButtonElement>('.rd-card[data-id="i2"][data-channel="image"] [data-action="toggle-image"]')?.click();
+    expect(channelIndices("image")).toEqual(["#1", "#2", "#3"]);
+    controller.destroy();
     root.remove();
   });
 
@@ -48,6 +137,9 @@ describe("Reference Director DOM lifecycle", () => {
     const surface = card?.querySelector<HTMLElement>(".rd-card__media");
     const caption = card?.querySelector<HTMLTextAreaElement>("textarea");
     expect(card).toBeDefined();
+    expect(surface?.classList.contains("is-transparent-preview")).toBe(true);
+    expect(root.querySelector('.rd-channel[data-channel="image"] .rd-grid-add.is-tile')).not.toBeNull();
+    expect(root.querySelector(".rd-settings")).toBeNull();
     expect(root.querySelector(".rd-drag")).toBeNull();
     surface?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     const drag = new DragEvent("dragstart", { bubbles: true, cancelable: true });
@@ -64,6 +156,10 @@ describe("Reference Director DOM lifecycle", () => {
     expect(actions?.closest(".rd-card__media")).toBeNull();
     expect(actions?.closest(".rd-card__body")).not.toBeNull();
     expect(actions?.previousElementSibling?.matches("textarea[data-field='caption']")).toBe(true);
+    const editButton = card?.querySelector<HTMLButtonElement>('[data-action="edit"]');
+    expect(editButton?.textContent?.trim()).toBe("");
+    expect(editButton?.getAttribute("aria-label")).toBe("Edit reference");
+    expect(editButton?.querySelector("svg")).not.toBeNull();
     expect(card?.querySelector(".rd-card__title")).toBeNull();
     const imageFilename = card?.querySelector<HTMLElement>(".rd-media-filename");
     expect(imageFilename?.textContent).toBe("a.png");
@@ -165,15 +261,18 @@ describe("Reference Director DOM lifecycle", () => {
   test("forces the card caption to refresh after applying the image editor", async () => {
     const root = document.createElement("div");
     document.body.append(root);
+    const dirtyPreviewUrls: Array<string | undefined> = [];
     const node: ComfyNode = {
       addWidget: () => ({ name: "unused", value: null }),
       addDOMWidget: () => ({ name: "unused", value: null }),
-      setDirtyCanvas: () => undefined,
+      setDirtyCanvas: () => {
+        dirtyPreviewUrls.push(root.querySelector<HTMLImageElement>("img")?.getAttribute("src") ?? undefined);
+      },
     };
     const api: ComfyApiLike = {
       async fetchApi(route) {
         if (route.endsWith("metadata")) {
-          return new Response(JSON.stringify({ metadata: { width: 32, height: 32 } }), { status: 200 });
+          return new Response(JSON.stringify({ metadata: { width: 2048, height: 1024 } }), { status: 200 });
         }
         if (route.endsWith("image_proxy")) {
           return new Response(JSON.stringify({ url: "/caption-preview.webp" }), { status: 200 });
@@ -188,7 +287,7 @@ describe("Reference Director DOM lifecycle", () => {
             },
             edit: { revision: 1 },
             proxy_url: "/caption-edited.webp",
-            metadata: { width: 32, height: 32 },
+            metadata: { width: 1024, height: 1024 },
           }), { status: 201 });
         }
         throw new Error(`Unexpected route: ${route}`);
@@ -203,6 +302,7 @@ describe("Reference Director DOM lifecycle", () => {
     const state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
     const controller = new ReferenceDirectorController(root, node, new ReferenceDirectorApi(api), serializeDirectorState(state));
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(root.querySelector(".rd-megapixels")?.textContent).toBe("2.1 MP");
 
     const previousCaption = root.querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]');
     previousCaption?.focus();
@@ -215,6 +315,9 @@ describe("Reference Director DOM lifecycle", () => {
     const refreshedCaption = root.querySelector<HTMLTextAreaElement>('textarea[data-field="caption"]');
     expect(refreshedCaption).not.toBe(previousCaption);
     expect(refreshedCaption?.value).toBe("after");
+    expect(root.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe("/caption-edited.webp");
+    expect(root.querySelector(".rd-megapixels")?.textContent).toBe("1.05 MP");
+    expect(dirtyPreviewUrls[dirtyPreviewUrls.length - 1]).toBe("/caption-edited.webp");
     expect(JSON.parse(controller.serialize()).items.captioned.caption).toBe("after");
     controller.destroy();
     root.remove();
@@ -524,6 +627,7 @@ describe("Reference Director DOM lifecycle", () => {
     expect(root.querySelector<HTMLImageElement>('.rd-card[data-channel="video"] img')?.getAttribute("src")).toBe("/silent.webp");
     expect(root.querySelector('.rd-card[data-channel="audio"] img')).toBeNull();
     expect(root.querySelector('.rd-card[data-channel="audio"] canvas')).not.toBeNull();
+    expect(root.querySelector('.rd-card[data-channel="audio"] .rd-waveform-status')?.textContent).toBe("No audio track");
     expect(root.querySelector<HTMLButtonElement>('[data-action="toggle-audio"]')?.disabled).toBe(true);
     expect(root.querySelector('.rd-card[data-channel="audio"]')?.classList.contains("is-output-disabled")).toBe(true);
     expect(root.querySelector('.rd-card[data-channel="video"]')?.classList.contains("is-output-disabled")).toBe(false);
@@ -532,6 +636,7 @@ describe("Reference Director DOM lifecycle", () => {
     expect(root.querySelector<HTMLButtonElement>('.rd-card[data-channel="audio"] [data-action="preview-audio"]')?.disabled).toBe(true);
     const badges = root.querySelector<HTMLElement>('.rd-card[data-channel="video"] .rd-media-badges');
     expect(badges?.querySelector(".rd-kind")?.textContent).toBe("video");
+    expect(badges?.querySelector(".rd-kind")?.classList.contains("rd-kind--video")).toBe(true);
     expect(badges?.querySelector(".rd-duration")?.textContent).toBe("2.00s");
     expect(JSON.parse(controller.serialize()).items.v.audioEnabled).toBe(false);
     controller.destroy();
@@ -552,7 +657,7 @@ describe("Reference Director DOM lifecycle", () => {
         if (route.endsWith("metadata")) return new Response(JSON.stringify({ metadata: { duration: 4 } }), { status: 200 });
         if (route.endsWith("waveform")) {
           waveformRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-          return new Response(JSON.stringify({ pairs: [[-0.2, 0.3]], duration: 4 }), { status: 200 });
+          return new Response(JSON.stringify({ pairs: [[0, 0]], duration: 4 }), { status: 200 });
         }
         throw new Error(`Unexpected route: ${route}`);
       },
@@ -583,6 +688,7 @@ describe("Reference Director DOM lifecycle", () => {
     try {
       await new Promise((resolve) => setTimeout(resolve, 0));
       const button = root.querySelector<HTMLButtonElement>('.rd-card[data-channel="audio"] [data-action="preview-audio"]');
+      expect(root.querySelector('.rd-card[data-channel="audio"] .rd-waveform-status')?.textContent).toBe("Silent");
       expect(button?.textContent).toBe("▶");
       button?.click();
       await Promise.resolve();
@@ -598,6 +704,7 @@ describe("Reference Director DOM lifecycle", () => {
       expect(waveformRequests).toHaveLength(2);
       expect(waveformRequests[0]?.crop).toEqual({ start: 1, end: 3 });
       expect(waveformRequests[1]?.crop).toBeUndefined();
+      expect(document.querySelector('.rd-trim-editor .rd-waveform-status')?.textContent).toBe("Silent");
       document.querySelector<HTMLButtonElement>('.rd-trim-editor [data-action="cancel"]')?.click();
     } finally {
       controller.destroy();
@@ -639,6 +746,7 @@ describe("Reference Director DOM lifecycle", () => {
       sha256: "c".repeat(64),
     }, "clip");
     if (video.kind !== "video") throw new Error("Expected a video test item.");
+    video.audioEnabled = true;
     video.crop = { start: 1, end: 3 };
     const state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
     const originalPlay = HTMLMediaElement.prototype.play;
@@ -753,6 +861,11 @@ describe("Reference Director DOM lifecycle", () => {
     document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="apply"]')?.click();
     await Promise.resolve();
     expect(resolveApply).toBeDefined();
+    const applyingOverlay = root.querySelector<HTMLElement>(".rd-card__loading-overlay");
+    expect(applyingOverlay?.getAttribute("aria-label")).toBe("Applying image edit");
+    expect(applyingOverlay?.textContent).toBe("");
+    expect(applyingOverlay?.querySelector(".rd-spinner")).not.toBeNull();
+    expect(root.querySelector<HTMLButtonElement>('[data-action="edit"]')?.disabled).toBe(true);
     resolveApply?.(new Response(JSON.stringify({
       source: {
         path: "reference_director/edits/fresh.png",
@@ -774,6 +887,8 @@ describe("Reference Director DOM lifecycle", () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    expect(root.querySelector(".rd-card__loading-overlay")).toBeNull();
+    expect(root.querySelector<HTMLButtonElement>('[data-action="edit"]')?.disabled).toBe(false);
     expect(root.querySelector<HTMLImageElement>("img")?.getAttribute("src")).toBe("/fresh.webp");
     expect(JSON.parse(controller.serialize()).items.edited.source.path).toBe("reference_director/edits/fresh.png");
     expect(JSON.parse(controller.serialize()).items.edited.sourceFilename).toBe("old.png");

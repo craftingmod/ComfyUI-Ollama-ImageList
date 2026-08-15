@@ -22,6 +22,7 @@ import {
   type MediaItem,
 } from "../types";
 import { VideoPreviewPlayer } from "../video-preview-player";
+import { isSilentWaveform } from "../waveform";
 
 interface PendingUpload {
   id: string;
@@ -43,6 +44,9 @@ export interface DirectorDisplayState {
   gridColumns: number;
   previewPixels: number;
   showCaptions: boolean;
+  cardAspect: string;
+  previewFit: "contain" | "cover";
+  waveformPairs: number;
 }
 
 const DRAG_MIME = "application/x-reference-director-item";
@@ -110,6 +114,16 @@ function durationLabel(item: MediaItem, runtime: ItemRuntime | undefined): strin
   return duration === undefined ? "" : `${duration.toFixed(duration < 10 ? 2 : 1)}s`;
 }
 
+function megapixelLabel(item: MediaItem, runtime: ItemRuntime | undefined): string {
+  if (item.kind !== "image") return "";
+  const width = runtime?.metadata?.width;
+  const height = runtime?.metadata?.height;
+  if (width === undefined || height === undefined || width <= 0 || height <= 0) return "";
+  const megapixels = (width * height) / 1_000_000;
+  if (megapixels < 0.01) return "<0.01 MP";
+  return `${Number(megapixels.toFixed(megapixels >= 10 ? 1 : 2))} MP`;
+}
+
 function drawWaveform(canvas: HTMLCanvasElement, pairs: ReadonlyArray<readonly [number, number]>): void {
   const width = Math.max(160, Math.floor(canvas.clientWidth * (globalThis.devicePixelRatio || 1)));
   const height = Math.max(80, Math.floor(canvas.clientHeight * (globalThis.devicePixelRatio || 1)));
@@ -118,6 +132,15 @@ function drawWaveform(canvas: HTMLCanvasElement, pairs: ReadonlyArray<readonly [
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, width, height);
+  if (isSilentWaveform(pairs)) {
+    context.strokeStyle = "#596273";
+    context.lineWidth = Math.max(1, globalThis.devicePixelRatio || 1);
+    context.beginPath();
+    context.moveTo(0, height / 2);
+    context.lineTo(width, height / 2);
+    context.stroke();
+    return;
+  }
   context.strokeStyle = "#8eb9ff";
   context.lineWidth = Math.max(1, globalThis.devicePixelRatio || 1);
   context.beginPath();
@@ -240,6 +263,9 @@ export class ReferenceDirectorController {
       gridColumns: this.state.ui.gridColumns,
       previewPixels: this.state.ui.previewMaxPixels / 1_000_000,
       showCaptions: showCaptionsProperty(this.#node),
+      cardAspect: this.state.ui.cardAspectRatio,
+      previewFit: this.state.ui.previewFit,
+      waveformPairs: this.state.ui.waveformPeaks,
     };
   }
 
@@ -252,12 +278,38 @@ export class ReferenceDirectorController {
       ? this.state.ui.previewMaxPixels
       : Math.min(16_000_000, Math.max(250_000, Math.round(values.previewPixels * 1_000_000)));
     const previewChanged = previewMaxPixels !== this.state.ui.previewMaxPixels;
-    if (gridColumns !== this.state.ui.gridColumns || previewChanged) {
-      this.#dispatch({ type: "set-ui", values: { gridColumns, previewMaxPixels } });
+    const cardAspect = values.cardAspect !== undefined && ["1 / 1", "4 / 3", "3 / 4", "16 / 9", "9 / 16"].includes(values.cardAspect)
+      ? values.cardAspect
+      : this.state.ui.cardAspectRatio;
+    const waveformPairs = values.waveformPairs === undefined || !Number.isFinite(values.waveformPairs)
+      ? this.state.ui.waveformPeaks
+      : Math.min(1000, Math.max(100, Math.round(values.waveformPairs)));
+    const previewFit = values.previewFit === "cover" ? "cover" : values.previewFit === "contain"
+      ? "contain"
+      : this.state.ui.previewFit;
+    const waveformChanged = waveformPairs !== this.state.ui.waveformPeaks;
+    if (
+      gridColumns !== this.state.ui.gridColumns ||
+      previewChanged ||
+      cardAspect !== this.state.ui.cardAspectRatio ||
+      previewFit !== this.state.ui.previewFit ||
+      waveformChanged
+    ) {
+      this.#dispatch({
+        type: "set-ui",
+        values: {
+          gridColumns,
+          previewMaxPixels,
+          cardAspectRatio: cardAspect,
+          previewFit,
+          waveformPeaks: waveformPairs,
+        },
+      });
       if (previewChanged) {
         this.#reloadChannelRuntime("image");
         this.#reloadChannelRuntime("video");
       }
+      if (waveformChanged) this.#reloadChannelRuntime("audio");
     }
     if (values.showCaptions !== undefined) {
       const showCaptions = Boolean(values.showCaptions);
@@ -328,17 +380,15 @@ export class ReferenceDirectorController {
     const state = this.state;
     this.root.style.setProperty("--rd-card-aspect", state.ui.cardAspectRatio);
     this.root.style.setProperty("--rd-grid-columns", String(state.ui.gridColumns));
+    this.root.style.setProperty("--rd-preview-fit", state.ui.previewFit);
     this.root.innerHTML = `
       <section class="rd-toolbar" aria-label="Reference Director toolbar">
         <label class="rd-primary rd-file-button">Add media<input type="file" accept="image/*,audio/*,video/*" multiple></label>
         <button type="button" data-action="undo" ${canUndo(this.#history) ? "" : "disabled"} title="Undo (Ctrl+Z)">↶ Undo</button>
         <button type="button" data-action="redo" ${canRedo(this.#history) ? "" : "disabled"} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+        <button type="button" class="rd-clear" data-action="clear" ${Object.keys(state.items).length > 0 || this.#pending.size > 0 ? "" : "disabled"} title="Clear all references (Undo available)">Clear</button>
         <span class="rd-toolbar__count">${Object.keys(state.items).length} reference${Object.keys(state.items).length === 1 ? "" : "s"}</span>
       </section>
-      <details class="rd-settings"><summary>Display settings</summary><div>
-        <label>Card aspect<select data-field="card-aspect"><option value="1 / 1"${state.ui.cardAspectRatio === "1 / 1" ? " selected" : ""}>1:1</option><option value="4 / 3"${state.ui.cardAspectRatio === "4 / 3" ? " selected" : ""}>4:3</option><option value="16 / 9"${state.ui.cardAspectRatio === "16 / 9" ? " selected" : ""}>16:9</option></select></label>
-        <label>Waveform pairs<select data-field="waveform-peaks"><option value="200"${state.ui.waveformPeaks === 200 ? " selected" : ""}>200</option><option value="300"${state.ui.waveformPeaks === 300 ? " selected" : ""}>300</option><option value="500"${state.ui.waveformPeaks === 500 ? " selected" : ""}>500</option></select></label>
-      </div></details>
       <p class="rd-status" role="status">${escapeHtml(this.#status)}</p>
       ${this.#pendingMarkup()}
       <div class="rd-channels">
@@ -384,7 +434,23 @@ export class ReferenceDirectorController {
   }
 
   #channelMarkup(channel: DirectorChannel, label: string, order: string[]): string {
-    const cards = order.map((id) => this.#cardMarkup(channel, id)).join("");
+    let outputIndex = 0;
+    const cards = order.map((id) => {
+      const item = this.state.items[id];
+      const index = item && isChannelOutputEnabled(channel, item) ? ++outputIndex : undefined;
+      return this.#cardMarkup(channel, id, index);
+    }).join("");
+    const accepts: Record<DirectorChannel, string> = {
+      image: "image/*",
+      video: "video/*",
+      audio: "audio/*",
+    };
+    const hasOpenCell = order.length > 0 && order.length % this.state.ui.gridColumns !== 0;
+    const addLabel = `Add ${label.toLowerCase()}`;
+    const addControl = `<label class="rd-grid-add ${hasOpenCell ? "is-tile" : "is-wide"}" title="${addLabel}">
+      <span class="rd-grid-add__icon" aria-hidden="true">+</span>${hasOpenCell ? "" : `<span>${addLabel}</span>`}
+      <input type="file" accept="${accepts[channel]}" data-upload-kind="${channel}" multiple aria-label="${addLabel}">
+    </label>`;
     const descriptions: Record<DirectorChannel, string> = {
       image: "Image output and captions",
       video: "Video output and captions",
@@ -392,25 +458,30 @@ export class ReferenceDirectorController {
     };
     return `<section class="rd-channel" data-channel="${channel}" aria-label="${label} references">
       <header><div><strong>${label}</strong><span>${order.length}</span></div><small>${descriptions[channel]}</small></header>
-      <div class="rd-card-grid${cards ? "" : " is-empty"}" data-drop-zone="${channel}">${cards || `<div class="rd-empty">No ${label.toLowerCase()} added</div>`}</div>
+      <div class="rd-card-grid${cards ? "" : " is-empty"}" data-drop-zone="${channel}">${cards}${addControl}</div>
     </section>`;
   }
 
-  #cardMarkup(channel: DirectorChannel, id: string): string {
+  #cardMarkup(channel: DirectorChannel, id: string, outputIndex?: number): string {
     const item = this.state.items[id];
     if (!item) return "";
     const runtime = this.#runtime.get(id);
     const selected = this.#selectedId === id;
     const caption = item.kind === "video" && channel === "audio" ? item.audioCaptionOverride ?? item.caption : item.caption;
     const media = this.#mediaMarkup(channel, item, runtime);
-    const loading = runtime?.loading ? `<span class="rd-spinner" title="Loading"></span>` : "";
+    const loading = runtime?.applyingEdit
+      ? '<span class="rd-card__loading-overlay" role="status" aria-label="Applying image edit"><span class="rd-spinner" aria-hidden="true"></span></span>'
+      : runtime?.loading
+        ? `<span class="rd-spinner" title="Loading"></span>`
+        : "";
     const error = runtime?.error ? `<p class="rd-card__error" role="alert">${escapeHtml(runtime.error)}</p>` : "";
     const imageEnabled = item.kind === "image" ? item.imageEnabled : false;
     const videoEnabled = item.kind === "video" ? item.videoEnabled : false;
     const silentVideo = item.kind === "video" && runtime?.metadata?.hasAudio === false;
     const audioEnabled = isAudioItem(item) ? item.audioEnabled : false;
-    const outputEnabled = channel === "image" ? imageEnabled : channel === "video" ? videoEnabled : audioEnabled;
+    const outputEnabled = isChannelOutputEnabled(channel, item);
     const duration = durationLabel(item, runtime);
+    const megapixels = megapixelLabel(item, runtime);
     const mediaFilename = itemFilename(item);
     const playbackOwner = `grid:${id}`;
     const audioPlaybackActive = this.#audioPreview.snapshot.owner === playbackOwner
@@ -421,7 +492,7 @@ export class ReferenceDirectorController {
     const audioPlaybackDisabled = silentVideo || runtime?.loading || playbackDuration === undefined;
     const videoPlaybackDisabled = runtime?.loading || playbackDuration === undefined;
     return `<article class="rd-card${selected ? " is-selected" : ""}${runtime?.error ? " has-error" : ""}${outputEnabled ? "" : " is-output-disabled"}" data-id="${escapeHtml(id)}" data-channel="${channel}" data-output-enabled="${String(outputEnabled)}" tabindex="0" draggable="true" aria-selected="${String(selected)}">
-      <div class="rd-card__media" title="Double-click to edit">${media}<div class="rd-media-badges"><span class="rd-kind">${item.kind}</span>${duration ? `<span class="rd-duration">${duration}</span>` : ""}</div><span class="rd-media-filename" title="${escapeHtml(mediaFilename)}">${escapeHtml(mediaFilename)}</span><button type="button" class="rd-remove" data-action="remove" aria-label="Remove reference" title="Delete reference">×</button>${loading}</div>
+      <div class="rd-card__media${channel === "image" && item.kind === "image" ? " is-transparent-preview" : ""}" title="Double-click to edit">${media}<div class="rd-media-badges"><span class="rd-kind rd-kind--${item.kind}">${item.kind}</span>${outputIndex === undefined ? "" : `<span class="rd-output-index" title="${labelForCaption(channel)} output #${outputIndex}">#${outputIndex}</span>`}${megapixels ? `<span class="rd-megapixels" title="Current source resolution: ${megapixels}">${megapixels}</span>` : ""}${duration ? `<span class="rd-duration">${duration}</span>` : ""}</div><span class="rd-media-filename" title="${escapeHtml(mediaFilename)}">${escapeHtml(mediaFilename)}</span><button type="button" class="rd-remove" data-action="remove" aria-label="Remove reference" title="Delete reference">×</button>${loading}</div>
       <div class="rd-card__body">
         ${showCaptionsProperty(this.#node) ? `<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption" aria-label="${labelForCaption(channel)} caption">${escapeHtml(caption)}</textarea>` : ""}
         <div class="rd-card__actions">
@@ -431,7 +502,7 @@ export class ReferenceDirectorController {
         ${channel === "video" && item.kind === "video" ? `<button type="button" data-action="preview-video" data-playback-owner="${escapeHtml(playbackOwner)}" class="rd-preview-media${videoPlaybackActive ? " is-playing" : ""}" aria-label="${videoPlaybackActive ? "Stop" : "Play"} video preview with audio" title="${runtime?.loading || playbackDuration === undefined ? "Loading video preview" : videoPlaybackActive ? "Stop video preview" : "Play trimmed video preview with audio"}"${videoPlaybackDisabled ? " disabled" : ""}>${videoPlaybackActive ? "■" : "▶"}</button>` : ""}
         ${channel === "audio" && isAudioItem(item) ? `<button type="button" data-action="preview-audio" data-playback-owner="${escapeHtml(playbackOwner)}" class="rd-preview-media${audioPlaybackActive ? " is-playing" : ""}" aria-label="${audioPlaybackActive ? "Stop" : "Play"} audio preview" title="${silentVideo ? "No embedded audio track" : runtime?.loading || playbackDuration === undefined ? "Loading audio preview" : audioPlaybackActive ? "Stop audio preview" : "Play trimmed audio preview"}"${audioPlaybackDisabled ? " disabled" : ""}>${audioPlaybackActive ? "■" : "▶"}</button>` : ""}
         <button type="button" data-action="move-back" aria-label="Move earlier" title="Move earlier (Alt+ArrowLeft)">←</button><button type="button" data-action="move-forward" aria-label="Move later" title="Move later (Alt+ArrowRight)">→</button>
-        <button type="button" data-action="edit">Edit</button>
+        <button type="button" class="rd-edit-button" data-action="edit" aria-label="Edit reference" title="Edit reference"${runtime?.applyingEdit ? " disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4L19 9l-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path></svg></button>
         </div>
         ${error}
       </div>
@@ -443,7 +514,10 @@ export class ReferenceDirectorController {
       return `<img src="${escapeHtml(runtime.previewUrl)}" alt="" draggable="false">`;
     }
     if (channel === "audio" && (item.kind === "audio" || item.kind === "video")) {
-      return `<canvas data-waveform-id="${escapeHtml(item.id)}" aria-label="Waveform"></canvas>`;
+      const noAudioTrack = item.kind === "video" && runtime?.metadata?.hasAudio === false;
+      const silent = !noAudioTrack && isSilentWaveform(runtime?.waveform);
+      const status = noAudioTrack ? "No audio track" : silent ? "Silent" : undefined;
+      return `<canvas data-waveform-id="${escapeHtml(item.id)}" aria-label="${status ? `${status} waveform` : "Waveform"}"></canvas>${status ? `<span class="rd-waveform-status" aria-hidden="true">${status}</span>` : ""}`;
     }
     return `<div class="rd-placeholder" aria-hidden="true">▧</div>`;
   }
@@ -563,6 +637,9 @@ export class ReferenceDirectorController {
         });
         this.#changed(true);
         return;
+      case "clear":
+        this.#clearAll();
+        return;
       case "remove":
         if (id && this.#audioPreview.snapshot.owner === `grid:${id}`) this.#audioPreview.stop();
         if (id && this.#videoPreview.snapshot.owner === `grid:${id}`) this.#videoPreview.stop();
@@ -611,6 +688,26 @@ export class ReferenceDirectorController {
       card.classList.toggle("is-selected", selected);
       card.setAttribute("aria-selected", String(selected));
     }
+  }
+
+  #clearAll(): void {
+    const hadItems = Object.keys(this.state.items).length > 0;
+    if (!hadItems && this.#pending.size === 0) return;
+    this.#audioPreview.stop();
+    this.#videoPreview.stop();
+    this.#modalController?.abort();
+    this.#stateController.abort();
+    this.#stateController = new AbortController();
+    this.#runtimeEpoch += 1;
+    for (const pending of this.#pending.values()) URL.revokeObjectURL(pending.objectUrl);
+    this.#pending.clear();
+    this.#selectedId = undefined;
+    this.#runtime.clear();
+    this.#runtimeSequences.clear();
+    this.#runtimeSequence = 0;
+    this.#status = hadItems ? "All references cleared. Undo is available." : "Pending uploads cleared.";
+    if (hadItems) this.#dispatch({ type: "clear" });
+    else this.render();
   }
 
   async #toggleAudioPreview(id: string): Promise<void> {
@@ -696,18 +793,9 @@ export class ReferenceDirectorController {
 
   #onChange(event: Event): void {
     const input = event.target;
-    if (input instanceof HTMLSelectElement) {
-      const field = input.dataset.field;
-      if (field === "card-aspect") {
-        this.#dispatch({ type: "set-ui", values: { cardAspectRatio: input.value } });
-      } else if (field === "waveform-peaks") {
-        this.#dispatch({ type: "set-ui", values: { waveformPeaks: Number(input.value) } });
-        this.#reloadChannelRuntime("audio");
-      }
-      return;
-    }
     if (!(input instanceof HTMLInputElement) || input.type !== "file") return;
-    const files = [...(input.files ?? [])];
+    const expectedKind = input.dataset.uploadKind;
+    const files = [...(input.files ?? [])].filter((file) => !expectedKind || fileMediaKind(file) === expectedKind);
     input.value = "";
     void this.#uploadFiles(files);
   }
@@ -867,12 +955,7 @@ export class ReferenceDirectorController {
         this.#status = `${file.name}: the server identified this as ${uploaded.kind}, but that media limit is already full.`;
         return;
       }
-      const item = createMediaItem(
-        uploaded.kind,
-        uploaded.source,
-        undefined,
-        uploaded.metadata.hasAudio === undefined ? {} : { hasAudio: uploaded.metadata.hasAudio },
-      );
+      const item = createMediaItem(uploaded.kind, uploaded.source);
       this.#runtime.set(item.id, { loading: true, metadata: uploaded.metadata });
       this.#dispatch({ type: "add", item });
       this.#selectedId = item.id;
@@ -937,7 +1020,7 @@ export class ReferenceDirectorController {
 
   async #editItem(id: string, channel?: DirectorChannel): Promise<void> {
     const item = this.state.items[id];
-    if (!item) return;
+    if (!item || this.#runtime.get(id)?.applyingEdit) return;
     this.#audioPreview.stop();
     this.#videoPreview.stop();
     this.#modalController?.abort();
@@ -973,6 +1056,9 @@ export class ReferenceDirectorController {
           if (restored) await this.#loadRuntime(restored);
           return;
         }
+        this.#runtime.set(id, { ...runtime, loading: true, applyingEdit: true });
+        this.render(true);
+        this.#node.setDirtyCanvas(true, true);
         let edit = editorResult.edit;
         if (editorResult.maskFile) {
           const uploadedMask = await this.#api.upload(editorResult.maskFile, modalController.signal);
@@ -980,8 +1066,6 @@ export class ReferenceDirectorController {
           if (uploadedMask.kind !== "image") throw new Error("The uploaded mask was not recognized as an image.");
           edit = { ...edit, mask: uploadedMask.source, maskMode: "keep" };
         }
-        this.#runtime.set(id, { ...runtime, loading: true });
-        this.render();
         const result = await this.#api.applyEdit(item.source, edit, modalController.signal);
         if (!this.#isEditCurrent(id, item, modalController)) return;
         this.#invalidateRuntime(id);
@@ -1001,6 +1085,10 @@ export class ReferenceDirectorController {
           ...(result.metadata ? { metadata: result.metadata } : runtime?.metadata ? { metadata: runtime.metadata } : {}),
         });
         this.render(true);
+        // The proxy URL arrives after the graph-backed edit state has already
+        // dirtied the canvas. Notify ComfyUI again after replacing the card DOM
+        // so its DOM-widget draw pass observes the new thumbnail immediately.
+        this.#node.setDirtyCanvas(true, true);
       } else {
         let metadata = runtime?.metadata;
         if (metadata?.duration === undefined) metadata = await this.#api.metadata(item.source, modalController.signal);
@@ -1024,14 +1112,22 @@ export class ReferenceDirectorController {
           duration: metadata?.duration ?? item.crop?.end ?? 1,
           caption,
           signal: modalController.signal,
-          playback: {
-            player: this.#audioPreview,
-            owner: `editor:${id}`,
-            url: item.kind === "video"
-              ? this.#api.videoPreviewUrl(item.source)
-              : this.#api.audioPreviewUrl(item.source),
-            enabled: item.kind === "audio" || metadata?.hasAudio !== false,
-          },
+          ...(item.kind === "video"
+            ? {
+                video: {
+                  owner: `editor:${id}`,
+                  url: this.#api.videoPreviewUrl(item.source),
+                  hasAudio: metadata?.hasAudio !== false,
+                },
+              }
+            : {
+                playback: {
+                  player: this.#audioPreview,
+                  owner: `editor:${id}`,
+                  url: this.#api.audioPreviewUrl(item.source),
+                  enabled: true,
+                },
+              }),
           ...(item.crop ? { crop: item.crop } : {}),
           ...(editorWaveform ? { waveform: editorWaveform } : {}),
         });
@@ -1122,4 +1218,10 @@ export class ReferenceDirectorController {
 
 function labelForCaption(channel: DirectorChannel): string {
   return channel === "image" ? "Image" : channel === "video" ? "Video" : "Audio";
+}
+
+function isChannelOutputEnabled(channel: DirectorChannel, item: MediaItem): boolean {
+  if (channel === "image") return item.kind === "image" && item.imageEnabled;
+  if (channel === "video") return item.kind === "video" && item.videoEnabled;
+  return isAudioItem(item) && item.audioEnabled;
 }

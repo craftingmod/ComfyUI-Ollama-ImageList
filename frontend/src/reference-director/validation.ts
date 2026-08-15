@@ -183,7 +183,7 @@ function sanitizeItem(key: string, value: unknown): MediaItem | undefined {
     sourceFilename,
     caption,
     videoEnabled: booleanValue(value.videoEnabled, true),
-    audioEnabled: booleanValue(value.audioEnabled, true),
+    audioEnabled: booleanValue(value.audioEnabled, false),
   };
   const audioCaption = value.audioCaptionOverride;
   if (typeof audioCaption === "string") item.audioCaptionOverride = audioCaption.slice(0, 16_384);
@@ -196,9 +196,10 @@ function sanitizeUi(value: unknown): DirectorUiPreferences {
   const aspect = stringValue(value.cardAspectRatio);
   const columns = finiteNumber(value.gridColumns);
   const preview = finiteNumber(value.previewMaxPixels);
+  const previewFit = stringValue(value.previewFit);
   const peaks = finiteNumber(value.waveformPeaks);
   return {
-    cardAspectRatio: /^\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?$/.test(aspect)
+    cardAspectRatio: ["1 / 1", "4 / 3", "3 / 4", "16 / 9", "9 / 16"].includes(aspect)
       ? aspect
       : DEFAULT_UI_PREFERENCES.cardAspectRatio,
     gridColumns: columns === undefined
@@ -207,8 +208,9 @@ function sanitizeUi(value: unknown): DirectorUiPreferences {
     previewMaxPixels: preview === undefined
       ? DEFAULT_UI_PREFERENCES.previewMaxPixels
       : Math.min(16_000_000, Math.max(250_000, Math.round(preview))),
+    previewFit: previewFit === "cover" ? "cover" : "contain",
     waveformPeaks:
-      peaks !== undefined ? Math.min(500, Math.max(200, Math.floor(peaks))) : DEFAULT_UI_PREFERENCES.waveformPeaks,
+      peaks !== undefined ? Math.min(1000, Math.max(100, Math.round(peaks))) : DEFAULT_UI_PREFERENCES.waveformPeaks,
   };
 }
 

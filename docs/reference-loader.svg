@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" role="img" aria-labelledby="title description">
+  <title id="title">Reference Loader</title>
+  <desc id="description">Image, video, and audio reference cards flow into a loader and emerge as three ordered outputs.</desc>
+
+  <rect width="1200" height="600" rx="54" fill="#fbfaf6"/>
+
+  <!-- Loose media references -->
+  <g stroke="#171717" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(-4 178 166)">
+      <path d="M82 93 Q84 82 96 83 L260 88 Q270 88 272 100 L267 221 Q266 233 253 232 L94 229 Q82 228 82 216 Z" fill="#e8e6de"/>
+      <circle cx="221" cy="126" r="15" fill="#e6a84c"/>
+      <path d="M103 205 L143 158 L174 189 L197 164 L247 211" fill="none"/>
+    </g>
+
+    <g transform="rotate(3 206 349)">
+      <path d="M109 292 Q110 280 123 280 L291 284 Q303 285 303 298 L299 407 Q298 418 286 418 L120 414 Q108 413 108 401 Z" fill="#e8e6de"/>
+      <path d="M171 318 L171 384 L229 351 Z" fill="#d85b45"/>
+    </g>
+
+    <g transform="rotate(-2 270 491)">
+      <path d="M173 451 Q174 441 185 441 L350 444 Q361 445 361 456 L358 532 Q357 543 346 543 L183 539 Q172 538 172 527 Z" fill="#e8e6de"/>
+      <path d="M198 493 L210 493 M221 480 L221 507 M238 468 L238 519 M255 482 L255 505 M272 459 L272 526 M289 474 L289 512 M306 485 L306 502 M321 477 L321 510 M336 492 L341 492" fill="none"/>
+    </g>
+  </g>
+
+  <!-- Paths converging into the loader -->
+  <g fill="none" stroke="#77756f" stroke-width="9" stroke-linecap="round">
+    <path d="M286 160 C354 166 371 211 428 231"/>
+    <path d="M320 349 C365 344 387 319 429 309"/>
+    <path d="M376 493 C409 470 424 421 443 391"/>
+  </g>
+  <g fill="#171717">
+    <circle cx="327" cy="172" r="6"/>
+    <circle cx="379" cy="205" r="6"/>
+    <circle cx="350" cy="340" r="6"/>
+    <circle cx="392" cy="321" r="6"/>
+    <circle cx="399" cy="469" r="6"/>
+    <circle cx="424" cy="425" r="6"/>
+  </g>
+
+  <!-- The loader: a simple open archive with a visible ordered stack -->
+  <g stroke="#171717" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M451 128 Q453 112 470 112 L687 116 Q702 117 705 132 L738 459 Q740 478 721 481 L437 477 Q420 476 424 459 Z" fill="#f0eee7"/>
+    <path d="M443 330 Q444 315 459 315 L704 318 Q719 319 721 335 L733 458 Q735 478 716 479 L439 476 Q421 475 424 457 Z" fill="#fbfaf6"/>
+    <path d="M487 190 L667 193" fill="none"/>
+    <path d="M489 231 L650 234" fill="none"/>
+    <path d="M493 273 L676 276" fill="none"/>
+    <path d="M491 379 L666 381" fill="none"/>
+    <path d="M493 420 L651 422" fill="none"/>
+  </g>
+  <g>
+    <circle cx="466" cy="189" r="7" fill="#3d73a8"/>
+    <circle cx="467" cy="231" r="7" fill="#d85b45"/>
+    <circle cx="470" cy="273" r="7" fill="#e6a84c"/>
+    <path d="M548 348 L584 371 L620 348" fill="none" stroke="#171717" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Three independent, ordered output channels -->
+  <g fill="none" stroke="#77756f" stroke-width="9" stroke-linecap="round">
+    <path d="M743 220 C795 218 804 167 851 166"/>
+    <path d="M746 301 C795 301 808 300 851 300"/>
+    <path d="M743 383 C794 385 805 434 851 435"/>
+  </g>
+  <g fill="#171717">
+    <circle cx="774" cy="210" r="6"/>
+    <circle cx="818" cy="177" r="6"/>
+    <circle cx="779" cy="301" r="6"/>
+    <circle cx="820" cy="300" r="6"/>
+    <circle cx="776" cy="394" r="6"/>
+    <circle cx="819" cy="425" r="6"/>
+  </g>
+
+  <g stroke="#171717" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(2 993 165)">
+      <path d="M860 112 Q861 101 873 101 L1112 104 Q1124 105 1124 117 L1121 218 Q1120 229 1108 229 L872 226 Q860 226 860 214 Z" fill="#e8e6de"/>
+      <circle cx="1083" cy="135" r="13" fill="#3d73a8"/>
+      <path d="M883 202 L921 160 L950 190 L977 169 L1018 207" fill="none"/>
+      <path d="M1045 180 L1088 180"/>
+    </g>
+
+    <g transform="rotate(-2 993 302)">
+      <path d="M858 249 Q859 237 871 237 L1114 240 Q1126 241 1126 253 L1123 354 Q1122 365 1110 365 L870 362 Q858 361 858 349 Z" fill="#e8e6de"/>
+      <path d="M902 269 L902 333 L957 301 Z" fill="#d85b45"/>
+      <path d="M1014 316 L1087 316"/>
+    </g>
+
+    <g transform="rotate(1 993 438)">
+      <path d="M859 386 Q860 374 872 374 L1112 377 Q1124 378 1124 390 L1121 491 Q1120 502 1108 502 L871 499 Q859 498 859 486 Z" fill="#e8e6de"/>
+      <path d="M885 439 L897 439 M908 424 L908 454 M925 413 L925 466 M942 428 L942 451 M959 405 L959 472 M976 421 L976 457 M993 431 L993 448" fill="none"/>
+      <circle cx="1082" cy="420" r="13" fill="#e6a84c"/>
+    </g>
+  </g>
+</svg>

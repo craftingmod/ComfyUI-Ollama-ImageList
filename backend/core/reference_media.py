@@ -8,7 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
-from .reference_contract import ImageEdit, ReferenceSource, ReferenceState, TimeRange
+from .reference_contract import (
+    ImageEdit,
+    ImageOutputSettings,
+    ReferenceSource,
+    ReferenceState,
+    TimeRange,
+)
 from .reference_background import (
     ReferenceBackgroundRemovalError,
     ReferenceBackgroundRemovalUnavailable,
@@ -177,6 +183,10 @@ def _crop_box(image: Any, edit: ImageEdit) -> tuple[int, int, int, int] | None:
     return left, top, right, bottom
 
 
+def _has_image_alpha(image: Any) -> bool:
+    return "A" in image.getbands() or "transparency" in image.info
+
+
 def _apply_image_recipe(image: Any, edit: ImageEdit, mask: Any | None = None) -> Any:
     from PIL import Image, ImageChops, ImageColor, ImageOps
 
@@ -221,7 +231,43 @@ def _apply_image_recipe(image: Any, edit: ImageEdit, mask: Any | None = None) ->
         backdrop = Image.new("RGBA", foreground.size, rgba)
         backdrop.alpha_composite(foreground)
         return backdrop.convert("RGB")
-    return image.convert("RGBA" if mask is not None else "RGB")
+    return image.convert("RGBA" if mask is not None or _has_image_alpha(image) else "RGB")
+
+
+def _limit_image_pixels(image: Any, max_pixels: int | None) -> Any:
+    if max_pixels is None or image.width * image.height <= max_pixels:
+        return image
+    from PIL import Image
+
+    scale = math.sqrt(max_pixels / (image.width * image.height))
+    width = max(1, math.floor(image.width * scale))
+    height = max(1, math.floor(image.height * scale))
+    while width * height > max_pixels:
+        if width >= height and width > 1:
+            width -= 1
+        elif height > 1:
+            height -= 1
+        else:
+            break
+    resized = image.resize((width, height), Image.Resampling.LANCZOS)
+    if resized is not image:
+        image.close()
+    return resized
+
+
+def _composite_image_alpha(image: Any, background_color: str) -> Any:
+    if not _has_image_alpha(image):
+        return image
+    composite = _apply_image_recipe(
+        image,
+        ImageEdit(
+            background_mode="solid",
+            background_color=background_color,
+        ),
+    )
+    if composite is not image:
+        image.close()
+    return composite
 
 
 def _load_image(
@@ -231,6 +277,9 @@ def _load_image(
     mask_path: Path | None = None,
     *,
     max_output_bytes: int | None = None,
+    max_pixels: int | None = None,
+    composite_alpha: bool = False,
+    alpha_background: str = "#000000",
 ) -> Any:
     try:
         from PIL import Image, ImageOps
@@ -256,8 +305,7 @@ def _load_image(
                 f"An image reference exceeds the {MAX_IMAGE_PIXELS}-pixel limit."
             )
         if _is_materialized_edit(source):
-            has_alpha = "A" in image.getbands() or "transparency" in image.info
-            image = image.convert("RGBA" if has_alpha else "RGB")
+            image = image.convert("RGBA" if _has_image_alpha(image) else "RGB")
         elif edit is not None:
             if mask_path is not None:
                 try:
@@ -280,7 +328,10 @@ def _load_image(
                     )
             image = _apply_image_recipe(image, edit, mask)
         else:
-            image = image.convert("RGB")
+            image = image.convert("RGBA" if _has_image_alpha(image) else "RGB")
+        if composite_alpha:
+            image = _composite_image_alpha(image, alpha_background)
+        image = _limit_image_pixels(image, max_pixels)
         channels = len(image.getbands())
         output_bytes = image.width * image.height * channels * 4
         if max_output_bytes is not None and output_bytes > max_output_bytes:
@@ -585,6 +636,7 @@ def load_reference_media(
     state: ReferenceState,
     *,
     input_directory: str | os.PathLike[str] | None = None,
+    image_output: ImageOutputSettings | None = None,
 ) -> LoadedReferenceMedia:
     """Decode active references into independent native ComfyUI list items.
 
@@ -604,6 +656,11 @@ def load_reference_media(
     videos: list[Any] = []
     audios: list[Any] = []
     decoded_output_bytes = 0
+    max_image_pixels = (
+        image_output.max_pixels
+        if image_output is not None and image_output.limit_pixels
+        else None
+    )
 
     def retain(value: Any, output: list[Any]) -> None:
         nonlocal decoded_output_bytes
@@ -637,6 +694,17 @@ def load_reference_media(
                 mask_path,
                 max_output_bytes=MAX_DECODED_OUTPUT_BYTES
                 - decoded_output_bytes,
+                max_pixels=max_image_pixels,
+                composite_alpha=(
+                    image_output.composite_alpha
+                    if image_output is not None
+                    else False
+                ),
+                alpha_background=(
+                    image_output.alpha_background
+                    if image_output is not None
+                    else "#000000"
+                ),
             ),
             images,
         )

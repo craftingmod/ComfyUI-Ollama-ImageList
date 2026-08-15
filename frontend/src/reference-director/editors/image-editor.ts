@@ -5,6 +5,7 @@ export type MaskBrushTool = "erase" | "restore";
 export type CropHandle = "north-west" | "north-east" | "south-west" | "south-east";
 export type ImageEditorInteractionMode = "view" | "crop" | "mask";
 export type CropSelectionMode = "unfocused" | "focused" | "clipped";
+export type CropAspectPreset = "custom" | "original" | "1:1" | "4:3" | "3:4" | "3:2" | "2:3" | "16:9" | "9:16";
 export type ImageEditorPointerSurface = "stage" | "crop-body" | "crop-handle" | "mask";
 export type ImageEditorPointerIntent =
   | "ignore"
@@ -15,6 +16,10 @@ export type ImageEditorPointerIntent =
   | "move-crop"
   | "resize-crop"
   | "paint-mask";
+
+export function maskBrushToolForModifier(tool: MaskBrushTool, invert: boolean): MaskBrushTool {
+  return invert ? (tool === "erase" ? "restore" : "erase") : tool;
+}
 
 export interface ImageEditorPointerContext {
   interactionMode: ImageEditorInteractionMode;
@@ -38,6 +43,7 @@ export function resolveImageEditorPointerIntent(context: ImageEditorPointerConte
 
 export interface ImageEditorDraft {
   interactionMode: ImageEditorInteractionMode;
+  cropAspect: CropAspectPreset;
   crop: NormalizedCrop;
   cropFrame: NormalizedCrop;
   flipX: boolean;
@@ -128,6 +134,13 @@ export interface ViewportPanBounds {
 }
 
 const FULL_STAGE_FRAME: NormalizedCrop = { x: 0, y: 0, width: 1, height: 1 };
+const CROP_ASPECT_PRESETS: readonly CropAspectPreset[] = [
+  "custom", "original", "1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16",
+];
+
+function isCropAspectPreset(value: string): value is CropAspectPreset {
+  return CROP_ASPECT_PRESETS.includes(value as CropAspectPreset);
+}
 
 export function viewportPanBounds(
   frame: NormalizedCrop,
@@ -200,6 +213,75 @@ export function resizeNormalizedCrop(
   if (handle.startsWith("north")) top = clamp(top + deltaY, 0, bottom - minimumSize);
   else bottom = clamp(bottom + deltaY, top + minimumSize, 1);
   return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+export function cropAspectRatioValue(
+  preset: CropAspectPreset,
+  imageWidth: number,
+  imageHeight: number,
+): number | undefined {
+  if (preset === "custom") return undefined;
+  if (preset === "original") return Math.max(1, imageWidth) / Math.max(1, imageHeight);
+  const [width, height] = preset.split(":").map(Number);
+  return width && height ? width / height : undefined;
+}
+
+export function fitNormalizedCropToAspect(
+  crop: NormalizedCrop,
+  aspectRatio: number,
+  imageWidth: number,
+  imageHeight: number,
+): NormalizedCrop {
+  const safeAspect = Math.max(1 / 1_000_000, aspectRatio);
+  const sourceAspect = Math.max(1, imageWidth) / Math.max(1, imageHeight);
+  const normalizedAspect = safeAspect / sourceAspect;
+  let width = crop.width;
+  let height = crop.height;
+  if (width / height > normalizedAspect) width = height * normalizedAspect;
+  else height = width / normalizedAspect;
+  return {
+    x: clamp(crop.x + (crop.width - width) / 2, 0, 1 - width),
+    y: clamp(crop.y + (crop.height - height) / 2, 0, 1 - height),
+    width,
+    height,
+  };
+}
+
+export function resizeNormalizedCropToAspect(
+  crop: NormalizedCrop,
+  handle: CropHandle,
+  deltaX: number,
+  deltaY: number,
+  aspectRatio: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): NormalizedCrop {
+  const normalizedAspect = Math.max(1 / 1_000_000, aspectRatio) *
+    Math.max(1, viewportHeight) / Math.max(1, viewportWidth);
+  const movingWest = handle.endsWith("west");
+  const movingNorth = handle.startsWith("north");
+  const anchorX = movingWest ? crop.x + crop.width : crop.x;
+  const anchorY = movingNorth ? crop.y + crop.height : crop.y;
+  const pointerX = (movingWest ? crop.x : crop.x + crop.width) + deltaX;
+  const pointerY = (movingNorth ? crop.y : crop.y + crop.height) + deltaY;
+  const rawWidth = Math.abs(pointerX - anchorX);
+  const rawHeight = Math.abs(pointerY - anchorY);
+  const widthDrivenDistance = (rawWidth / normalizedAspect - rawHeight) ** 2;
+  const heightDrivenWidth = rawHeight * normalizedAspect;
+  const heightDrivenDistance = (heightDrivenWidth - rawWidth) ** 2;
+  const desiredWidth = widthDrivenDistance <= heightDrivenDistance ? rawWidth : heightDrivenWidth;
+  const horizontalLimit = movingWest ? anchorX : 1 - anchorX;
+  const verticalLimit = movingNorth ? anchorY : 1 - anchorY;
+  const maximumWidth = Math.max(1 / 1_000_000, Math.min(horizontalLimit, verticalLimit * normalizedAspect));
+  const minimumWidth = Math.min(maximumWidth, Math.max(0.01, 0.01 * normalizedAspect));
+  const width = clamp(desiredWidth, minimumWidth, maximumWidth);
+  const height = width / normalizedAspect;
+  return {
+    x: movingWest ? anchorX - width : anchorX,
+    y: movingNorth ? anchorY - height : anchorY,
+    width,
+    height,
+  };
 }
 
 export function moveNormalizedCrop(
@@ -321,6 +403,37 @@ export function updatePixelCrop(
   return { ...crop, height: clamp(integer, 1, height - crop.y) };
 }
 
+export function updatePixelCropForAspect(
+  crop: PixelCrop,
+  field: keyof PixelCrop,
+  value: number,
+  imageWidth: number,
+  imageHeight: number,
+  aspectRatio?: number,
+): PixelCrop {
+  if (aspectRatio === undefined || field === "x" || field === "y") {
+    return updatePixelCrop(crop, field, value, imageWidth, imageHeight);
+  }
+  const maximumWidth = Math.max(1, Math.round(imageWidth) - crop.x);
+  const maximumHeight = Math.max(1, Math.round(imageHeight) - crop.y);
+  if (field === "width") {
+    let width = clamp(Math.round(value), 1, maximumWidth);
+    let height = Math.max(1, Math.round(width / aspectRatio));
+    if (height > maximumHeight) {
+      height = maximumHeight;
+      width = clamp(Math.round(height * aspectRatio), 1, maximumWidth);
+    }
+    return { ...crop, width, height };
+  }
+  let height = clamp(Math.round(value), 1, maximumHeight);
+  let width = Math.max(1, Math.round(height * aspectRatio));
+  if (width > maximumWidth) {
+    width = maximumWidth;
+    height = clamp(Math.round(width / aspectRatio), 1, maximumHeight);
+  }
+  return { ...crop, width, height };
+}
+
 function isMaterializedEdit(item: ImageItem): boolean {
   return item.source.path !== item.originalSource.path || item.source.sha256 !== item.originalSource.sha256;
 }
@@ -329,6 +442,7 @@ export function createInitialImageDraft(item: ImageItem): ImageEditorDraft {
   const materialized = isMaterializedEdit(item);
   return {
     interactionMode: "view",
+    cropAspect: "custom",
     crop: materialized ? { x: 0, y: 0, width: 1, height: 1 } : item.edit?.crop ?? { x: 0, y: 0, width: 1, height: 1 },
     cropFrame: materialized ? { x: 0, y: 0, width: 1, height: 1 } : item.edit?.crop ?? { x: 0, y: 0, width: 1, height: 1 },
     flipX: materialized ? false : item.edit?.flipX ?? false,
@@ -396,6 +510,16 @@ export function applyMaskBrush(
   return next;
 }
 
+export function invertMaskPixels(pixels: Uint8ClampedArray): Uint8ClampedArray {
+  const next = new Uint8ClampedArray(pixels);
+  for (let index = 0; index < next.length; index += 4) {
+    next[index] = 255 - (next[index] ?? 255);
+    next[index + 1] = 255 - (next[index + 1] ?? 255);
+    next[index + 2] = 255 - (next[index + 2] ?? 255);
+  }
+  return next;
+}
+
 function canvasFile(canvas: HTMLCanvasElement, filename: string): Promise<File> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -418,7 +542,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         <header><div><strong>Image editor</strong><small>Crop, mask, flip, and background changes are non-destructive.</small><small class="rd-modal__filename" title="${escapeHtml(options.item.source.path)}">File: ${escapeHtml(options.item.sourceFilename || filename(options.item.source.path))}</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
         <div class="rd-editor-layout">
           <div class="rd-editor-media-column">
-            <div class="rd-editor-preview"><div class="rd-editor-stage"><div class="rd-editor-visual"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div><div class="rd-crop-overlay" aria-label="Crop viewport; drag inside to move the crop, drag outside or use Ctrl-drag to pan, and use the mouse wheel to zoom"><button type="button" data-crop-handle="north-west" aria-label="Resize crop from top left"></button><button type="button" data-crop-handle="north-east" aria-label="Resize crop from top right"></button><button type="button" data-crop-handle="south-west" aria-label="Resize crop from bottom left"></button><button type="button" data-crop-handle="south-east" aria-label="Resize crop from bottom right"></button></div></div></div>
+            <div class="rd-editor-preview"><div class="rd-editor-stage"><div class="rd-editor-visual"><img alt="Selected reference preview"><canvas aria-label="Editable keep mask"></canvas></div><div class="rd-crop-overlay" aria-label="Crop viewport; drag inside to move the crop, drag outside or use Ctrl-drag to pan, and use the mouse wheel to zoom"><button type="button" data-crop-handle="north-west" aria-label="Resize crop from top left"></button><button type="button" data-crop-handle="north-east" aria-label="Resize crop from top right"></button><button type="button" data-crop-handle="south-west" aria-label="Resize crop from bottom left"></button><button type="button" data-crop-handle="south-east" aria-label="Resize crop from bottom right"></button></div><div class="rd-mask-brush-preview" data-mask-tool="erase" aria-hidden="true" hidden></div></div></div>
             <label class="rd-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.item.caption)}</textarea></label>
           </div>
           <div class="rd-editor-controls">
@@ -427,13 +551,13 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
               <button type="button" data-action="mode-crop" aria-pressed="false">Crop</button>
               <button type="button" data-action="mode-mask" aria-pressed="false">Mask</button>
             </fieldset>
-            <fieldset><legend>Viewport</legend>
+            <fieldset class="rd-viewport-values" hidden aria-hidden="true"><legend>Viewport</legend>
               <label>Zoom <input data-field="zoom" type="range" min="1" max="3" step="0.05"></label>
               <label>Pan X <input data-field="pan-x" type="range" min="-100" max="100" step="1"></label>
               <label>Pan Y <input data-field="pan-y" type="range" min="-100" max="100" step="1"></label>
-              <button type="button" data-action="reset-view">Reset view</button>
             </fieldset>
             <fieldset><legend>Crop in source pixels <span data-crop-dimensions></span></legend>
+              <label class="rd-control-wide">Aspect ratio<select data-field="crop-aspect"><option value="custom">Custom</option><option value="original">Original</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:4">3:4</option><option value="3:2">3:2</option><option value="2:3">2:3</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
               <label>X <input data-field="x" type="number" min="0" step="1" inputmode="numeric"></label>
               <label>Y <input data-field="y" type="number" min="0" step="1" inputmode="numeric"></label>
               <label>Width <input data-field="width" type="number" min="1" step="1" inputmode="numeric"></label>
@@ -444,6 +568,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
               <button type="button" data-action="restore" aria-pressed="false">Restore</button>
               <label>Brush size <input data-field="brush-size" type="range" min="4" max="200" step="1"></label>
               <label>Opacity <input data-field="brush-opacity" type="range" min="0.05" max="1" step="0.05"></label>
+              <button type="button" class="rd-control-wide" data-action="invert-mask">Invert mask</button>
             </fieldset>
             <fieldset><legend>Transform</legend>
               <button type="button" data-action="flip-x">Flip horizontal</button>
@@ -455,11 +580,11 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
               <select data-field="background-mode"><option value="transparent">Transparent</option><option value="solid">Solid color</option></select>
               <input data-field="background-color" type="color" aria-label="Background color">
             </fieldset>
-            <div class="rd-editor-history"><button type="button" data-action="undo">Undo</button><button type="button" data-action="redo">Redo</button></div>
+            <div class="rd-editor-history"><button type="button" data-action="undo">Undo</button><button type="button" data-action="redo">Redo</button><button type="button" data-action="reset-view">Reset view</button></div>
+            <p class="rd-modal__error" role="alert" hidden></p>
+            <footer class="rd-image-editor-actions"><button type="button" class="rd-restore-original" data-action="restore-original"${isMaterializedEdit(options.item) ? "" : " hidden"}>Restore original</button><button type="button" data-action="cancel">Cancel</button><button type="button" class="rd-primary" data-action="apply">Apply</button></footer>
           </div>
         </div>
-        <p class="rd-modal__error" role="alert" hidden></p>
-        <footer><button type="button" class="rd-restore-original" data-action="restore-original"${isMaterializedEdit(options.item) ? "" : " hidden"}>Restore original</button><button type="button" data-action="cancel">Cancel</button><button type="button" class="rd-primary" data-action="apply">Apply</button></footer>
       </form>`;
 
     const image = dialog.querySelector<HTMLImageElement>("img");
@@ -467,6 +592,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     const visual = dialog.querySelector<HTMLElement>(".rd-editor-visual");
     const maskCanvas = dialog.querySelector<HTMLCanvasElement>("canvas");
     const cropOverlay = dialog.querySelector<HTMLElement>(".rd-crop-overlay");
+    const maskBrushPreview = dialog.querySelector<HTMLElement>(".rd-mask-brush-preview");
     // At most ~20 MiB of 512px RGBA mask snapshots, plus lightweight recipe references.
     const history = new LocalHistory(createInitialImageDraft(options.item), 20);
     let settled = false;
@@ -483,6 +609,8 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     let wheelMergeTimer: ReturnType<typeof setTimeout> | undefined;
     let cropSelection: CropSelectionMode = "focused";
     let gesture: ImageEditorGesture = { kind: "idle" };
+    let maskBrushHover: readonly [number, number] | undefined;
+    let altMaskTool = false;
 
     const getInput = (field: string): HTMLInputElement | HTMLSelectElement | null =>
       dialog.querySelector(`[data-field="${field}"]`);
@@ -528,6 +656,18 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       }
     };
 
+    const renderMaskBrushPreview = (draft: ImageEditorDraft = history.value): void => {
+      if (!maskBrushPreview) return;
+      const visible = canvasReady && draft.interactionMode === "mask" && maskBrushHover !== undefined;
+      maskBrushPreview.hidden = !visible;
+      if (!visible || !maskBrushHover) return;
+      maskBrushPreview.dataset.maskTool = maskBrushToolForModifier(draft.tool, altMaskTool);
+      maskBrushPreview.style.left = `${maskBrushHover[0]}px`;
+      maskBrushPreview.style.top = `${maskBrushHover[1]}px`;
+      maskBrushPreview.style.width = `${draft.brushSize}px`;
+      maskBrushPreview.style.height = `${draft.brushSize}px`;
+    };
+
     const render = (restoreCanvas = true): void => {
       const draft = gesture.kind === "pan" || gesture.kind === "move-crop" || gesture.kind === "resize-crop"
         ? gesture.draft
@@ -555,6 +695,11 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
                   : sourceHeight - pixelCrop.y,
           );
         }
+      }
+      const cropAspect = getInput("crop-aspect");
+      if (cropAspect instanceof HTMLSelectElement) {
+        cropAspect.value = draft.cropAspect;
+        cropAspect.disabled = interactionMode !== "crop";
       }
       const cropDimensions = dialog.querySelector<HTMLElement>("[data-crop-dimensions]");
       if (cropDimensions) cropDimensions.textContent = `(${sourceWidth} × ${sourceHeight})`;
@@ -597,7 +742,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       dialog.querySelector<HTMLButtonElement>('[data-action="mode-view"]')?.setAttribute("aria-pressed", String(interactionMode === "view"));
       dialog.querySelector<HTMLButtonElement>('[data-action="mode-crop"]')?.setAttribute("aria-pressed", String(interactionMode === "crop"));
       dialog.querySelector<HTMLButtonElement>('[data-action="mode-mask"]')?.setAttribute("aria-pressed", String(interactionMode === "mask"));
-      for (const control of dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-action="erase"], [data-action="restore"], [data-field="brush-size"], [data-field="brush-opacity"]')) {
+      for (const control of dialog.querySelectorAll<HTMLInputElement | HTMLButtonElement>('[data-action="erase"], [data-action="restore"], [data-action="invert-mask"], [data-field="brush-size"], [data-field="brush-opacity"]')) {
         control.disabled = interactionMode !== "mask";
       }
       const removeBackground = dialog.querySelector<HTMLButtonElement>('[data-action="remove-background"]');
@@ -638,6 +783,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         maskCanvas.setAttribute("aria-disabled", String(!canvasReady || interactionMode !== "mask"));
         if (restoreCanvas) restoreMask(draft);
       }
+      renderMaskBrushPreview(draft);
       if (cropOverlay) {
         const clippedSelection = interactionMode === "crop" && resizeOnly;
         cropOverlay.classList.toggle("is-inactive", interactionMode !== "crop");
@@ -675,12 +821,33 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       if (apply) apply.disabled = draft.removeBackground && (!backgroundPreviewUrl || backgroundPreviewLoading);
     };
 
+    const setAltMaskTool = (active: boolean): void => {
+      if (altMaskTool === active) return;
+      altMaskTool = active;
+      renderMaskBrushPreview();
+    };
+    const onMaskModifierKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Alt") return;
+      if (history.value.interactionMode === "mask") event.preventDefault();
+      setAltMaskTool(true);
+    };
+    const onMaskModifierKeyUp = (event: KeyboardEvent): void => {
+      if (event.key === "Alt") setAltMaskTool(false);
+    };
+    const onWindowBlur = (): void => setAltMaskTool(false);
+    globalThis.addEventListener("keydown", onMaskModifierKeyDown, true);
+    globalThis.addEventListener("keyup", onMaskModifierKeyUp, true);
+    globalThis.addEventListener("blur", onWindowBlur);
+
     const finish = (value: ImageEditorResult | null): void => {
       if (settled) return;
       settled = true;
       backgroundPreviewController?.abort();
       metadataController.abort();
       if (wheelMergeTimer !== undefined) clearTimeout(wheelMergeTimer);
+      globalThis.removeEventListener("keydown", onMaskModifierKeyDown, true);
+      globalThis.removeEventListener("keyup", onMaskModifierKeyUp, true);
+      globalThis.removeEventListener("blur", onWindowBlur);
       options.signal?.removeEventListener("abort", onAbort);
       dialog.remove();
       resolve(value);
@@ -824,7 +991,11 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       return { ...next, cropFrame: frameFromCrop(next, draft.crop) };
     };
 
-    const paint = (from: readonly [number, number], to: readonly [number, number]): void => {
+    const paint = (
+      from: readonly [number, number],
+      to: readonly [number, number],
+      tool: MaskBrushTool,
+    ): void => {
       if (!maskCanvas) return;
       const context = maskCanvas.getContext("2d");
       if (!context) return;
@@ -832,7 +1003,7 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       const rect = maskCanvas.getBoundingClientRect();
       const canvasScale = maskCanvas.width / Math.max(1, rect.width);
       context.save();
-      context.strokeStyle = draft.tool === "erase" ? "#000000" : "#ffffff";
+      context.strokeStyle = tool === "erase" ? "#000000" : "#ffffff";
       context.globalAlpha = draft.brushOpacity;
       context.lineWidth = draft.brushSize * canvasScale;
       context.lineCap = "round";
@@ -924,23 +1095,42 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       else if (intent === "move-crop") beginCropDrag(event, captureTarget, "move-crop");
       else if (intent === "resize-crop" && handle) beginCropDrag(event, captureTarget, "resize-crop", handle);
       else if (intent === "paint-mask" && maskCanvas) {
+        updateMaskBrushPreview(event);
         const point = canvasPoint(event);
         if (!point) return;
         event.preventDefault();
         event.stopPropagation();
         gesture = { kind: "paint-mask", lastPoint: point };
         maskCanvas.setPointerCapture?.(event.pointerId);
-        paint(point, point);
+        paint(point, point, maskBrushToolForModifier(history.value.tool, event.altKey || altMaskTool));
       }
     };
 
+    const updateMaskBrushPreview = (event: PointerEvent): void => {
+      if (!stage) return;
+      const rect = stage.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        maskBrushHover = undefined;
+      } else {
+        maskBrushHover = [event.clientX - rect.left, event.clientY - rect.top];
+      }
+      setAltMaskTool(event.altKey);
+      renderMaskBrushPreview();
+    };
+
+    maskCanvas?.addEventListener("pointerenter", updateMaskBrushPreview);
     maskCanvas?.addEventListener("pointerdown", (event) => beginPointerGesture(event, "mask", maskCanvas));
     maskCanvas?.addEventListener("pointermove", (event) => {
+      updateMaskBrushPreview(event);
       if (gesture.kind !== "paint-mask") return;
       const point = canvasPoint(event);
       if (!point) return;
-      paint(gesture.lastPoint, point);
+      paint(gesture.lastPoint, point, maskBrushToolForModifier(history.value.tool, event.altKey || altMaskTool));
       gesture = { kind: "paint-mask", lastPoint: point };
+    });
+    maskCanvas?.addEventListener("pointerleave", () => {
+      maskBrushHover = undefined;
+      renderMaskBrushPreview();
     });
     const stopPainting = (): void => {
       if (gesture.kind !== "paint-mask") return;
@@ -984,9 +1174,24 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       if (!point) return;
       const deltaX = point[0] - gesture.start[0];
       const deltaY = point[1] - gesture.start[1];
-      const frame = gesture.kind === "resize-crop" && gesture.handle
-        ? resizeNormalizedCrop(gesture.initialFrame, gesture.handle, deltaX, deltaY)
-        : moveNormalizedCrop(gesture.initialFrame, deltaX, deltaY);
+      let frame: NormalizedCrop;
+      if (gesture.kind === "resize-crop" && gesture.handle) {
+        const aspectRatio = cropAspectRatioValue(gesture.initialDraft.cropAspect, sourceWidth, sourceHeight);
+        const rect = stage?.getBoundingClientRect();
+        frame = aspectRatio === undefined
+          ? resizeNormalizedCrop(gesture.initialFrame, gesture.handle, deltaX, deltaY)
+          : resizeNormalizedCropToAspect(
+            gesture.initialFrame,
+            gesture.handle,
+            deltaX,
+            deltaY,
+            aspectRatio,
+            Math.max(1, rect?.width ?? 1),
+            Math.max(1, rect?.height ?? 1),
+          );
+      } else {
+        frame = moveNormalizedCrop(gesture.initialFrame, deltaX, deltaY);
+      }
       gesture.draft = withViewport(gesture.initialDraft, {}, frame);
       render(false);
     });
@@ -1053,6 +1258,10 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
     }, { passive: false });
 
     dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) {
+        if (!history.canUndo && !history.canRedo) finish(null);
+        return;
+      }
       const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
       if (!button) return;
       const action = button.dataset.action;
@@ -1102,6 +1311,19 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         history.commit({ ...draft, removeBackground: !draft.removeBackground });
         render();
         if (!draft.removeBackground) ensureBackgroundPreview();
+      } else if (action === "invert-mask") {
+        if (!maskCanvas || !canvasReady || draft.interactionMode !== "mask") return;
+        const context = maskCanvas.getContext("2d");
+        if (!context) return;
+        const snapshot = context.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+        history.commit({
+          ...draft,
+          maskPixels: invertMaskPixels(snapshot.data),
+          maskWidth: maskCanvas.width,
+          maskHeight: maskCanvas.height,
+          maskTouched: true,
+        });
+        render();
       } else if (action === "erase" || action === "restore") {
         history.commit({ ...draft, tool: action });
         render();
@@ -1153,7 +1375,17 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
       if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
       const field = target.dataset.field;
       const draft = history.value;
-      if ((field === "zoom" || field === "pan-x" || field === "pan-y") && cropSelection === "clipped") {
+      if (field === "crop-aspect" && target instanceof HTMLSelectElement && isCropAspectPreset(target.value)) {
+        const cropAspect = target.value;
+        const aspectRatio = cropAspectRatioValue(cropAspect, sourceWidth, sourceHeight);
+        const crop = aspectRatio === undefined
+          ? draft.crop
+          : fitNormalizedCropToAspect(draft.crop, aspectRatio, sourceWidth, sourceHeight);
+        const next = { ...draft, cropAspect, crop };
+        const cropFrame = frameFromCrop(next, crop);
+        history.commit({ ...next, cropFrame });
+        if (cropSelection !== "unfocused") cropSelection = cropSelectionModeForFrame(cropFrame);
+      } else if ((field === "zoom" || field === "pan-x" || field === "pan-y") && cropSelection === "clipped") {
         cropSelection = cropSelectionModeForFrame(draft.cropFrame);
       } else if (field === "background-mode" && (target.value === "solid" || target.value === "transparent")) {
         history.commit({ ...draft, backgroundMode: target.value });
@@ -1163,7 +1395,15 @@ export function openImageEditor(options: ImageEditorOptions): Promise<ImageEdito
         const number = Number(target.value);
         if (!Number.isFinite(number)) return;
         const pixelCrop = normalizedCropToPixels(draft.crop, sourceWidth, sourceHeight);
-        const nextPixelCrop = updatePixelCrop(pixelCrop, field, number, sourceWidth, sourceHeight);
+        const aspectRatio = cropAspectRatioValue(draft.cropAspect, sourceWidth, sourceHeight);
+        const nextPixelCrop = updatePixelCropForAspect(
+          pixelCrop,
+          field,
+          number,
+          sourceWidth,
+          sourceHeight,
+          aspectRatio,
+        );
         const crop = pixelCropToNormalized(nextPixelCrop, sourceWidth, sourceHeight);
         history.commit({ ...draft, crop, cropFrame: frameFromCrop(draft, crop) });
       }

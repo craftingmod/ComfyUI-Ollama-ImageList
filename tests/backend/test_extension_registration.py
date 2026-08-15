@@ -104,6 +104,7 @@ def install_comfy_api_stub(monkeypatch):
         Boolean=field_type("boolean"),
         Combo=field_type("combo"),
         Clip=field_type("clip"),
+        Color=field_type("color"),
         ComfyNode=ComfyNode,
         Custom=Custom,
         Float=field_type("float"),

@@ -73,7 +73,7 @@ def install_fake_numpy_and_torch(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", torch)
 
 
-def install_fake_pillow(monkeypatch, operations):
+def install_fake_pillow(monkeypatch, operations, *, opened_mode="RGB"):
     class FakeImage:
         def __init__(self, width=10, height=8, mode="RGB"):
             self.width = width
@@ -132,7 +132,8 @@ def install_fake_pillow(monkeypatch, operations):
 
     image = SimpleNamespace(
         DecompressionBombWarning=RuntimeWarning,
-        open=lambda _path: FakeImage(),
+        Resampling=SimpleNamespace(LANCZOS="lanczos", BILINEAR="bilinear"),
+        open=lambda _path: FakeImage(mode=opened_mode),
         new=lambda mode, size, _color: FakeImage(*size, mode=mode),
     )
     image_ops = SimpleNamespace(
@@ -273,6 +274,58 @@ def test_materialized_edit_is_not_applied_twice(monkeypatch):
     assert tensor.shape == (1, 8, 10, 3)
     assert "mirror" not in operations
     assert not any(operation[0] == "crop" for operation in operations if isinstance(operation, tuple))
+
+
+def test_image_loader_downscales_only_after_edits_and_preserves_channels(monkeypatch):
+    operations = []
+    install_fake_pillow(monkeypatch, operations)
+    install_fake_numpy_and_torch(monkeypatch)
+    source = ReferenceSource("reference_director/edits/a.png", "image/png", "a" * 64)
+
+    limited = reference_media._load_image(
+        Path("unused"), source, None, max_pixels=20
+    )
+    assert limited.shape == (1, 4, 5, 3)
+    assert ("resize", (5, 4)) in operations
+
+    operations.clear()
+    original = reference_media._load_image(
+        Path("unused"), source, None, max_pixels=1_000
+    )
+    assert original.shape == (1, 8, 10, 3)
+    assert not any(
+        operation[0] == "resize"
+        for operation in operations
+        if isinstance(operation, tuple)
+    )
+
+
+def test_image_loader_composites_alpha_before_output_downscaling(monkeypatch):
+    operations = []
+    install_fake_pillow(monkeypatch, operations, opened_mode="RGBA")
+    install_fake_numpy_and_torch(monkeypatch)
+    source = ReferenceSource("reference_director/sources/a.png", "image/png", "a" * 64)
+
+    preserved = reference_media._load_image(Path("unused"), source, None)
+    assert preserved.shape == (1, 8, 10, 4)
+
+    opaque = reference_media._load_image(
+        Path("unused"),
+        source,
+        None,
+        max_pixels=20,
+        composite_alpha=True,
+        alpha_background="#123456",
+    )
+
+    assert opaque.shape == (1, 4, 5, 3)
+    composite_index = next(
+        index
+        for index, operation in enumerate(operations)
+        if isinstance(operation, tuple) and operation[0] == "alpha_composite"
+    )
+    resize_index = operations.index(("resize", (5, 4)))
+    assert composite_index < resize_index
 
 
 def test_image_loader_applies_a_content_addressed_keep_mask(monkeypatch):
@@ -707,8 +760,17 @@ def test_loader_passes_and_enforces_the_aggregate_tensor_memory_budget(
 
     budgets = []
 
-    def load_image(_path, _source, _edit, _mask, *, max_output_bytes):
-        budgets.append(max_output_bytes)
+    def load_image(
+        _path,
+        _source,
+        _edit,
+        _mask,
+        *,
+        max_output_bytes,
+        max_pixels,
+        **_kwargs,
+    ):
+        budgets.append((max_output_bytes, max_pixels))
         return SizedTensor()
 
     monkeypatch.setattr(reference_media, "MAX_DECODED_OUTPUT_BYTES", 16)
@@ -720,7 +782,7 @@ def test_loader_passes_and_enforces_the_aggregate_tensor_memory_budget(
             input_directory=tmp_path,
         )
 
-    assert budgets == [16, 4]
+    assert budgets == [(16, None), (4, None)]
 
 
 def test_fingerprint_source_validation_detects_same_size_content_replacement(tmp_path):

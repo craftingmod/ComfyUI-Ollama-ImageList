@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .reference_contract import ReferenceItem, ReferenceState, execution_projection
+from .reference_contract import (
+    ImageOutputSettings,
+    ReferenceItem,
+    ReferenceState,
+    execution_projection,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +81,11 @@ def _derived_audio_manifest(item: ReferenceItem) -> dict[str, Any]:
     return value
 
 
-def build_reference_manifest(state: ReferenceState) -> dict[str, Any]:
+def build_reference_manifest(
+    state: ReferenceState,
+    *,
+    image_output: ImageOutputSettings | None = None,
+) -> dict[str, Any]:
     """Build a payload-free manifest for both active and disabled references."""
 
     plan = build_reference_output_plan(state)
@@ -90,6 +99,9 @@ def build_reference_manifest(state: ReferenceState) -> dict[str, Any]:
     return {
         "version": state.version,
         "video_audio_policy": state.video_audio_policy,
+        "image_output": (
+            image_output or ImageOutputSettings(False, 2_000_000, False, "#000000")
+        ).projection(),
         "image_order": list(state.image_order),
         "video_order": list(state.video_order),
         # audio_order deliberately stores original item IDs, including videos.

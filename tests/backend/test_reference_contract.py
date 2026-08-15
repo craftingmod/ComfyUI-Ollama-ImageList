@@ -153,6 +153,10 @@ def test_manifest_keeps_disabled_items_and_aligns_active_ids_and_captions():
         "audios": ["vid-c:audio"],
         "videos": [],
     }
+    assert manifest["image_output"] == {
+        "mode": "original",
+        "alphaMode": "preserve",
+    }
     assert manifest["items"]["aud-b"]["enabled"] == {"audio": False}
     assert manifest["items"]["img-a"]["enabled"] == {"image": True}
     assert manifest["items"]["vid-c"]["enabled"] == {

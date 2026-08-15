@@ -1,10 +1,11 @@
 import type { TimeRange } from "./types";
 
-export type VideoPreviewStatus = "idle" | "loading" | "playing" | "error";
+export type VideoPreviewStatus = "idle" | "loading" | "playing" | "paused" | "error";
 
 export interface VideoPreviewSnapshot {
   owner?: string;
   status: VideoPreviewStatus;
+  currentTime: number;
   range?: TimeRange;
   error?: string;
 }
@@ -12,6 +13,7 @@ export interface VideoPreviewSnapshot {
 type VideoPreviewListener = (snapshot: VideoPreviewSnapshot) => void;
 
 const RANGE_END_EPSILON_SECONDS = 0.001;
+const PREVIEW_UPDATE_INTERVAL_MS = 1_000 / 30;
 
 function normalizedRange(range: TimeRange): TimeRange {
   const start = Math.max(0, range.start);
@@ -38,10 +40,16 @@ export class VideoPreviewPlayer {
   #listeners = new Set<VideoPreviewListener>();
   #sequence = 0;
   #animationFrame: number | undefined;
+  #lastAnimationTimestamp: number | undefined;
   #destroyed = false;
+  #retainSourceOnEnd: boolean;
 
-  constructor(element: HTMLVideoElement = document.createElement("video")) {
+  constructor(
+    element: HTMLVideoElement = document.createElement("video"),
+    options: { retainSourceOnEnd?: boolean } = {},
+  ) {
     this.element = element;
+    this.#retainSourceOnEnd = options.retainSourceOnEnd === true;
     this.element.className = "rd-video-preview";
     this.element.preload = "metadata";
     this.element.removeAttribute("muted");
@@ -52,9 +60,9 @@ export class VideoPreviewPlayer {
     this.element.disablePictureInPicture = true;
     this.element.setAttribute("aria-label", "Video preview with audio");
     this.element.addEventListener("timeupdate", () => {
-      if (this.#status === "playing" && this.#atRangeEnd()) this.stop(this.#owner);
+      if (this.#status === "playing" && this.#atRangeEnd()) this.#finishRange();
     });
-    this.element.addEventListener("ended", () => this.stop(this.#owner));
+    this.element.addEventListener("ended", () => this.#finishRange());
     this.element.addEventListener("error", () => {
       if (!this.#owner || this.#destroyed) return;
       this.#stopAnimation();
@@ -71,6 +79,7 @@ export class VideoPreviewPlayer {
     return {
       ...(this.#owner ? { owner: this.#owner } : {}),
       status: this.#status,
+      currentTime: Number.isFinite(this.element.currentTime) ? this.element.currentTime : this.#range?.start ?? 0,
       ...(this.#range ? { range: { ...this.#range } } : {}),
       ...(this.#error ? { error: this.#error } : {}),
     };
@@ -82,7 +91,26 @@ export class VideoPreviewPlayer {
     return () => this.#listeners.delete(listener);
   }
 
-  async play(owner: string, url: string, range: TimeRange): Promise<void> {
+  prepare(owner: string, url: string, range: TimeRange, startAt: number = range.start): void {
+    if (this.#destroyed) return;
+    this.#stopAnimation();
+    const nextRange = normalizedRange(range);
+    const changingSource = this.#owner !== owner || this.#url !== url;
+    if (changingSource) {
+      this.#releaseSource();
+      this.#owner = owner;
+      this.#url = url;
+      this.element.src = url;
+      this.element.load();
+    }
+    this.#range = nextRange;
+    this.#error = undefined;
+    this.#status = "idle";
+    this.#setCurrentTime(startAt);
+    this.#emit();
+  }
+
+  async play(owner: string, url: string, range: TimeRange, startAt?: number): Promise<void> {
     if (this.#destroyed) return;
     this.#stopAnimation();
     const nextRange = normalizedRange(range);
@@ -97,13 +125,10 @@ export class VideoPreviewPlayer {
     }
     this.#range = nextRange;
     this.#error = undefined;
-    if (
-      changingSource
-      || this.element.currentTime < nextRange.start
-      || this.element.currentTime >= nextRange.end - 0.01
-    ) {
-      this.element.currentTime = nextRange.start;
-    }
+    const requestedStart = startAt === undefined
+      ? changingSource ? nextRange.start : this.element.currentTime
+      : startAt;
+    this.#setCurrentTime(requestedStart);
     this.#status = "loading";
     this.#emit();
     try {
@@ -122,6 +147,43 @@ export class VideoPreviewPlayer {
       this.#emit();
       throw new Error(this.#error);
     }
+  }
+
+  pause(owner: string): void {
+    if (this.#destroyed || this.#owner !== owner) return;
+    this.#sequence += 1;
+    this.#stopAnimation();
+    this.element.pause();
+    this.#status = "paused";
+    this.#emit();
+  }
+
+  seek(owner: string, seconds: number): void {
+    if (this.#destroyed || this.#owner !== owner || !this.#range || !Number.isFinite(seconds)) return;
+    this.#setCurrentTime(seconds);
+    if (this.#status === "playing" && this.#atRangeEnd()) {
+      this.reset(owner);
+      return;
+    }
+    this.#emit();
+  }
+
+  setRange(owner: string, range: TimeRange): void {
+    if (this.#destroyed || this.#owner !== owner) return;
+    this.#range = normalizedRange(range);
+    this.#setCurrentTime(this.element.currentTime);
+    this.#emit();
+  }
+
+  reset(owner: string): void {
+    if (this.#destroyed || this.#owner !== owner) return;
+    this.#sequence += 1;
+    this.#stopAnimation();
+    this.element.pause();
+    this.#setCurrentTime(this.#range?.start ?? 0);
+    this.#status = "idle";
+    this.#error = undefined;
+    this.#emit();
   }
 
   stop(owner?: string): void {
@@ -143,13 +205,13 @@ export class VideoPreviewPlayer {
     this.stop();
     this.#destroyed = true;
     this.#listeners.clear();
+    this.element.remove();
   }
 
   #releaseSource(): void {
     this.element.pause();
     this.element.removeAttribute("src");
     this.element.load();
-    this.element.remove();
   }
 
   #emit(): void {
@@ -164,15 +226,45 @@ export class VideoPreviewPlayer {
     );
   }
 
+  #setCurrentTime(seconds: number): void {
+    const range = this.#range;
+    const position = range
+      ? Math.max(range.start, Math.min(range.end, seconds))
+      : Math.max(0, seconds);
+    try {
+      this.element.currentTime = position;
+    } catch {
+      // Some browsers reject a seek until media metadata is available. The
+      // loadedmetadata handler or the next explicit seek will retry it.
+    }
+  }
+
+  #finishRange(): void {
+    const owner = this.#owner;
+    if (!owner) return;
+    if (this.#retainSourceOnEnd) this.reset(owner);
+    else this.stop(owner);
+  }
+
   #startAnimation(): void {
-    const tick = (): void => {
+    this.#lastAnimationTimestamp = undefined;
+    const tick = (timestamp: number): void => {
       if (this.#destroyed || this.#status !== "playing") {
         this.#animationFrame = undefined;
         return;
       }
       if (this.#atRangeEnd()) {
-        this.stop(this.#owner);
+        this.#finishRange();
         return;
+      }
+      if (this.#lastAnimationTimestamp === undefined) {
+        this.#lastAnimationTimestamp = timestamp;
+      } else {
+        const elapsed = timestamp - this.#lastAnimationTimestamp;
+        if (elapsed >= PREVIEW_UPDATE_INTERVAL_MS) {
+          this.#lastAnimationTimestamp = timestamp - (elapsed % PREVIEW_UPDATE_INTERVAL_MS);
+          this.#emit();
+        }
       }
       this.#animationFrame = globalThis.requestAnimationFrame(tick);
     };
@@ -184,5 +276,6 @@ export class VideoPreviewPlayer {
       globalThis.cancelAnimationFrame(this.#animationFrame);
       this.#animationFrame = undefined;
     }
+    this.#lastAnimationTimestamp = undefined;
   }
 }

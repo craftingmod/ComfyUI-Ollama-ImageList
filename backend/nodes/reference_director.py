@@ -10,6 +10,7 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI build
 from ..core.reference_contract import (
     ReferenceContractError,
     execution_fingerprint,
+    image_output_settings,
     parse_reference_state,
 )
 from ..core.reference_manifest import (
@@ -31,6 +32,7 @@ EMPTY_DIRECTOR_STATE_JSON = json.dumps(
             "cardAspectRatio": "4 / 3",
             "gridColumns": 3,
             "previewMaxPixels": 1_000_000,
+            "previewFit": "contain",
             "waveformPeaks": 300,
         },
     },
@@ -46,7 +48,8 @@ class ReferenceDirectorNode(io.ComfyNode):
             display_name="Reference Director",
             category="Ollama/Multimodal",
             description=(
-                "Orders image, audio, and video references without batching or resizing, "
+                "Orders image, audio, and video references without batching, with optional "
+                "downscale-only IMAGE output limiting, "
                 "and emits aligned raw caption lists plus a payload-free manifest."
             ),
             search_aliases=["reference", "media director", "multi image selector"],
@@ -59,6 +62,46 @@ class ReferenceDirectorNode(io.ComfyNode):
                     dynamic_prompts=False,
                     socketless=True,
                     extra_dict={"widgetType": "OLLAMA_REFERENCE_DIRECTOR"},
+                ),
+                io.Boolean.Input(
+                    "limit_image_pixels",
+                    display_name="limit_image_pixels",
+                    default=False,
+                    label_on="Limited",
+                    label_off="Original",
+                    advanced=True,
+                    socketless=False,
+                    tooltip="Downscale IMAGE outputs above max_image_pixels; source and edit files remain unchanged.",
+                ),
+                io.Float.Input(
+                    "max_image_pixels",
+                    display_name="max_image_pixels (MPixel)",
+                    default=2.0,
+                    min=0.25,
+                    max=40.0,
+                    step=0.1,
+                    round=0.01,
+                    advanced=True,
+                    socketless=False,
+                    tooltip="Maximum IMAGE output resolution in megapixels when limiting is enabled; smaller images are not enlarged.",
+                ),
+                io.Boolean.Input(
+                    "composite_alpha",
+                    display_name="composite_alpha",
+                    default=False,
+                    label_on="Opaque",
+                    label_off="Preserve",
+                    advanced=True,
+                    socketless=False,
+                    tooltip="Composite alpha-bearing IMAGE outputs onto alpha_background and emit RGB.",
+                ),
+                io.Color.Input(
+                    "alpha_background",
+                    display_name="alpha_background",
+                    default="#000000",
+                    advanced=True,
+                    socketless=False,
+                    tooltip="Fallback color used only when composite_alpha is Opaque.",
                 ),
                 io.Int.Input(
                     "grid_columns",
@@ -93,6 +136,35 @@ class ReferenceDirectorNode(io.ComfyNode):
                     socketless=True,
                     tooltip="Show caption fields on Director cards; captions remain available in Edit when hidden.",
                 ),
+                io.Combo.Input(
+                    "card_aspect",
+                    display_name="card_aspect",
+                    options=["1 / 1", "4 / 3", "3 / 4", "16 / 9", "9 / 16"],
+                    default="4 / 3",
+                    advanced=True,
+                    socketless=True,
+                    tooltip="Aspect ratio used by image and video cards in the Director grid.",
+                ),
+                io.Combo.Input(
+                    "preview_fit",
+                    display_name="preview_fit",
+                    options=["contain", "cover"],
+                    default="contain",
+                    advanced=True,
+                    socketless=True,
+                    tooltip="Fit mode used by image and video previews; execution media is unchanged.",
+                ),
+                io.Int.Input(
+                    "waveform_pairs",
+                    display_name="waveform_pairs",
+                    default=300,
+                    min=100,
+                    max=1000,
+                    step=50,
+                    advanced=True,
+                    socketless=True,
+                    tooltip="Number of min/max amplitude pairs requested for audio waveforms.",
+                ),
             ],
             outputs=[
                 io.Image.Output("images", is_output_list=True),
@@ -109,27 +181,67 @@ class ReferenceDirectorNode(io.ComfyNode):
     def fingerprint_inputs(
         cls,
         director_state: str,
+        limit_image_pixels: bool = False,
+        max_image_pixels: float = 2.0,
+        composite_alpha: bool = False,
+        alpha_background: str = "#000000",
         grid_columns: int = 3,
         preview_pixels: float = 1.0,
         show_captions: bool = True,
+        card_aspect: str = "4 / 3",
+        preview_fit: str = "contain",
+        waveform_pairs: int = 300,
     ) -> str:
-        _ = grid_columns, preview_pixels, show_captions
+        _ = (
+            grid_columns,
+            preview_pixels,
+            show_captions,
+            card_aspect,
+            preview_fit,
+            waveform_pairs,
+        )
         state = parse_reference_state(director_state)
         validate_reference_sources(state)
-        return execution_fingerprint(state)
+        output_settings = image_output_settings(
+            limit_image_pixels,
+            max_image_pixels,
+            composite_alpha,
+            alpha_background,
+        )
+        return execution_fingerprint(state, image_output=output_settings)
 
     @classmethod
     def execute(
         cls,
         director_state: str,
+        limit_image_pixels: bool = False,
+        max_image_pixels: float = 2.0,
+        composite_alpha: bool = False,
+        alpha_background: str = "#000000",
         grid_columns: int = 3,
         preview_pixels: float = 1.0,
         show_captions: bool = True,
+        card_aspect: str = "4 / 3",
+        preview_fit: str = "contain",
+        waveform_pairs: int = 300,
     ) -> io.NodeOutput:
-        _ = grid_columns, preview_pixels, show_captions
+        _ = (
+            grid_columns,
+            preview_pixels,
+            show_captions,
+            card_aspect,
+            preview_fit,
+            waveform_pairs,
+        )
         state = parse_reference_state(director_state)
+        output_settings = image_output_settings(
+            limit_image_pixels,
+            max_image_pixels,
+            composite_alpha,
+            alpha_background,
+        )
         plan = build_reference_output_plan(state)
-        loaded = load_reference_media(state)
+        loaded = load_reference_media(state, image_output=output_settings)
         if len(loaded.images) != len(plan.image_ids):
             raise ReferenceContractError(
                 "Loaded IMAGE count does not match the active image output contract."
@@ -143,7 +255,7 @@ class ReferenceDirectorNode(io.ComfyNode):
                 "Loaded VIDEO count does not match the active video output contract."
             )
         manifest_json = json.dumps(
-            build_reference_manifest(state),
+            build_reference_manifest(state, image_output=output_settings),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),

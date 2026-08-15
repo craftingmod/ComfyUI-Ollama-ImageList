@@ -1,6 +1,8 @@
 import type { AudioPreviewPlayer, AudioPreviewSnapshot } from "../audio-preview-player";
 import { LocalHistory } from "../history";
 import type { TimeRange } from "../types";
+import { VideoPreviewPlayer, type VideoPreviewSnapshot } from "../video-preview-player";
+import { isSilentWaveform } from "../waveform";
 
 export interface TrimEditorOptions {
   kind: "audio" | "video";
@@ -15,6 +17,11 @@ export interface TrimEditorOptions {
     url: string;
     enabled: boolean;
   };
+  video?: {
+    owner: string;
+    url: string;
+    hasAudio: boolean;
+  };
   signal?: AbortSignal;
 }
 
@@ -24,6 +31,7 @@ export interface TrimEditorResult {
 }
 
 const MIN_RANGE_SECONDS = 0.01;
+const VIDEO_SEEK_INTERVAL_MS = 100;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({
@@ -35,9 +43,13 @@ function escapeHtml(value: string): string {
   })[character] ?? character);
 }
 
-function drawWaveform(canvas: HTMLCanvasElement, pairs: ReadonlyArray<readonly [number, number]>): void {
+function drawWaveform(
+  canvas: HTMLCanvasElement,
+  pairs: ReadonlyArray<readonly [number, number]>,
+  compact: boolean,
+): void {
   const width = 900;
-  const height = 180;
+  const height = compact ? 90 : 180;
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext("2d");
@@ -45,6 +57,15 @@ function drawWaveform(canvas: HTMLCanvasElement, pairs: ReadonlyArray<readonly [
   context.clearRect(0, 0, width, height);
   context.fillStyle = "#141821";
   context.fillRect(0, 0, width, height);
+  if (isSilentWaveform(pairs)) {
+    context.strokeStyle = "#596273";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(0, height / 2);
+    context.lineTo(width, height / 2);
+    context.stroke();
+    return;
+  }
   context.strokeStyle = "#8eb9ff";
   context.lineWidth = 1;
   context.beginPath();
@@ -86,23 +107,35 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
     let seekPosition = draft.start;
     let seekTouched = false;
     let wasOwningPlayback = false;
+    const videoPlayer = options.video
+      ? new VideoPreviewPlayer(document.createElement("video"), { retainSourceOnEnd: true })
+      : undefined;
+    const playbackPlayer = videoPlayer ?? options.playback?.player;
+    const playbackOwner = options.video?.owner ?? options.playback?.owner;
+    const playbackUrl = options.video?.url ?? options.playback?.url;
+    const playbackEnabled = Boolean(videoPlayer) || options.playback?.enabled === true;
+    const playbackNoun = options.kind === "video" ? "video" : "audio";
+    const noAudioTrack = options.kind === "video" && options.video?.hasAudio === false;
+    const silent = !noAudioTrack && isSilentWaveform(options.waveform);
+    const waveformStatus = noAudioTrack ? "No audio track" : silent ? "Silent" : undefined;
     const dialog = document.createElement("dialog");
-    dialog.className = "rd-modal rd-trim-editor";
+    dialog.className = `rd-modal rd-trim-editor${options.kind === "video" ? " rd-video-trim-editor" : ""}`;
     dialog.setAttribute("aria-label", `${options.kind} trim editor`);
     dialog.innerHTML = `
       <form method="dialog" class="rd-modal__panel">
         <header><div><strong>${options.kind === "video" ? "Video" : "Audio"} trim</strong><small>No shared timeline; this range affects only this reference.</small><small class="rd-modal__filename">File: ${escapeHtml(options.filename)}</small></div><button type="button" data-action="cancel" aria-label="Close">×</button></header>
-        <label class="rd-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.caption)}</textarea></label>
+        ${options.kind === "video" ? '<div class="rd-trim-video-preview" aria-label="Video frame preview"></div>' : ""}
         <div class="rd-trim-timeline">
-          <canvas aria-label="Waveform preview"></canvas>
+          <canvas aria-label="${waveformStatus ? `${waveformStatus} waveform preview` : "Waveform preview"}"></canvas>
+          ${waveformStatus ? `<span class="rd-waveform-status" aria-hidden="true">${waveformStatus}</span>` : ""}
           <div class="rd-trim-selection" aria-hidden="true"></div>
           <div class="rd-trim-playhead" aria-hidden="true" hidden></div>
           <input class="rd-trim-range rd-trim-range--start" data-field="range-start" type="range" min="0" max="${duration}" step="0.01" aria-label="Trim start">
           <input class="rd-trim-range rd-trim-range--end" data-field="range-end" type="range" min="0" max="${duration}" step="0.01" aria-label="Trim end">
         </div>
-        <label class="rd-trim-seekbar"><span>Seek</span><input data-field="seek" type="range" min="${initialRange.start}" max="${initialRange.end}" step="0.01" value="${initialRange.start}" aria-label="Audio playback position"${options.playback?.enabled ? "" : " disabled"}></label>
-        <div class="rd-trim-transport" aria-label="Audio preview controls">
-          <button type="button" data-action="playback-toggle" aria-label="Play audio preview"${options.playback?.enabled ? "" : " disabled"}>▶ Play</button>
+        <label class="rd-trim-seekbar"><span>Seek</span><input data-field="seek" type="range" min="${initialRange.start}" max="${initialRange.end}" step="0.01" value="${initialRange.start}" aria-label="${playbackNoun} playback position"${playbackEnabled ? "" : " disabled"}></label>
+        <div class="rd-trim-transport" aria-label="${playbackNoun} preview controls">
+          <button type="button" data-action="playback-toggle" aria-label="Play ${playbackNoun} preview"${playbackEnabled ? "" : " disabled"}>▶ Play</button>
           <button type="button" data-action="stop" disabled>■ Stop</button>
           <output data-field="playback-time" aria-live="off">${formatTime(initialRange.start)} / ${formatTime(initialRange.end)}</output>
         </div>
@@ -111,22 +144,63 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
           <label>Start (seconds)<input data-field="start" type="number" min="0" max="${duration}" step="0.01"></label>
           <label>End (seconds)<input data-field="end" type="number" min="0" max="${duration}" step="0.01"></label>
         </div>
-        <div class="rd-editor-history"><button type="button" data-action="undo">Undo</button><button type="button" data-action="redo">Redo</button></div>
         <p class="rd-modal__error" role="alert" hidden></p>
-        <footer><button type="button" data-action="cancel">Cancel</button><button type="button" class="rd-primary" data-action="apply">Apply</button></footer>
+        <label class="rd-modal__caption">Caption<textarea data-field="caption" rows="2" maxlength="16384" placeholder="Caption">${escapeHtml(options.caption)}</textarea></label>
+        <footer class="rd-trim-footer">
+          <div class="rd-editor-history" aria-label="Trim history"><button type="button" data-action="undo" title="Undo trim change">Undo trim</button><button type="button" data-action="redo" title="Redo trim change">Redo trim</button></div>
+          <button type="button" data-action="cancel">Cancel</button><button type="button" class="rd-primary" data-action="apply">Apply</button>
+        </footer>
       </form>`;
     const canvas = dialog.querySelector("canvas");
-    if (canvas) drawWaveform(canvas, options.waveform ?? []);
+    if (canvas) drawWaveform(canvas, options.waveform ?? [], options.kind === "video");
+    if (videoPlayer && options.video) {
+      videoPlayer.element.setAttribute("aria-label", "Video trim preview with audio when available");
+      videoPlayer.element.addEventListener("loadedmetadata", () => {
+        videoPlayer.seek(options.video?.owner ?? "", seekPosition);
+      });
+      videoPlayer.prepare(options.video.owner, options.video.url, initialRange, initialRange.start);
+      dialog.querySelector(".rd-trim-video-preview")?.append(videoPlayer.element);
+    }
     let settled = false;
+    let pendingVideoSeek: number | undefined;
+    let videoSeekTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastVideoSeekAt = Number.NEGATIVE_INFINITY;
 
-    const renderTransport = (snapshot?: AudioPreviewSnapshot): void => {
-      const ownsPlayback = snapshot?.owner === options.playback?.owner;
+    const flushVideoSeek = (): void => {
+      if (!videoPlayer || !playbackOwner || pendingVideoSeek === undefined) return;
+      const position = pendingVideoSeek;
+      pendingVideoSeek = undefined;
+      if (videoSeekTimer !== undefined) {
+        clearTimeout(videoSeekTimer);
+        videoSeekTimer = undefined;
+      }
+      lastVideoSeekAt = globalThis.performance?.now?.() ?? Date.now();
+      videoPlayer.seek(playbackOwner, position);
+    };
+
+    const scheduleVideoSeek = (position: number, immediate: boolean = false): void => {
+      if (!videoPlayer) return;
+      pendingVideoSeek = position;
+      const now = globalThis.performance?.now?.() ?? Date.now();
+      const remaining = VIDEO_SEEK_INTERVAL_MS - (now - lastVideoSeekAt);
+      if (immediate || remaining <= 0) {
+        flushVideoSeek();
+      } else if (videoSeekTimer === undefined) {
+        videoSeekTimer = setTimeout(flushVideoSeek, remaining);
+      }
+    };
+
+    const renderTransport = (
+      snapshot?: AudioPreviewSnapshot | VideoPreviewSnapshot,
+      preferSeekPosition: boolean = false,
+    ): void => {
+      const ownsPlayback = snapshot?.owner === playbackOwner;
       const playing = ownsPlayback && snapshot?.status === "playing";
       const loading = ownsPlayback && snapshot?.status === "loading";
       const paused = ownsPlayback && snapshot?.status === "paused";
-      if (ownsPlayback) {
+      if (ownsPlayback && !preferSeekPosition) {
         seekPosition = clampSeekPosition(draft, snapshot?.currentTime ?? seekPosition);
-      } else if (wasOwningPlayback && snapshot?.status === "idle") {
+      } else if (!ownsPlayback && wasOwningPlayback && snapshot?.status === "idle") {
         seekPosition = draft.start;
         seekTouched = false;
       }
@@ -134,15 +208,15 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
       const playbackToggle = dialog.querySelector<HTMLButtonElement>('[data-action="playback-toggle"]');
       const stop = dialog.querySelector<HTMLButtonElement>('[data-action="stop"]');
       if (playbackToggle) {
-        playbackToggle.disabled = !options.playback?.enabled || loading;
+        playbackToggle.disabled = !playbackEnabled || loading;
         playbackToggle.textContent = loading ? "Loading…" : playing ? "Ⅱ Pause" : paused ? "▶ Resume" : "▶ Play";
         playbackToggle.setAttribute("aria-label", loading
-          ? "Loading audio preview"
+          ? `Loading ${playbackNoun} preview`
           : playing
-            ? "Pause audio preview"
+            ? `Pause ${playbackNoun} preview`
             : paused
-              ? "Resume audio preview"
-              : "Play audio preview");
+              ? `Resume ${playbackNoun} preview`
+              : `Play ${playbackNoun} preview`);
       }
       if (stop) stop.disabled = !(playing || loading || paused);
       const current = seekPosition;
@@ -151,7 +225,7 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
         seek.min = String(draft.start);
         seek.max = String(draft.end);
         seek.value = String(current);
-        seek.disabled = !options.playback?.enabled;
+        seek.disabled = !playbackEnabled;
       }
       const output = dialog.querySelector<HTMLOutputElement>('[data-field="playback-time"]');
       if (output) output.value = `${formatTime(current)} / ${formatTime(draft.end)}`;
@@ -190,10 +264,10 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
       const redo = dialog.querySelector<HTMLButtonElement>('[data-action="redo"]');
       if (undo) undo.disabled = !history.canUndo;
       if (redo) redo.disabled = !history.canRedo;
-      renderTransport(options.playback?.player.snapshot);
+      renderTransport(playbackPlayer?.snapshot);
     };
 
-    const unsubscribePlayback = options.playback?.player.subscribe((snapshot) => {
+    const unsubscribePlayback = playbackPlayer?.subscribe((snapshot) => {
       if (!settled) renderTransport(snapshot);
     });
     const finish = (value: TrimEditorResult | null): void => {
@@ -201,7 +275,9 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
       settled = true;
       options.signal?.removeEventListener("abort", onAbort);
       unsubscribePlayback?.();
-      if (options.playback) options.playback.player.stop(options.playback.owner);
+      if (videoSeekTimer !== undefined) clearTimeout(videoSeekTimer);
+      if (videoPlayer) videoPlayer.destroy();
+      else if (options.playback) options.playback.player.stop(options.playback.owner);
       dialog.remove();
       resolve(value);
     };
@@ -230,8 +306,9 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
         if (!Number.isFinite(value)) return;
         seekPosition = clampSeekPosition(draft, value);
         seekTouched = true;
-        if (options.playback) options.playback.player.seek(options.playback.owner, seekPosition);
-        renderTransport(options.playback?.player.snapshot);
+        if (videoPlayer) scheduleVideoSeek(seekPosition);
+        else if (options.playback) options.playback.player.seek(options.playback.owner, seekPosition);
+        renderTransport(playbackPlayer?.snapshot, true);
         return;
       }
       if (target.dataset.field !== "range-start" && target.dataset.field !== "range-end") return;
@@ -239,13 +316,17 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
       if (!Number.isFinite(value)) return;
       draft = sliderRange(draft, target.dataset.field === "range-start" ? "start" : "end", value, duration);
       seekPosition = clampSeekPosition(draft, seekPosition);
-      if (options.playback) options.playback.player.setRange(options.playback.owner, draft);
+      if (playbackPlayer && playbackOwner) playbackPlayer.setRange(playbackOwner, draft);
       clearRangeError();
       render();
     });
     dialog.addEventListener("change", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLInputElement)) return;
+      if (target.dataset.field === "seek") {
+        if (videoPlayer) scheduleVideoSeek(seekPosition, true);
+        return;
+      }
       if (target.dataset.field === "range-start" || target.dataset.field === "range-end") {
         commitDraft();
         return;
@@ -261,10 +342,14 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
       }
       draft = next;
       seekPosition = clampSeekPosition(draft, seekPosition);
-      if (options.playback) options.playback.player.setRange(options.playback.owner, draft);
+      if (playbackPlayer && playbackOwner) playbackPlayer.setRange(playbackOwner, draft);
       commitDraft();
     });
     dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) {
+        if (!history.canUndo && !history.canRedo) finish(null);
+        return;
+      }
       const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
       if (!button) return;
       switch (button.dataset.action) {
@@ -274,27 +359,27 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
         case "undo":
           draft = history.undo();
           seekPosition = clampSeekPosition(draft, seekPosition);
-          if (options.playback) options.playback.player.setRange(options.playback.owner, draft);
+          if (playbackPlayer && playbackOwner) playbackPlayer.setRange(playbackOwner, draft);
           render();
           break;
         case "redo":
           draft = history.redo();
           seekPosition = clampSeekPosition(draft, seekPosition);
-          if (options.playback) options.playback.player.setRange(options.playback.owner, draft);
+          if (playbackPlayer && playbackOwner) playbackPlayer.setRange(playbackOwner, draft);
           render();
           break;
         case "playback-toggle":
-          if (options.playback?.enabled) {
-            const snapshot = options.playback.player.snapshot;
-            if (snapshot.owner === options.playback.owner && snapshot.status === "playing") {
-              options.playback.player.pause(options.playback.owner);
+          if (playbackEnabled && playbackPlayer && playbackOwner && playbackUrl) {
+            const snapshot = playbackPlayer.snapshot;
+            if (snapshot.owner === playbackOwner && snapshot.status === "playing") {
+              playbackPlayer.pause(playbackOwner);
               break;
             }
             const playbackError = dialog.querySelector<HTMLElement>(".rd-playback-error");
             if (playbackError) playbackError.hidden = true;
-            void options.playback.player.play(
-              options.playback.owner,
-              options.playback.url,
+            void playbackPlayer.play(
+              playbackOwner,
+              playbackUrl,
               draft,
               seekPosition,
             ).catch(() => undefined);
@@ -303,8 +388,9 @@ export function openTrimEditor(options: TrimEditorOptions): Promise<TrimEditorRe
         case "stop":
           seekPosition = draft.start;
           seekTouched = false;
-          if (options.playback) options.playback.player.stop(options.playback.owner);
-          renderTransport(options.playback?.player.snapshot);
+          if (videoPlayer && playbackOwner) videoPlayer.reset(playbackOwner);
+          else if (options.playback) options.playback.player.stop(options.playback.owner);
+          renderTransport(playbackPlayer?.snapshot);
           break;
         case "apply":
           finish({

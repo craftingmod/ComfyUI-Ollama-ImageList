@@ -18,11 +18,14 @@ MAX_IMAGES = 32
 MAX_AUDIO_ITEMS = 8
 MAX_VIDEO_ITEMS = 4
 MAX_CAPTION_CHARACTERS = 16_384
+MIN_OUTPUT_IMAGE_PIXELS = 250_000
+MAX_OUTPUT_IMAGE_PIXELS = 40_000_000
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MIME_RE = re.compile(r"^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_COLOR_WITH_OPTIONAL_ALPHA_RE = re.compile(r"^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$")
 
 MediaKind = Literal["image", "audio", "video"]
 
@@ -124,6 +127,25 @@ class ReferenceItem:
 
 
 @dataclass(frozen=True, slots=True)
+class ImageOutputSettings:
+    limit_pixels: bool
+    max_pixels: int
+    composite_alpha: bool
+    alpha_background: str
+
+    def projection(self) -> dict[str, Any]:
+        value: dict[str, Any] = {
+            "mode": "limited" if self.limit_pixels else "original",
+            "alphaMode": "opaque" if self.composite_alpha else "preserve",
+        }
+        if self.limit_pixels:
+            value["maxPixels"] = self.max_pixels
+        if self.composite_alpha:
+            value["alphaBackground"] = self.alpha_background
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ReferenceState:
     version: int
     items: Mapping[str, ReferenceItem]
@@ -164,6 +186,33 @@ def _finite_number(value: Any, path: str) -> float:
     if not math.isfinite(result):
         raise _error(path, "must be a finite number")
     return result
+
+
+def image_output_settings(
+    limit_image_pixels: bool,
+    max_image_pixels: float,
+    composite_alpha: bool,
+    alpha_background: str,
+) -> ImageOutputSettings:
+    limit_pixels = _boolean(limit_image_pixels, "limit_image_pixels")
+    max_megapixels = _finite_number(max_image_pixels, "max_image_pixels")
+    max_pixels = int(round(max_megapixels * 1_000_000))
+    if not MIN_OUTPUT_IMAGE_PIXELS <= max_pixels <= MAX_OUTPUT_IMAGE_PIXELS:
+        raise _error(
+            "max_image_pixels",
+            "must be between 0.25 and 40 megapixels",
+        )
+    composite = _boolean(composite_alpha, "composite_alpha")
+    background = _string(alpha_background, "alpha_background").lower()
+    if not _COLOR_WITH_OPTIONAL_ALPHA_RE.fullmatch(background):
+        raise _error("alpha_background", "must be a #RRGGBB or #RRGGBBAA color")
+    background = background[:7]
+    return ImageOutputSettings(
+        limit_pixels=limit_pixels,
+        max_pixels=max_pixels,
+        composite_alpha=composite,
+        alpha_background=background,
+    )
 
 
 def _source(value: Any, path: str, kind: MediaKind) -> ReferenceSource:
@@ -445,7 +494,11 @@ def _execution_item(
     return value
 
 
-def execution_projection(state: ReferenceState) -> dict[str, Any]:
+def execution_projection(
+    state: ReferenceState,
+    *,
+    image_output: ImageOutputSettings | None = None,
+) -> dict[str, Any]:
     """Return the deterministic execution state, excluding all UI preferences."""
 
     images: list[dict[str, Any]] = []
@@ -476,7 +529,7 @@ def execution_projection(state: ReferenceState) -> dict[str, Any]:
                     derived_from=item.id,
                 )
             )
-    return {
+    value = {
         "version": state.version,
         "imageOrder": list(state.image_order),
         "videoOrder": list(state.video_order),
@@ -486,11 +539,18 @@ def execution_projection(state: ReferenceState) -> dict[str, Any]:
         "audios": audios,
         "videos": videos,
     }
+    if image_output is not None:
+        value["imageOutput"] = image_output.projection()
+    return value
 
 
-def execution_fingerprint(state: ReferenceState) -> str:
+def execution_fingerprint(
+    state: ReferenceState,
+    *,
+    image_output: ImageOutputSettings | None = None,
+) -> str:
     payload = json.dumps(
-        execution_projection(state),
+        execution_projection(state, image_output=image_output),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -500,6 +560,9 @@ def execution_fingerprint(state: ReferenceState) -> str:
 
 __all__ = [
     "ImageEdit",
+    "ImageOutputSettings",
+    "MAX_OUTPUT_IMAGE_PIXELS",
+    "MIN_OUTPUT_IMAGE_PIXELS",
     "NormalizedCrop",
     "REFERENCE_STATE_VERSION",
     "ReferenceContractError",
@@ -510,5 +573,6 @@ __all__ = [
     "VIDEO_AUDIO_POLICY",
     "execution_fingerprint",
     "execution_projection",
+    "image_output_settings",
     "parse_reference_state",
 ]

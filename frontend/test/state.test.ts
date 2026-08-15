@@ -46,6 +46,22 @@ describe("Reference Director state", () => {
     expect(state.items.b).toBeUndefined();
   });
 
+  test("clears every media channel while preserving UI preferences", () => {
+    const image = createMediaItem("image", source("a.png", "image/png"), "a");
+    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
+    let state = directorReducer(createEmptyDirectorState(), { type: "add", item: image });
+    state = directorReducer(state, { type: "add", item: video });
+    state = directorReducer(state, { type: "set-ui", values: { gridColumns: 5 } });
+
+    const cleared = directorReducer(state, { type: "clear" });
+    expect(cleared.items).toEqual({});
+    expect(cleared.imageOrder).toEqual([]);
+    expect(cleared.videoOrder).toEqual([]);
+    expect(cleared.audioOrder).toEqual([]);
+    expect(cleared.ui.gridColumns).toBe(5);
+    expect(directorReducer(cleared, { type: "clear" })).toBe(cleared);
+  });
+
   test("keeps a video audio caption override separate from its visual caption", () => {
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
     let state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
@@ -54,8 +70,8 @@ describe("Reference Director state", () => {
     expect(state.items.v).toMatchObject({ caption: "visual", audioCaptionOverride: "spoken" });
   });
 
-  test("defaults a confirmed silent video out of the audio output", () => {
-    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "silent", { hasAudio: false });
+  test("defaults every video out of the separate audio output", () => {
+    const video = createMediaItem("video", source("v.mp4", "video/mp4"), "video");
     expect(video.kind === "video" && video.audioEnabled).toBe(false);
   });
 });
@@ -78,12 +94,20 @@ describe("validation and serialization", () => {
       imageOrder: [],
       videoOrder: [],
       audioOrder: [],
-      ui: { gridColumns: 99, previewMaxPixels: 1_750_000, waveformPeaks: 999 },
+      ui: {
+        cardAspectRatio: "3 / 4",
+        gridColumns: 99,
+        previewMaxPixels: 1_750_000,
+        previewFit: "cover",
+        waveformPeaks: 999,
+      },
     });
     expect(result.state.imageOrder).toEqual([]);
     expect(result.state.videoOrder).toEqual(["video"]);
     expect(result.state.audioOrder).toEqual(["video"]);
-    expect(result.state.ui.waveformPeaks).toBe(500);
+    expect(result.state.ui.waveformPeaks).toBe(999);
+    expect(result.state.ui.cardAspectRatio).toBe("3 / 4");
+    expect(result.state.ui.previewFit).toBe("cover");
     expect(result.state.ui.gridColumns).toBe(8);
     expect(result.state.ui.previewMaxPixels).toBe(1_750_000);
     expect(validateDirectorState({ version: 0 }).state).toEqual(createEmptyDirectorState());
@@ -92,6 +116,24 @@ describe("validation and serialization", () => {
   test("falls back safely for malformed JSON and unsupported versions", () => {
     expect(deserializeDirectorState("{").state).toEqual(createEmptyDirectorState());
     expect(validateDirectorState({ version: 20 }).state).toEqual(createEmptyDirectorState());
+  });
+
+  test("defaults a restored video with no explicit audio toggle out of derived AUDIO", () => {
+    const result = validateDirectorState({
+      version: 1,
+      items: {
+        video: {
+          id: "video",
+          kind: "video",
+          source: source("v.mp4", "video/mp4"),
+          caption: "",
+        },
+      },
+      imageOrder: [],
+      videoOrder: ["video"],
+      audioOrder: ["video"],
+    });
+    expect(result.state.items.video).toMatchObject({ videoEnabled: true, audioEnabled: false });
   });
 
   test("rejects oversized workflow state before parsing JSON", () => {
@@ -192,6 +234,8 @@ describe("history and execution projection", () => {
 
   test("maps video sound to a derived audio id and excludes UI from fingerprint", () => {
     const video = createMediaItem("video", source("v.mp4", "video/mp4"), "v");
+    if (video.kind !== "video") throw new Error("Expected a video test item.");
+    video.audioEnabled = true;
     let state = directorReducer(createEmptyDirectorState(), { type: "add", item: video });
     state = directorReducer(state, { type: "set-caption", id: "v", channel: "audio", caption: "voice" });
     const projection = projectDirectorExecution(state);

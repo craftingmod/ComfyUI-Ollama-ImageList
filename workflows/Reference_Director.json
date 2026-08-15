@@ -107,10 +107,17 @@
         }
       },
       "widgets_values": [
-        "{\"version\":1,\"items\":{},\"imageOrder\":[],\"videoOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"gridColumns\":3,\"previewMaxPixels\":1000000,\"waveformPeaks\":300}}",
+        "{\"version\":1,\"items\":{},\"imageOrder\":[],\"videoOrder\":[],\"audioOrder\":[],\"videoAudioPolicy\":\"preserve\",\"ui\":{\"cardAspectRatio\":\"4 / 3\",\"gridColumns\":3,\"previewMaxPixels\":1000000,\"previewFit\":\"contain\",\"waveformPeaks\":300}}",
+        false,
+        2.0,
+        false,
+        "#000000",
         3,
         1.0,
-        true
+        true,
+        "4 / 3",
+        "contain",
+        300
       ]
     }
   ],

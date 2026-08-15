@@ -3,19 +3,25 @@ import { describe, expect, test } from "bun:test";
 import {
   applyMaskBrush,
   constrainCropViewport,
+  cropAspectRatioValue,
+  fitNormalizedCropToAspect,
   initialImageEditorRecipe,
+  invertMaskPixels,
   isCropHandleVisible,
   isNormalizedCropFullyVisible,
   isNormalizedCropViewportFilling,
   moveNormalizedCrop,
+  maskBrushToolForModifier,
   normalizedCropToPixels,
   openImageEditor,
   pixelCropToNormalized,
   projectCropToViewport,
   resolveImageEditorPointerIntent,
   resizeNormalizedCrop,
+  resizeNormalizedCropToAspect,
   unprojectCropFromViewport,
   updatePixelCrop,
+  updatePixelCropForAspect,
   viewportPanBounds,
 } from "../src/reference-director/editors/image-editor";
 import { AudioPreviewPlayer } from "../src/reference-director/audio-preview-player";
@@ -130,6 +136,15 @@ describe("image editor revision semantics", () => {
     expect(restored[center + 3]).toBe(255);
   });
 
+  test("inverts keep-mask pixels without changing their alpha and reverses the Alt brush tool", () => {
+    const pixels = new Uint8ClampedArray([0, 0, 0, 255, 64, 64, 64, 128, 255, 255, 255, 255]);
+    expect([...invertMaskPixels(pixels)]).toEqual([255, 255, 255, 255, 191, 191, 191, 128, 0, 0, 0, 255]);
+    expect([...pixels]).toEqual([0, 0, 0, 255, 64, 64, 64, 128, 255, 255, 255, 255]);
+    expect(maskBrushToolForModifier("erase", false)).toBe("erase");
+    expect(maskBrushToolForModifier("erase", true)).toBe("restore");
+    expect(maskBrushToolForModifier("restore", true)).toBe("erase");
+  });
+
   test("keeps mask painting disabled until the proxy dimensions are loaded", async () => {
     const item: ImageItem = {
       id: "loading",
@@ -143,9 +158,18 @@ describe("image editor revision semantics", () => {
     const canvas = document.querySelector<HTMLCanvasElement>(".rd-image-editor canvas");
     const image = document.querySelector<HTMLImageElement>(".rd-image-editor img");
     const caption = document.querySelector<HTMLElement>(".rd-image-editor .rd-modal__caption");
+    const viewportValues = document.querySelector<HTMLFieldSetElement>(".rd-image-editor .rd-viewport-values");
+    const resetView = document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="reset-view"]');
+    const actions = document.querySelector<HTMLElement>(".rd-image-editor .rd-image-editor-actions");
+    const error = document.querySelector<HTMLElement>(".rd-image-editor .rd-modal__error");
     expect(document.querySelector(".rd-image-editor .rd-modal__filename")?.textContent).toBe("File: loading.png");
     expect(caption?.parentElement?.classList.contains("rd-editor-media-column")).toBe(true);
     expect(caption?.previousElementSibling?.classList.contains("rd-editor-preview")).toBe(true);
+    expect(viewportValues?.hidden).toBe(true);
+    expect(resetView?.parentElement?.classList.contains("rd-editor-history")).toBe(true);
+    expect(actions?.parentElement?.classList.contains("rd-editor-controls")).toBe(true);
+    expect(error?.parentElement?.classList.contains("rd-editor-controls")).toBe(true);
+    expect(document.querySelector(".rd-image-editor .rd-editor-layout + footer")).toBeNull();
     expect(canvas?.getAttribute("aria-disabled")).toBe("true");
     image?.dispatchEvent(new Event("load"));
     expect(canvas?.getAttribute("aria-disabled")).toBe("true");
@@ -154,6 +178,102 @@ describe("image editor revision semantics", () => {
     expect(canvas?.getAttribute("aria-disabled")).toBe("false");
     document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
     expect(await result).toBeNull();
+  });
+
+  test("previews the mask brush size and reverses its tool color while Alt is held", async () => {
+    const item: ImageItem = {
+      id: "brush-preview",
+      kind: "image",
+      source: { path: "reference_director/sources/brush.png", mime: "image/png", sha256: "9".repeat(64) },
+      originalSource: { path: "reference_director/sources/brush.png", mime: "image/png", sha256: "9".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+    };
+    const result = openImageEditor({ item, imageWidth: 200, imageHeight: 100 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    const canvas = document.querySelector<HTMLCanvasElement>(".rd-image-editor canvas");
+    const preview = document.querySelector<HTMLElement>(".rd-image-editor .rd-mask-brush-preview");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 10, top: 20, right: 210, bottom: 120, width: 200, height: 100, x: 10, y: 20, toJSON: () => ({}) }),
+    });
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="mode-mask"]')?.click();
+    expect(document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="invert-mask"]')?.disabled).toBe(false);
+    canvas?.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true, clientX: 60, clientY: 70 }));
+    expect(preview?.hidden).toBe(false);
+    expect(preview?.style.left).toBe("50px");
+    expect(preview?.style.top).toBe("50px");
+    expect(preview?.style.width).toBe("48px");
+    expect(preview?.dataset.maskTool).toBe("erase");
+
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+    expect(preview?.dataset.maskTool).toBe("restore");
+    globalThis.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt" }));
+    expect(preview?.dataset.maskTool).toBe("erase");
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="restore"]')?.click();
+    expect(preview?.dataset.maskTool).toBe("restore");
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+    expect(preview?.dataset.maskTool).toBe("erase");
+    globalThis.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt" }));
+
+    canvas?.dispatchEvent(new PointerEvent("pointerleave", { bubbles: true }));
+    expect(preview?.hidden).toBe(true);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await result).toBeNull();
+  });
+
+  test("dismisses untouched image, audio, and video editors from the backdrop", async () => {
+    const item: ImageItem = {
+      id: "backdrop-image",
+      kind: "image",
+      source: { path: "reference_director/sources/backdrop.png", mime: "image/png", sha256: "8".repeat(64) },
+      originalSource: { path: "reference_director/sources/backdrop.png", mime: "image/png", sha256: "8".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+    };
+    const imageResult = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    document.querySelector<HTMLDialogElement>(".rd-image-editor")?.click();
+    expect(await imageResult).toBeNull();
+
+    for (const kind of ["audio", "video"] as const) {
+      const trimResult = openTrimEditor({ kind, filename: `${kind}.wav`, duration: 2, caption: "" });
+      document.querySelector<HTMLDialogElement>(".rd-trim-editor")?.click();
+      expect(await trimResult).toBeNull();
+    }
+  });
+
+  test("keeps edited image and trim dialogs open when backdrop is clicked", async () => {
+    const item: ImageItem = {
+      id: "backdrop-history",
+      kind: "image",
+      source: { path: "reference_director/sources/history.png", mime: "image/png", sha256: "7".repeat(64) },
+      originalSource: { path: "reference_director/sources/history.png", mime: "image/png", sha256: "7".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+    };
+    const imageResult = openImageEditor({ item, imageWidth: 100, imageHeight: 100 });
+    activateCropMode();
+    const imageDialog = document.querySelector<HTMLDialogElement>(".rd-image-editor");
+    imageDialog?.click();
+    expect(imageDialog?.isConnected).toBe(true);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="undo"]')?.click();
+    expect(document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="redo"]')?.disabled).toBe(false);
+    imageDialog?.click();
+    expect(imageDialog?.isConnected).toBe(true);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await imageResult).toBeNull();
+
+    const trimResult = openTrimEditor({ kind: "audio", filename: "edited.wav", duration: 2, caption: "" });
+    const trimStart = document.querySelector<HTMLInputElement>('.rd-trim-editor [data-field="start"]');
+    if (trimStart) {
+      trimStart.value = "0.5";
+      trimStart.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    const trimDialog = document.querySelector<HTMLDialogElement>(".rd-trim-editor");
+    trimDialog?.click();
+    expect(trimDialog?.isConnected).toBe(true);
+    document.querySelector<HTMLButtonElement>('.rd-trim-editor [data-action="cancel"]')?.click();
+    expect(await trimResult).toBeNull();
   });
 
   test("converts normalized crops to clamped source-pixel integer controls", () => {
@@ -173,6 +293,21 @@ describe("image editor revision semantics", () => {
     expect(pixelCropToNormalized({ x: 1000, y: 300, width: 2000, height: 1800 }, 4000, 3000)).toEqual(normalized);
   });
 
+  test("fits crop presets in source-pixel aspect space and couples numeric dimensions", () => {
+    expect(cropAspectRatioValue("original", 160, 90)).toBeCloseTo(16 / 9);
+    expect(cropAspectRatioValue("9:16", 160, 90)).toBeCloseTo(9 / 16);
+    expect(cropAspectRatioValue("custom", 160, 90)).toBeUndefined();
+
+    const square = fitNormalizedCropToAspect({ x: 0, y: 0, width: 1, height: 1 }, 1, 160, 90);
+    expect(normalizedCropToPixels(square, 160, 90)).toEqual({ x: 35, y: 0, width: 90, height: 90 });
+    expect(updatePixelCropForAspect({ x: 0, y: 0, width: 40, height: 30 }, "width", 80, 160, 90, 4 / 3)).toEqual({
+      x: 0,
+      y: 0,
+      width: 80,
+      height: 60,
+    });
+  });
+
   test("resizes a normalized crop from each corner without crossing its opposite edge", () => {
     const crop = { x: 0.2, y: 0.1, width: 0.5, height: 0.6 };
     const northWest = resizeNormalizedCrop(crop, "north-west", 0.1, 0.2);
@@ -190,6 +325,14 @@ describe("image editor revision semantics", () => {
     const southWest = resizeNormalizedCrop(crop, "south-west", 1, 1);
     expect(southWest.width).toBeCloseTo(0.01);
     expect(southWest.height).toBeCloseTo(0.9);
+  });
+
+  test("keeps a preset aspect while resizing from a corner", () => {
+    const crop = { x: 0.21875, y: 0, width: 0.5625, height: 1 };
+    const resized = resizeNormalizedCropToAspect(crop, "south-east", -0.1, -0.1, 1, 160, 90);
+    expect((resized.width * 160) / (resized.height * 90)).toBeCloseTo(1);
+    expect(resized.x).toBe(crop.x);
+    expect(resized.y).toBe(crop.y);
   });
 
   test("round-trips crop coordinates through a zoomed, panned, and flipped viewport", () => {
@@ -392,6 +535,54 @@ describe("image editor revision semantics", () => {
     expect(mode("crop")?.getAttribute("aria-pressed")).toBe("true");
     redo?.click();
     expect(mode("mask")?.getAttribute("aria-pressed")).toBe("true");
+
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
+    expect(await resultPromise).toBeNull();
+  });
+
+  test("applies crop aspect presets immediately and restores the preset through history", async () => {
+    const item: ImageItem = {
+      id: "crop-aspect",
+      kind: "image",
+      source: { path: "reference_director/sources/aspect.png", mime: "image/png", sha256: "6".repeat(64) },
+      originalSource: { path: "reference_director/sources/aspect.png", mime: "image/png", sha256: "6".repeat(64) },
+      caption: "",
+      imageEnabled: true,
+    };
+    const resultPromise = openImageEditor({ item, imageWidth: 160, imageHeight: 90 });
+    const stage = document.querySelector<HTMLElement>(".rd-image-editor .rd-editor-stage");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ left: 0, top: 0, right: 160, bottom: 90, width: 160, height: 90, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const aspect = document.querySelector<HTMLSelectElement>('.rd-image-editor [data-field="crop-aspect"]');
+    expect([...(aspect?.options ?? [])].map((option) => option.value)).toEqual([
+      "custom", "original", "1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16",
+    ]);
+    expect(aspect?.disabled).toBe(true);
+    activateCropMode();
+    expect(aspect?.disabled).toBe(false);
+    if (aspect) {
+      aspect.value = "1:1";
+      aspect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber).toBe(90);
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="height"]')?.valueAsNumber).toBe(90);
+
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="undo"]')?.click();
+    expect(aspect?.value).toBe("custom");
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber).toBe(160);
+    document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="redo"]')?.click();
+    expect(aspect?.value).toBe("1:1");
+    expect(document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber).toBe(90);
+
+    const southEast = document.querySelector<HTMLElement>('.rd-image-editor [data-crop-handle="south-east"]');
+    southEast?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 10, clientX: 125, clientY: 90 }));
+    southEast?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 10, clientX: 110, clientY: 70 }));
+    southEast?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 10, clientX: 110, clientY: 70 }));
+    const width = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="width"]')?.valueAsNumber ?? 0;
+    const height = document.querySelector<HTMLInputElement>('.rd-image-editor [data-field="height"]')?.valueAsNumber ?? 1;
+    expect(width / height).toBeCloseTo(1, 1);
 
     document.querySelector<HTMLButtonElement>('.rd-image-editor [data-action="cancel"]')?.click();
     expect(await resultPromise).toBeNull();
@@ -751,8 +942,16 @@ describe("image editor revision semantics", () => {
 
 describe("trim editor details", () => {
   test("shows the source filename inside the detail dialog", async () => {
-    const result = openTrimEditor({ kind: "audio", filename: "voice take.wav", duration: 2, caption: "voice" });
+    const result = openTrimEditor({ kind: "audio", filename: "voice take.wav", duration: 2, caption: "voice", waveform: [[0, 0]] });
     expect(document.querySelector(".rd-trim-editor .rd-modal__filename")?.textContent).toBe("File: voice take.wav");
+    const caption = document.querySelector<HTMLElement>(".rd-trim-editor .rd-modal__caption");
+    const footer = document.querySelector<HTMLElement>(".rd-trim-editor .rd-trim-footer");
+    expect(caption?.previousElementSibling?.classList.contains("rd-modal__error")).toBe(true);
+    expect(caption?.nextElementSibling).toBe(footer);
+    expect(footer?.querySelector(".rd-editor-history")?.getAttribute("aria-label")).toBe("Trim history");
+    expect(footer?.querySelector('[data-action="undo"]')?.textContent).toBe("Undo trim");
+    expect(footer?.querySelector('[data-action="redo"]')?.textContent).toBe("Redo trim");
+    expect(document.querySelector('.rd-trim-editor .rd-waveform-status')?.textContent).toBe("Silent");
     document.querySelector<HTMLButtonElement>('.rd-trim-editor [data-action="cancel"]')?.click();
     expect(await result).toBeNull();
   });
@@ -824,20 +1023,32 @@ describe("trim editor details", () => {
     player.destroy();
   });
 
-  test("keeps playback unavailable for a silent video while retaining trim controls", async () => {
-    const player = new AudioPreviewPlayer(document.createElement("audio"));
+  test("shows a seekable video preview for silent video and keeps a compact waveform", async () => {
     const result = openTrimEditor({
       kind: "video",
       filename: "silent.mp4",
       duration: 3,
       caption: "",
-      playback: { player, owner: "editor:silent", url: "/silent", enabled: false },
+      video: { owner: "editor:silent", url: "/silent", hasAudio: false },
     });
-    expect(document.querySelector<HTMLButtonElement>('.rd-trim-editor [data-action="playback-toggle"]')?.disabled).toBe(true);
-    expect(document.querySelector<HTMLInputElement>('.rd-trim-editor [data-field="seek"]')?.disabled).toBe(true);
+    const video = document.querySelector<HTMLVideoElement>(".rd-trim-video-preview video");
+    const seek = document.querySelector<HTMLInputElement>('.rd-trim-editor [data-field="seek"]');
+    expect(video?.getAttribute("src")).toBe("/silent");
+    expect(document.querySelector<HTMLButtonElement>('.rd-trim-editor [data-action="playback-toggle"]')?.disabled).toBe(false);
+    expect(seek?.disabled).toBe(false);
+    expect(document.querySelector('.rd-trim-editor .rd-waveform-status')?.textContent).toBe("No audio track");
+    expect(document.querySelector<HTMLCanvasElement>(".rd-trim-editor canvas")?.height).toBe(90);
     expect(document.querySelectorAll('.rd-trim-editor input[type="range"]')).toHaveLength(3);
+    if (seek) {
+      seek.value = "1";
+      seek.dispatchEvent(new Event("input", { bubbles: true }));
+      seek.value = "1.5";
+      seek.dispatchEvent(new Event("input", { bubbles: true }));
+      expect(video?.currentTime).toBe(1);
+      seek.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    expect(video?.currentTime).toBe(1.5);
     document.querySelector<HTMLButtonElement>('.rd-trim-editor [data-action="cancel"]')?.click();
     expect(await result).toBeNull();
-    player.destroy();
   });
 });

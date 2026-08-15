@@ -13,6 +13,7 @@ export type DirectorChannel = "image" | "video" | "audio";
 export type DirectorAction =
   | { type: "replace"; state: DirectorState }
   | { type: "add"; item: MediaItem }
+  | { type: "clear" }
   | { type: "remove"; id: string }
   | { type: "set-caption"; id: string; caption: string; channel?: DirectorChannel }
   | { type: "toggle"; id: string; channel: DirectorChannel }
@@ -50,6 +51,10 @@ export function directorReducer(state: DirectorState, action: DirectorAction): D
         audioOrder: isAudioItem(action.item) ? [...state.audioOrder, action.item.id] : state.audioOrder,
       };
     }
+    case "clear":
+      return Object.keys(state.items).length === 0
+        ? state
+        : { ...state, items: {}, imageOrder: [], videoOrder: [], audioOrder: [] };
     case "remove": {
       if (!state.items[action.id]) return state;
       const items = { ...state.items };
