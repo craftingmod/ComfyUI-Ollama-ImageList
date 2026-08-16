@@ -26,7 +26,10 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint && uv run ruff check .",
     "lint:fix": "oxlint --fix && uv run ruff check --fix .",
+    "init:template": "bun scripts/init-template.ts",
     "release:check": "bun scripts/validate-release.ts",
+    "skills:sync": "bun scripts/sync-comfyui-skills.ts",
+    "skills:check": "bun scripts/sync-comfyui-skills.ts --check",
     "setup:local": "bun scripts/setup-local.ts",
     "test": "bun run test:unit",
     "test:frontend": "bun test --preload ./frontend/test/setup.ts frontend/test",
@@ -34,7 +37,8 @@
     "test:unit": "bun run test:frontend && bun run test:backend",
     "test:watch": "bun test --preload ./frontend/test/setup.ts --watch frontend/test",
     "test:coverage": "bun test --preload ./frontend/test/setup.ts --coverage frontend/test",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json && tsc --noEmit -p ./frontend/test/tsconfig.json"
+    "typecheck": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json && tsc --noEmit -p ./frontend/test/tsconfig.json",
+    "version:bump": "bun scripts/bump-version.ts"
   },
   "devDependencies": {
     "@comfyorg/comfyui-frontend-types": "1.47.12",
