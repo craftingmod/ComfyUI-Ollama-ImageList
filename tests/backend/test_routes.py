@@ -2,8 +2,8 @@ import asyncio
 import sys
 from types import ModuleType, SimpleNamespace
 
-from backend.core import BackendError
 from backend import routes
+from backend.core import BackendError
 
 
 class Request:

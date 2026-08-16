@@ -12,7 +12,6 @@ from typing import Any
 
 from ..core import BackendError, InputNormalizationError, MediaBundle
 
-
 HANDLER_NAMES = (
     "auto",
     "generic",

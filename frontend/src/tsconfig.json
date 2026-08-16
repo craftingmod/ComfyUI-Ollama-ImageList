@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "es2025",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2025"],
+    "module": "ESNext",
+    "types": ["@comfyorg/comfyui-frontend-types"],
+
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["**/*.ts"]
+}

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Migrated repository tooling to the Bun and TypeScript ComfyUI custom-node template, including a bundled frontend, frontend tests, Ruff/Oxlint/Oxfmt checks, deterministic Registry packaging, release metadata validation, and tag-triggered Registry publishing while preserving the manual-install ZIP.
+
 ## 0.6.1 - 2026-08-15
 
 ### Changed

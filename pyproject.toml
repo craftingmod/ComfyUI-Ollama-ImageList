@@ -1,7 +1,7 @@
 [project]
 name = "ollama-image-list"
-description = "Analyze ComfyUI image, audio, and video lists with Ollama, llama.cpp GGUF, or native generative CLIP backends"
-version = "0.6.1"
+description = "Send mixed-resolution ComfyUI IMAGE data lists to Ollama in one request"
+version = "0.1.0"
 requires-python = ">=3.12"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -11,14 +11,11 @@ dev = [
   "pytest>=8.4.2",
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
 [project.urls]
 Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"
 
 [tool.comfy]
 PublisherId = "alyac"
 DisplayName = "Ollama-ImageList"
-requires-comfyui = ">=0.19.3"
+requires-comfyui = ">=0.18.1"
 Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Ollama-ImageList@latest/docs/icon.svg"

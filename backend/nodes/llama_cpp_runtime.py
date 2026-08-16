@@ -9,7 +9,6 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 
 from ..core import InputNormalizationError
 
-
 LlamaCppGemma4RuntimeType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
 )

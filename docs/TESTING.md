@@ -1,11 +1,24 @@
 # Testing
 
-Install the locked development dependencies and run the Python suite:
+Install the locked development dependencies:
 
 ```bash
+bun install --frozen-lockfile
 uv sync --locked --group dev
-uv run pytest
 ```
+
+Run the same validation sequence as CI:
+
+```bash
+bun run fmt:check
+bun run lint
+bun run typecheck
+bun run test:unit
+bun run build
+bun run build:custom-node
+```
+
+`bun run test:frontend` runs Bun frontend tests and `bun run test:backend` runs the Python suite. Generated frontend files live in `dist/`; edit `frontend/` rather than the bundle.
 
 The automated suite covers:
 

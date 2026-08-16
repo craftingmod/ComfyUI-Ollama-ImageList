@@ -1,0 +1,61 @@
+{
+  "name": "ollama-image-list",
+  "private": true,
+  "description": "ComfyUI multimodal Ollama, llama.cpp, and native CLIP custom nodes",
+  "keywords": [
+    "comfyui",
+    "custom node",
+    "llama.cpp",
+    "multimodal",
+    "ollama"
+  ],
+  "files": [
+    "frontend/",
+    "./*.config.ts",
+    "scripts/"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "bun run typecheck && bun frontend/dev.ts",
+    "deploy:dev": "bun run build && bun scripts/deploy-dev.ts",
+    "deploy:local": "bun scripts/deploy-local.ts",
+    "build": "bun run typecheck && bun frontend/build.ts",
+    "build:custom-node": "bun scripts/build-custom-nodes.ts",
+    "build:release-zip": "bun run build && pwsh -File ./scripts/build-custom-node-zip.ps1",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint && uv run ruff check .",
+    "lint:fix": "oxlint --fix && uv run ruff check --fix .",
+    "release:check": "bun scripts/validate-release.ts",
+    "setup:local": "bun scripts/setup-local.ts",
+    "test": "bun run test:unit",
+    "test:frontend": "bun test --preload ./frontend/test/setup.ts frontend/test",
+    "test:backend": "uv run pytest tests/python tests/backend -q",
+    "test:unit": "bun run test:frontend && bun run test:backend",
+    "test:watch": "bun test --preload ./frontend/test/setup.ts --watch frontend/test",
+    "test:coverage": "bun test --preload ./frontend/test/setup.ts --coverage frontend/test",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json && tsc --noEmit -p ./frontend/test/tsconfig.json"
+  },
+  "devDependencies": {
+    "@comfyorg/comfyui-frontend-types": "1.47.12",
+    "@happy-dom/global-registrator": "^20.11.2",
+    "@tsconfig/bun": "^1.0.10",
+    "@types/bun": "^1.3.14",
+    "fflate": "^0.8.3",
+    "lint-staged": "^17.3.0",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "@comfyorg/comfyui-desktop-bridge-types": "0.1.2"
+  },
+  "lint-staged": {
+    "*": "oxfmt --no-error-on-unmatched-pattern",
+    "*.py": [
+      "uv run ruff check --fix",
+      "uv run ruff format"
+    ]
+  },
+  "packageManager": "bun@1.3.14"
+}

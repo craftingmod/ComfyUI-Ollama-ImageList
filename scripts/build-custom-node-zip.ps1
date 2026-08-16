@@ -26,7 +26,7 @@ Replaces an archive that already exists.
 #>
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = "dist",
+    [string]$OutputDirectory = "build/releases",
     [string]$PackageName = "ComfyUI-Ollama-ImageList",
     [switch]$Force
 )
@@ -86,7 +86,7 @@ $optionalRootFiles = @(
 $packageDirectories = @(
     "backend",
     "web",
-    "js",
+    "dist",
     "assets",
     "presets",
     "locales",

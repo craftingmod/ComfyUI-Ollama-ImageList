@@ -13,7 +13,6 @@ from ..core import (
     unwrap_required_scalar,
 )
 
-
 GEMMA4_LIST_PR_URL = "https://github.com/Comfy-Org/ComfyUI/pull/15450"
 MODEL_FORMATS = ["auto", "qwen3_vl", "qwen3_5", "gemma4"]
 

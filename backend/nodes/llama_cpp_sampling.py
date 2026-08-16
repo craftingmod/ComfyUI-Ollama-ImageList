@@ -10,7 +10,6 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 
 from ..core import InputNormalizationError
 
-
 LlamaCppSamplingType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING")
 
 SAMPLING_PRESETS: dict[str, dict[str, float | int]] = {

@@ -16,7 +16,6 @@ from backend.core import (
 )
 from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 
-
 NATIVE_EVENTS = []
 
 
@@ -1039,7 +1038,7 @@ def test_run_chat_sends_audio_as_base64_pcm16_wav(tmp_path):
         {"waveform": silent_audio(1, 1, 80), "sample_rate": 16_000}
     )
 
-    result = run_chat(
+    run_chat(
         model_path=str(model),
         mmproj_path=str(mmproj),
         handler="auto",

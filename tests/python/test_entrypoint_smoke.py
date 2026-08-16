@@ -1,8 +1,6 @@
-import tomllib
 from pathlib import Path
 
 from conftest import load_package_from_path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINT_PATH = REPO_ROOT / "__init__.py"
@@ -17,5 +15,5 @@ def test_v3_entrypoint_exports_loader_and_frontend_directory():
     )
 
     assert callable(module.comfy_entrypoint)
-    assert module.WEB_DIRECTORY == "./js"
+    assert module.WEB_DIRECTORY == "./dist"
     assert module.__all__ == ["WEB_DIRECTORY", "comfy_entrypoint"]

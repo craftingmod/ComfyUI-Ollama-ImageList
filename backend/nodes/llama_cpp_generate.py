@@ -20,7 +20,6 @@ from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativeType
 from .llama_cpp_runtime import LlamaCppGemma4RuntimeType, normalize_gemma4_runtime
 from .llama_cpp_sampling import LlamaCppSamplingType, normalize_sampling
 
-
 LLM_FOLDER_NAME = "ollama_image_list_llm"
 NO_MODEL_OPTION = "[no GGUF models found]"
 NO_MMPROJ_OPTION = "[none]"

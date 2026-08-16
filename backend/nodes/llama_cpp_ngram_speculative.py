@@ -7,7 +7,6 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 
 from ..backends.llama_cpp import normalize_ngram_speculative
 
-
 LlamaCppNGramSpeculativeType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_NGRAM_SPECULATIVE"
 )

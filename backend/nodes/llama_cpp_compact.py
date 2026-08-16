@@ -32,7 +32,6 @@ from .llama_cpp_generate import (
 from .llama_cpp_ngram_speculative import normalize_ngram_speculative
 from .llama_cpp_speculative_generate import _draft_gguf_options
 
-
 LlamaCppModelProfileType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
 )

@@ -10,13 +10,31 @@ permissions:
   contents: read
 
 jobs:
+  validate:
+    uses: ./.github/workflows/ci.yaml
+
   publish_registry:
-    if: github.event_name == 'workflow_dispatch'
     name: Publish Custom Node to registry
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v7
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate release metadata
+        run: bun run release:check
+
+      - name: Build frontend
+        run: bun run build
+
       - name: Publish Custom Node
         uses: Comfy-Org/publish-node-action@main
         with:
@@ -25,6 +43,7 @@ jobs:
   github_release:
     if: github.event_name == 'push'
     name: Build and publish GitHub Release
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,7 +51,15 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v7
 
-      - name: Validate tag and build custom-node ZIP
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate tag and build manual-install ZIP
         id: build
         shell: pwsh
         run: |
@@ -52,12 +79,12 @@ jobs:
               throw "Tag $env:GITHUB_REF_NAME does not match project version $expectedTag."
           }
 
+          bun run build
           & ./scripts/build-custom-node-zip.ps1
-          $archive = "dist/ComfyUI-Ollama-ImageList-$version.zip"
+          $archive = "build/releases/ComfyUI-Ollama-ImageList-$version.zip"
           if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
               throw "Expected release archive was not created: $archive"
           }
-
           "archive=$archive" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub Release and upload ZIP

@@ -10,7 +10,6 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 
 from ..core import InputNormalizationError
 
-
 LlamaCppMediaDiagnosticsType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
 )

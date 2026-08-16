@@ -1,22 +1,35 @@
-node_modules/
-__pycache__/
-.pytest_cache/
-dist/
-coverage/
+# Common
 .DS_Store
+.claude/
+.codex/
+.vscode/settings.json
+
+# Build
+dist/
+build/
+coverage/
+
+# Environment
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Python
+.venv/
+__pycache__/
+.*-cache/
+.*_cache/
+
+# Bun
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-.venv/
-.uv-cache/
+
+# Local workspaces and generated notes
 .worktrees/
-.vscode/
-.claude/
 .changeset/
 docs/superpowers/

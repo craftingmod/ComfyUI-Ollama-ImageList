@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import hashlib
-import os
 from math import prod
-from pathlib import Path
 from typing import Any
 
 from .codecs import encode_audio_wav, encode_image_png
@@ -229,215 +226,15 @@ def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) 
     return MediaBundle(tuple(items))
 
 
-_VIDEO_MIME_TYPES = {
-    "avi": "video/x-msvideo",
-    "matroska": "video/x-matroska",
-    "mkv": "video/x-matroska",
-    "mov": "video/quicktime",
-    "mp4": "video/mp4",
-    "mpeg": "video/mpeg",
-    "mpg": "video/mpeg",
-    "ogg": "video/ogg",
-    "ogv": "video/ogg",
-    "quicktime": "video/quicktime",
-    "webm": "video/webm",
-}
-
-
-def _video_property(value: Any, method_name: str, default: Any = None) -> Any:
-    method = getattr(value, method_name, None)
-    if not callable(method):
-        return default
-    try:
-        return method()
-    except Exception:
-        return default
-
-
-def _read_video_source(source: Any, *, source_path: str, limit: int) -> bytes:
-    if isinstance(source, (str, os.PathLike)):
-        path = Path(source).expanduser()
-        try:
-            path = path.resolve(strict=True)
-        except (OSError, RuntimeError) as exc:
-            raise InputNormalizationError(
-                f"Video input {source_path} points to a missing stream source."
-            ) from exc
-        if not path.is_file():
-            raise InputNormalizationError(
-                f"Video input {source_path} stream source is not a file."
-            )
-        try:
-            byte_size = path.stat().st_size
-        except OSError as exc:
-            raise InputNormalizationError(
-                f"Video input {source_path} stream source cannot be inspected."
-            ) from exc
-        if byte_size > limit:
-            raise InputNormalizationError(
-                f"Video payload {byte_size} bytes exceeds the {limit}-byte limit."
-            )
-        try:
-            return path.read_bytes()
-        except OSError as exc:
-            raise InputNormalizationError(
-                f"Video input {source_path} stream source cannot be read."
-            ) from exc
-
-    if isinstance(source, (bytes, bytearray, memoryview)):
-        payload = bytes(source)
-    else:
-        read = getattr(source, "read", None)
-        if not callable(read):
-            raise InputNormalizationError(
-                f"Video input {source_path} returned an unsupported stream source."
-            )
-        original_position = None
-        tell = getattr(source, "tell", None)
-        seek = getattr(source, "seek", None)
-        try:
-            if callable(tell):
-                original_position = tell()
-            if callable(seek):
-                seek(0)
-            payload = read(limit + 1)
-        except (OSError, TypeError, ValueError) as exc:
-            raise InputNormalizationError(
-                f"Video input {source_path} stream source cannot be read."
-            ) from exc
-        finally:
-            if original_position is not None and callable(seek):
-                try:
-                    seek(original_position)
-                except (OSError, TypeError, ValueError):
-                    pass
-        if not isinstance(payload, (bytes, bytearray, memoryview)):
-            raise InputNormalizationError(
-                f"Video input {source_path} stream source did not return bytes."
-            )
-        payload = bytes(payload)
-
-    if len(payload) > limit:
-        raise InputNormalizationError(
-            f"Video payload {len(payload)} bytes exceeds the {limit}-byte limit."
-        )
-    return payload
-
-
-def normalize_video(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) -> MediaBundle:
-    items: list[MediaItem] = []
-
-    def visit(value: Any, depth: int, source_path: str) -> None:
-        if value is None:
-            return
-        if depth > limits.max_list_depth:
-            raise InputNormalizationError(
-                f"Video input nesting exceeds the maximum depth {limits.max_list_depth}."
-            )
-        if isinstance(value, (list, tuple)):
-            for offset, child in enumerate(value):
-                visit(child, depth + 1, f"{source_path}[{offset}]")
-            return
-
-        index = len(items)
-        if index >= limits.max_video_items:
-            raise InputNormalizationError(
-                f"Video item count exceeds the configured limit of {limits.max_video_items}."
-            )
-        get_stream_source = getattr(value, "get_stream_source", None)
-        if not callable(get_stream_source):
-            raise InputNormalizationError(
-                f"Video input {source_path} is not a ComfyUI VideoInput object."
-            )
-
-        duration = _video_property(value, "get_duration")
-        try:
-            duration_seconds = float(duration) if duration is not None else None
-        except (TypeError, ValueError):
-            duration_seconds = None
-        if duration_seconds is not None and duration_seconds > limits.max_video_seconds:
-            raise InputNormalizationError(
-                f"Video input {source_path} is {duration_seconds:.2f}s, exceeding the "
-                f"{limits.max_video_seconds:.2f}s limit."
-            )
-
-        remaining_bytes = limits.max_total_encoded_bytes - sum(
-            len(item.payload) for item in items
-        )
-        if remaining_bytes <= 0:
-            _check_totals(items, sum(len(item.payload) for item in items), limits)
-        try:
-            stream_source = get_stream_source()
-        except Exception as exc:
-            raise InputNormalizationError(
-                f"Video input {source_path} could not provide its stream source."
-            ) from exc
-        payload = _read_video_source(
-            stream_source,
-            source_path=source_path,
-            limit=remaining_bytes,
-        )
-        if not payload:
-            raise InputNormalizationError(f"Video input {source_path} is empty.")
-
-        container = str(_video_property(value, "get_container_format", "") or "").lower()
-        container = container.split(",", 1)[0].strip().lstrip(".")
-        mime_type = _VIDEO_MIME_TYPES.get(container, "video/mp4")
-        metadata: dict[str, Any] = {
-            "sha256": hashlib.sha256(payload).hexdigest(),
-            "source": source_path,
-        }
-        if container:
-            metadata["container_format"] = container
-        if duration_seconds is not None:
-            metadata["duration_seconds"] = duration_seconds
-
-        frame_count = _video_property(value, "get_frame_count")
-        try:
-            if frame_count is not None:
-                metadata["frame_count"] = max(0, int(frame_count))
-        except (TypeError, ValueError):
-            pass
-        frame_rate = _video_property(value, "get_frame_rate")
-        try:
-            if frame_rate is not None:
-                metadata["frame_rate"] = float(frame_rate)
-        except (TypeError, ValueError, ZeroDivisionError):
-            pass
-        dimensions = _video_property(value, "get_dimensions")
-        if isinstance(dimensions, (list, tuple)) and len(dimensions) == 2:
-            try:
-                metadata["width"] = max(0, int(dimensions[0]))
-                metadata["height"] = max(0, int(dimensions[1]))
-            except (TypeError, ValueError):
-                pass
-
-        items.append(
-            MediaItem(
-                kind="video",
-                index=index,
-                mime_type=mime_type,
-                payload=payload,
-                metadata=metadata,
-            )
-        )
-        _check_totals(items, sum(len(item.payload) for item in items), limits)
-
-    visit(values, 0, "video")
-    return MediaBundle(tuple(items))
-
-
 def normalize_media(
     *,
     images: Any = None,
     audio: Any = None,
-    video: Any = None,
     limits: MediaLimits = DEFAULT_MEDIA_LIMITS,
 ) -> MediaBundle:
     image_items = normalize_images(images, limits=limits).items
     audio_items = normalize_audio(audio, limits=limits).items
-    video_items = normalize_video(video, limits=limits).items
-    combined = MediaBundle(tuple(image_items + audio_items + video_items)).reindexed()
+    combined = MediaBundle(tuple(image_items + audio_items)).reindexed()
     if sum(len(item.payload) for item in combined.items) > limits.max_total_encoded_bytes:
         raise InputNormalizationError(
             f"Combined media payload exceeds the {limits.max_total_encoded_bytes}-byte limit."
