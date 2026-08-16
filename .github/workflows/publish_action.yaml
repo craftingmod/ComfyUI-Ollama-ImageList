@@ -1,5 +1,4 @@
-name: Publish releases
-
+name: Publish to Comfy registry
 on:
   workflow_dispatch:
   push:
@@ -13,7 +12,7 @@ jobs:
   validate:
     uses: ./.github/workflows/ci.yaml
 
-  publish_registry:
+  publish-node:
     name: Publish Custom Node to registry
     needs: validate
     runs-on: ubuntu-latest
@@ -23,11 +22,9 @@ jobs:
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Install Bun dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
 
       - name: Validate release metadata
         run: bun run release:check
@@ -40,7 +37,7 @@ jobs:
         with:
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
 
-  github_release:
+  github-release:
     if: github.event_name == 'push'
     name: Build and publish GitHub Release
     needs: validate
@@ -53,49 +50,22 @@ jobs:
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Install Bun dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
 
-      - name: Validate tag and build manual-install ZIP
+      - name: Validate tag and build Registry ZIP
         id: build
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $pyproject = Get-Content -LiteralPath "pyproject.toml" -Raw
-          $versionMatch = [regex]::Match(
-              $pyproject,
-              '(?m)^\s*version\s*=\s*"([^"]+)"\s*$'
-          )
-          if (-not $versionMatch.Success) {
-              throw "Could not read the project version from pyproject.toml."
-          }
-
-          $version = $versionMatch.Groups[1].Value
-          $expectedTag = "v$version"
-          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
-              throw "Tag $env:GITHUB_REF_NAME does not match project version $expectedTag."
-          }
-
-          bun run build
-          & ./scripts/build-custom-node-zip.ps1
-          $archive = "build/releases/ComfyUI-Ollama-ImageList-$version.zip"
-          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
-              throw "Expected release archive was not created: $archive"
-          }
-          "archive=$archive" >> $env:GITHUB_OUTPUT
+        run: bun run release:github
 
       - name: Create GitHub Release and upload ZIP
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           ARCHIVE_PATH: ${{ steps.build.outputs.archive }}
         run: |
-          gh release create `
-              $env:GITHUB_REF_NAME `
-              $env:ARCHIVE_PATH `
-              --verify-tag `
-              --generate-notes `
-              --title $env:GITHUB_REF_NAME
+          gh release create \
+            "$GITHUB_REF_NAME" \
+            "$ARCHIVE_PATH" \
+            --verify-tag \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"

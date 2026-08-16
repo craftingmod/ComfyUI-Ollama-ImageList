@@ -7,6 +7,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Validate
@@ -22,18 +25,16 @@ jobs:
           python-version-file: ".python-version"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
 
       - name: Install Bun dependencies
-        run: bun install --frozen-lockfile
+        run: bun ci
 
       - name: Sync Python dependencies
         run: uv sync --locked --group dev
@@ -49,9 +50,6 @@ jobs:
 
       - name: Run unit tests
         run: bun run test:unit
-
-      - name: Validate release metadata
-        run: bun run release:check
 
       - name: Build frontend
         run: bun run build
