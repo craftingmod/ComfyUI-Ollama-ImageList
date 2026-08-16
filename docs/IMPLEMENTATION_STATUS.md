@@ -8,7 +8,7 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 | --- | --- |
 | Node API | V3 schema via `comfy_api.v0_0_2`, with `latest` fallback |
 | Minimum supported ComfyUI | 0.19.3 (official Generate Text dynamic schema baseline) |
-| Current package release | 0.6.1 |
+| Current package release | 0.7.0 |
 | Backend priority | Ollama REST, optional native llama.cpp, and ComfyUI generative CLIP |
 | List handling | Node-level `is_input_list=True` |
 | Ollama endpoint | `/api/chat`, stateless, `stream=false` |

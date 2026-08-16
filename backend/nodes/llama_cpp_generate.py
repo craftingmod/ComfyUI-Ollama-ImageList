@@ -125,6 +125,8 @@ def _resolve_runtime_values(
     n_batch,
     override_n_ubatch,
     n_ubatch,
+    override_image_min_tokens,
+    image_min_tokens,
     override_image_max_tokens,
     image_max_tokens,
     runtime,
@@ -135,6 +137,14 @@ def _resolve_runtime_values(
             unwrap_optional_scalar("override_n_ubatch", override_n_ubatch, False)
         ),
         "n_ubatch": int(unwrap_optional_scalar("n_ubatch", n_ubatch, 512)),
+        "override_image_min_tokens": bool(
+            unwrap_optional_scalar(
+                "override_image_min_tokens", override_image_min_tokens, False
+            )
+        ),
+        "image_min_tokens": int(
+            unwrap_optional_scalar("image_min_tokens", image_min_tokens, 1024)
+        ),
         "override_image_max_tokens": bool(
             unwrap_optional_scalar(
                 "override_image_max_tokens", override_image_max_tokens, False
@@ -145,7 +155,9 @@ def _resolve_runtime_values(
         ),
     }
     connected = unwrap_optional_scalar("runtime", runtime, None)
-    return values if connected is None else normalize_gemma4_runtime(connected)
+    if connected is None:
+        return values
+    return {**values, **normalize_gemma4_runtime(connected)}
 
 
 class LlamaCppImageListGenerateNode(io.ComfyNode):
@@ -336,8 +348,8 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     step=1,
                     advanced=True,
                     tooltip=(
-                        "Logical prompt batch size. When image_max_tokens is overridden, this "
-                        "must be at least that value."
+                        "Logical prompt batch size. When an image token limit is overridden, "
+                        "this must be at least the effective limit."
                     ),
                 ),
                 io.Boolean.Input(
@@ -471,6 +483,29 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                         "formats. 0 applies no budget. Ignored when thinking is disabled."
                     ),
                 ),
+                io.Boolean.Input(
+                    "override_image_min_tokens",
+                    default=False,
+                    label_on="Override",
+                    label_off="Use mmproj default",
+                    advanced=True,
+                    tooltip=(
+                        "Pass an explicit dynamic-resolution image token floor to the MTMD "
+                        "handler. Qwen-VL grounding tasks may require 1024 or more."
+                    ),
+                ),
+                io.Int.Input(
+                    "image_min_tokens",
+                    default=1024,
+                    min=1,
+                    max=65_536,
+                    step=1,
+                    advanced=True,
+                    tooltip=(
+                        "Per-image or per-video-frame token floor used only when its override "
+                        "is enabled. n_batch and effective n_ubatch must cover this value."
+                    ),
+                ),
             ],
             outputs=[
                 io.String.Output("response", display_name="response"),
@@ -527,6 +562,8 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         mtp_provider="off",
         reasoning_strength="auto",
         reasoning_budget=0,
+        override_image_min_tokens=False,
+        image_min_tokens=1024,
     ) -> io.NodeOutput:
         resolved_spec_type = str(
             unwrap_optional_scalar("spec_type", spec_type, "none")
@@ -558,6 +595,8 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             n_batch=n_batch,
             override_n_ubatch=override_n_ubatch,
             n_ubatch=n_ubatch,
+            override_image_min_tokens=override_image_min_tokens,
+            image_min_tokens=image_min_tokens,
             override_image_max_tokens=override_image_max_tokens,
             image_max_tokens=image_max_tokens,
             runtime=runtime,
@@ -642,6 +681,10 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             n_batch=int(runtime_values["n_batch"]),
             override_n_ubatch=bool(runtime_values["override_n_ubatch"]),
             n_ubatch=int(runtime_values["n_ubatch"]),
+            override_image_min_tokens=bool(
+                runtime_values["override_image_min_tokens"]
+            ),
+            image_min_tokens=int(runtime_values["image_min_tokens"]),
             override_image_max_tokens=bool(
                 runtime_values["override_image_max_tokens"]
             ),

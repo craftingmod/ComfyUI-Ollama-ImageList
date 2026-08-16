@@ -627,6 +627,7 @@ def _create_handler(
     verbose: bool,
     thinking: bool | None,
     reasoning_strength: str | None,
+    image_min_tokens: int | None,
     image_max_tokens: int | None,
 ) -> Any | None:
     if handler == "auto":
@@ -648,6 +649,8 @@ def _create_handler(
         "mmproj_path": mmproj_path,
         "verbose": verbose,
     }
+    if image_min_tokens is not None:
+        handler_kwargs["image_min_tokens"] = image_min_tokens
     if image_max_tokens is not None:
         handler_kwargs["image_max_tokens"] = image_max_tokens
     if handler == "gemma4" and thinking is not None:
@@ -834,6 +837,7 @@ def _validate_multimodal_batch_settings(
     n_ctx: int,
     n_batch: int,
     n_ubatch: int | None,
+    image_min_tokens: int | None,
     image_max_tokens: int | None,
 ) -> None:
     if n_ubatch is not None and n_ubatch > min(n_ctx, n_batch):
@@ -841,25 +845,39 @@ def _validate_multimodal_batch_settings(
             "n_ubatch cannot exceed n_batch or n_ctx because llama-cpp-python clamps the "
             "physical batch to both values."
         )
-    if image_max_tokens is None or not any(
+    if (
+        image_min_tokens is not None
+        and image_max_tokens is not None
+        and image_min_tokens > image_max_tokens
+    ):
+        raise InputNormalizationError(
+            "image_min_tokens cannot exceed image_max_tokens when both are overridden."
+        )
+    image_token_limit = (
+        image_max_tokens if image_max_tokens is not None else image_min_tokens
+    )
+    image_token_limit_name = (
+        "image_max_tokens" if image_max_tokens is not None else "image_min_tokens"
+    )
+    if image_token_limit is None or not any(
         item.kind in {"image", "video"} for item in media.items
     ):
         return
 
-    if image_max_tokens > n_ctx:
+    if image_token_limit > n_ctx:
         raise InputNormalizationError(
-            "image_max_tokens cannot exceed n_ctx for an image or video request."
+            f"{image_token_limit_name} cannot exceed n_ctx for an image or video request."
         )
-    if image_max_tokens > n_batch:
+    if image_token_limit > n_batch:
         raise InputNormalizationError(
-            "n_batch must be at least image_max_tokens for an image or video request."
+            f"n_batch must be at least {image_token_limit_name} for an image or video request."
         )
     effective_n_ubatch = n_ubatch
     if effective_n_ubatch is None:
         effective_n_ubatch = min(n_ctx, n_batch, _DEFAULT_N_UBATCH)
-    if image_max_tokens > effective_n_ubatch:
+    if image_token_limit > effective_n_ubatch:
         raise InputNormalizationError(
-            "The effective n_ubatch must be at least image_max_tokens for an image or video "
+            f"The effective n_ubatch must be at least {image_token_limit_name} for an image or video "
             "request. Enable the n_ubatch override and raise its value to avoid a native "
             "non-causal attention assertion."
         )
@@ -998,6 +1016,8 @@ def run_chat(
     thinking: bool | None = False,
     reasoning_strength: str = "auto",
     reasoning_budget: int = 0,
+    override_image_min_tokens: bool = False,
+    image_min_tokens: int = 1024,
     override_image_max_tokens: bool = False,
     image_max_tokens: int = 1120,
     temperature: float = 0.2,
@@ -1072,6 +1092,9 @@ def run_chat(
     n_ubatch_override = _optional_positive_override(
         "n_ubatch", override_n_ubatch, n_ubatch
     )
+    image_min_tokens_override = _optional_positive_override(
+        "image_min_tokens", override_image_min_tokens, image_min_tokens
+    )
     image_max_tokens_override = _optional_positive_override(
         "image_max_tokens", override_image_max_tokens, image_max_tokens
     )
@@ -1080,6 +1103,7 @@ def run_chat(
         n_ctx=int(n_ctx),
         n_batch=int(n_batch),
         n_ubatch=n_ubatch_override,
+        image_min_tokens=image_min_tokens_override,
         image_max_tokens=image_max_tokens_override,
     )
 
@@ -1119,6 +1143,7 @@ def run_chat(
                     verbose=verbose,
                     thinking=thinking,
                     reasoning_strength=effective_reasoning_strength,
+                    image_min_tokens=image_min_tokens_override,
                     image_max_tokens=image_max_tokens_override,
                 )
                 if has_media
@@ -1152,6 +1177,10 @@ def run_chat(
                     model_kwargs["chat_handler_kwargs"]["extra_template_arguments"][
                         "reasoning_strength"
                     ] = effective_reasoning_strength
+                if image_min_tokens_override is not None:
+                    model_kwargs["chat_handler_kwargs"]["image_min_tokens"] = (
+                        image_min_tokens_override
+                    )
                 if image_max_tokens_override is not None:
                     model_kwargs["chat_handler_kwargs"]["image_max_tokens"] = (
                         image_max_tokens_override
@@ -1382,6 +1411,7 @@ def run_chat(
             "n_ctx": int(n_ctx),
             "n_batch": int(n_batch),
             "n_ubatch_override": n_ubatch_override,
+            "image_min_tokens_override": image_min_tokens_override,
             "image_max_tokens_override": image_max_tokens_override,
             "presence_penalty": float(presence_penalty),
         },

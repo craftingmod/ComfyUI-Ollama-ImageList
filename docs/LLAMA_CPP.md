@@ -117,6 +117,8 @@ Advanced inputs retain manual control when no preset is connected:
 | `n_batch` | `512` | Logical prompt batch size. |
 | `override_n_ubatch` | `false` | When disabled, the adjacent value is not passed. |
 | `n_ubatch` | `512` | Physical batch size when its override is enabled. |
+| `override_image_min_tokens` | `false` | When disabled, the projector/backend default remains authoritative. |
+| `image_min_tokens` | `1024` | Per-image or per-video-frame floor when enabled; useful for Qwen-VL grounding accuracy. |
 | `override_image_max_tokens` | `false` | When disabled, the projector/backend default remains authoritative. |
 | `image_max_tokens` | `1120` | Per-image or per-video-frame ceiling when enabled. |
 | `main_gpu` | `0` | Main GPU index. |
@@ -131,7 +133,7 @@ ignoring the limit. Reasoning tokens share the `max_tokens` output allowance, so
 | `use_mmap` | `true` | Memory-maps the GGUF while the model is loaded. |
 | `verbose` | `false` | Controls model, timing, and handler diagnostics from both model and handler construction. |
 
-If `image_max_tokens` is explicitly overridden for an IMAGE or VIDEO request, it cannot exceed `n_ctx`, `n_batch`, or the effective `n_ubatch`. Invalid combinations fail before loading the model rather than reaching a native assertion.
+If an image token floor or ceiling is explicitly overridden for an IMAGE or VIDEO request, the effective limit cannot exceed `n_ctx`, `n_batch`, or the effective `n_ubatch`. When both are set, `image_min_tokens` cannot exceed `image_max_tokens`. Invalid combinations fail before loading the model rather than reaching a native assertion.
 
 ## Compact nodes
 
@@ -189,10 +191,11 @@ loading. `off` explicitly disables reasoning; `on` applies effort and a positive
 budget. `max_reasoning_tokens=0` omits the separate reasoning limit, but reasoning and the
 final answer still share Generate's `max_tokens` allowance.
 
-Compact Generate keeps `n_ctx`, `max_tokens`, and `image_max_tokens` visible because these
-are request budgets. `image_max_tokens=0` leaves
-the mmproj/handler default untouched; a positive value enables the explicit override and
-must fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
+Compact Generate keeps `n_ctx`, `max_tokens`, `image_min_tokens`, and `image_max_tokens`
+visible because these are request budgets. A value of `0` for either image-token setting
+leaves that mmproj/handler default untouched; a positive value enables the explicit override.
+For Qwen-VL grounding tasks, set `image_min_tokens=1024`. Explicit image-token limits must
+fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
 and output length remain user-selected even when a Qwen 3.5 profile supplies its mode.
 
 Native Speculative Config choices are `Off`, `Muse Glimmer DFlash`, `Generic DFlash`,
@@ -350,7 +353,7 @@ Connect Media Diagnostics first. Check the handler's Vision/Audio/Video capabili
 
 ### Native batch assertion or image token error
 
-Use a Gemma 4 Runtime Preset or ensure that an explicit `image_max_tokens` value is no larger than `n_batch` and the effective `n_ubatch`. Increase `n_ctx` when the total media tokens plus requested output exceed the context window; increasing context alone does not repair a mismatched model, projector, or template.
+Use a Gemma 4 Runtime Preset or ensure that explicit `image_min_tokens` and `image_max_tokens` values are no larger than `n_batch` and the effective `n_ubatch`. Increase `n_ctx` when the total media tokens plus requested output exceed the context window; increasing context alone does not repair a mismatched model, projector, or template.
 
 ### VIDEO fails before generation
 

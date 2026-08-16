@@ -1318,6 +1318,8 @@ def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
         n_batch=1120,
         override_n_ubatch=True,
         n_ubatch=1120,
+        override_image_min_tokens=True,
+        image_min_tokens=1024,
         override_image_max_tokens=True,
         image_max_tokens=1120,
         bindings=make_bindings(gemma4=FakeHandler),
@@ -1327,6 +1329,7 @@ def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
         "mmproj_path": str(mmproj.resolve()),
         "verbose": False,
         "enable_thinking": True,
+        "image_min_tokens": 1024,
         "image_max_tokens": 1120,
     }
     assert FakeLlama.instances[0].kwargs["n_ubatch"] == 1120
@@ -1339,6 +1342,7 @@ def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
         "n_ctx": 8192,
         "n_batch": 1120,
         "n_ubatch_override": 1120,
+        "image_min_tokens_override": 1024,
         "image_max_tokens_override": 1120,
         "presence_penalty": 0.0,
     }
@@ -1377,6 +1381,8 @@ def test_auto_handler_receives_thinking_and_image_token_overrides(tmp_path):
         n_batch=1120,
         override_n_ubatch=True,
         n_ubatch=1120,
+        override_image_min_tokens=True,
+        image_min_tokens=1024,
         override_image_max_tokens=True,
         image_max_tokens=1120,
         bindings=make_bindings(),
@@ -1389,6 +1395,7 @@ def test_auto_handler_receives_thinking_and_image_token_overrides(tmp_path):
             "force_reasoning": True,
             "reasoning_strength": "xhigh",
         },
+        "image_min_tokens": 1024,
         "image_max_tokens": 1120,
     }
 
@@ -1536,12 +1543,14 @@ def test_disabled_overrides_do_not_pass_integer_values(tmp_path):
         prompt="describe",
         media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
         n_ubatch=2048,
+        image_min_tokens=2048,
         image_max_tokens=2048,
         bindings=make_bindings(),
     )
 
     model_kwargs = FakeLlama.instances[0].kwargs
     assert "n_ubatch" not in model_kwargs
+    assert "image_min_tokens" not in model_kwargs["chat_handler_kwargs"]
     assert "image_max_tokens" not in model_kwargs["chat_handler_kwargs"]
 
 
@@ -1559,6 +1568,50 @@ def test_image_token_override_rejects_unsafe_physical_batch(tmp_path):
             n_batch=1120,
             override_image_max_tokens=True,
             image_max_tokens=1120,
+            bindings=make_bindings(),
+        )
+
+    assert FakeLlama.instances == []
+
+
+def test_image_min_token_override_rejects_unsafe_physical_batch(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+
+    with pytest.raises(InputNormalizationError, match="effective n_ubatch"):
+        run_chat(
+            model_path=str(model),
+            mmproj_path=str(mmproj),
+            handler="auto",
+            system="",
+            prompt="ground the objects",
+            media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
+            n_batch=1024,
+            override_image_min_tokens=True,
+            image_min_tokens=1024,
+            bindings=make_bindings(),
+        )
+
+    assert FakeLlama.instances == []
+
+
+def test_image_min_tokens_cannot_exceed_explicit_maximum(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+
+    with pytest.raises(InputNormalizationError, match="cannot exceed image_max_tokens"):
+        run_chat(
+            model_path=str(model),
+            mmproj_path=str(mmproj),
+            handler="auto",
+            system="",
+            prompt="ground the objects",
+            media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
+            n_batch=2048,
+            override_n_ubatch=True,
+            n_ubatch=2048,
+            override_image_min_tokens=True,
+            image_min_tokens=1024,
+            override_image_max_tokens=True,
+            image_max_tokens=768,
             bindings=make_bindings(),
         )
 

@@ -940,6 +940,16 @@ def _compact_common_inputs() -> list[Any]:
         io.Audio.Input("audio", optional=True),
         io.Video.Input("video", optional=True),
         io.Boolean.Input("verbose", default=False, advanced=True),
+        io.Int.Input(
+            "image_min_tokens",
+            default=0,
+            min=0,
+            max=65_536,
+            step=1,
+            tooltip=(
+                "0 keeps the projector default. Qwen-VL grounding tasks may require 1024."
+            ),
+        ),
     ]
 
 
@@ -953,6 +963,7 @@ def _execute_compact(
     prompt: Any,
     n_ctx: Any,
     max_tokens: Any,
+    image_min_tokens: Any,
     image_max_tokens: Any,
     seed: Any,
     stop: Any,
@@ -1004,6 +1015,9 @@ def _execute_compact(
         else unwrap_required_scalar("hardware_profile", hardware_profile)
     )
     n_ubatch = compact_hardware_profile.pop("n_ubatch")
+    image_token_floor = int(
+        unwrap_optional_scalar("image_min_tokens", image_min_tokens, 0)
+    )
     image_token_limit = int(
         unwrap_optional_scalar("image_max_tokens", image_max_tokens, 0)
     )
@@ -1080,6 +1094,8 @@ def _execute_compact(
         prompt=str(unwrap_required_scalar("prompt", prompt)),
         n_ctx=int(unwrap_optional_scalar("n_ctx", n_ctx, 8_192)),
         max_tokens=output_token_limit,
+        override_image_min_tokens=image_token_floor > 0,
+        image_min_tokens=image_token_floor if image_token_floor > 0 else 1_024,
         override_image_max_tokens=image_token_limit > 0,
         image_max_tokens=image_token_limit if image_token_limit > 0 else 1_120,
         override_n_ubatch=n_ubatch > 0,
@@ -1155,6 +1171,7 @@ class _LlamaCppGenerateNodeBase(io.ComfyNode):
         hardware_profile=None,
         reasoning=None,
         speculative=None,
+        image_min_tokens=0,
     ) -> io.NodeOutput:
         return _execute_compact(
             model_path=model_path,
@@ -1165,6 +1182,7 @@ class _LlamaCppGenerateNodeBase(io.ComfyNode):
             prompt=prompt,
             n_ctx=n_ctx,
             max_tokens=max_tokens,
+            image_min_tokens=image_min_tokens,
             image_max_tokens=image_max_tokens,
             seed=seed,
             stop=stop,

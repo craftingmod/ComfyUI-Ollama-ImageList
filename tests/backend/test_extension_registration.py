@@ -868,6 +868,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "audio",
         "video",
         "verbose",
+        "image_min_tokens",
     ]
     assert compact_inputs["model_profile"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
@@ -876,6 +877,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
     )
     assert compact_inputs["hardware_profile"].options["optional"] is True
+    assert compact_inputs["image_min_tokens"].options["default"] == 0
     assert compact_inputs["image_max_tokens"].options["default"] == 0
     assert compact_inputs["reasoning"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
@@ -956,8 +958,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_inputs["reasoning_budget"].options["min"] == 0
     assert llama_inputs["reasoning_budget"].options["max"] == 65536
     assert llama_inputs["reasoning_budget"].options["advanced"] is True
-    assert llama_schema.inputs[-2].name == "reasoning_strength"
-    assert llama_schema.inputs[-1].name == "reasoning_budget"
+    assert llama_schema.inputs[-4].name == "reasoning_strength"
+    assert llama_schema.inputs[-3].name == "reasoning_budget"
+    assert llama_schema.inputs[-2].name == "override_image_min_tokens"
+    assert llama_schema.inputs[-1].name == "image_min_tokens"
     assert llama_inputs["gpu_layers"].options["default"] == "all"
     assert all(
         llama_inputs[name].options["advanced"] is True
@@ -977,6 +981,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_inputs["override_n_ubatch"].options["advanced"] is True
     assert llama_inputs["n_ubatch"].options["default"] == 512
     assert llama_inputs["n_ubatch"].options["advanced"] is True
+    assert llama_inputs["override_image_min_tokens"].options["default"] is False
+    assert llama_inputs["override_image_min_tokens"].options["advanced"] is True
+    assert llama_inputs["image_min_tokens"].options["default"] == 1024
+    assert llama_inputs["image_min_tokens"].options["advanced"] is True
     assert llama_inputs["override_image_max_tokens"].options["default"] is False
     assert llama_inputs["override_image_max_tokens"].options["advanced"] is True
     assert llama_inputs["image_max_tokens"].options["default"] == 1120
@@ -1151,6 +1159,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         model_profile=[muse_profile],
         n_ctx=[32768],
         max_tokens=[4096],
+        image_min_tokens=[0],
         image_max_tokens=[0],
         reasoning=[muse_reasoning],
         speculative=[compact_ngram_config],
@@ -1173,6 +1182,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["flash_attention"] == "auto"
     assert captured_speculative_call["use_mmap"] is True
     assert captured_speculative_call["override_n_ubatch"] is False
+    assert captured_speculative_call["override_image_min_tokens"] is False
     assert captured_speculative_call["override_image_max_tokens"] is False
     assert captured_speculative_call["ngram_speculative"] == ngram_configuration
 
@@ -1258,6 +1268,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         mmproj_path=["[none]"],
         model_profile=[muse_profile],
         hardware_profile=[custom_hardware_profile],
+        image_min_tokens=[768],
         image_max_tokens=[768],
         speculative=[muse_draft_config],
     )
@@ -1276,6 +1287,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["speculative_class"] is speculative_binding
     assert captured_speculative_call["override_n_ubatch"] is True
     assert captured_speculative_call["n_ubatch"] == 1024
+    assert captured_speculative_call["override_image_min_tokens"] is True
+    assert captured_speculative_call["image_min_tokens"] == 768
     assert captured_speculative_call["override_image_max_tokens"] is True
     assert captured_speculative_call["image_max_tokens"] == 768
 
@@ -1417,6 +1430,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         n_batch=[512],
         override_n_ubatch=[False],
         n_ubatch=[2048],
+        override_image_min_tokens=[True],
+        image_min_tokens=[1024],
         override_image_max_tokens=[False],
         image_max_tokens=[2048],
         runtime=None,
@@ -1424,6 +1439,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "n_batch": 512,
         "override_n_ubatch": False,
         "n_ubatch": 2048,
+        "override_image_min_tokens": True,
+        "image_min_tokens": 1024,
         "override_image_max_tokens": False,
         "image_max_tokens": 2048,
     }
@@ -1431,6 +1448,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         n_batch=[512],
         override_n_ubatch=[False],
         n_ubatch=[512],
+        override_image_min_tokens=[True],
+        image_min_tokens=[1024],
         override_image_max_tokens=[False],
         image_max_tokens=[1120],
         runtime=[runtime_class.execute("Vision Long / Thinking")[0]],
@@ -1438,6 +1457,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "n_batch": 512,
         "override_n_ubatch": True,
         "n_ubatch": 512,
+        "override_image_min_tokens": True,
+        "image_min_tokens": 1024,
         "override_image_max_tokens": True,
         "image_max_tokens": 512,
     }

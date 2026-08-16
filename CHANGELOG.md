@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.7.0 - 2026-08-17
+
+### Added
+
+- Added explicit `image_min_tokens` controls for llama.cpp Generate nodes, including the Qwen-VL grounding recommendation, handler forwarding, batch-safety validation, and positional saved-workflow compatibility.
+
 ### Changed
 
 - Migrated repository tooling to the Bun and TypeScript ComfyUI custom-node template, including a bundled frontend, frontend tests, Ruff/Oxlint/Oxfmt checks, deterministic Registry packaging, release metadata validation, and tag-triggered Registry publishing while preserving the manual-install ZIP.
