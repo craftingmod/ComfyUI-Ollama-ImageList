@@ -7,4 +7,4 @@ class InputNormalizationError(ImageListError):
 
 
 class BackendError(ImageListError):
-    """Raised when a remote inference backend fails."""
+    """Raised when a remote or local inference backend fails."""

@@ -9,7 +9,6 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI devel
 
 from ..core import build_ollama_options
 
-
 OptionsDictType = io.Custom("DICT")
 _MAX_INT = 2_147_483_647
 

@@ -6,7 +6,6 @@ from typing import Any
 
 from .errors import InputNormalizationError
 
-
 OLLAMA_OPTION_NAMES = (
     "num_ctx",
     "num_predict",

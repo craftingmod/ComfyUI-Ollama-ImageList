@@ -14,7 +14,6 @@ from ..core import resolve_ollama_options
 from ..core.errors import BackendError, InputNormalizationError
 from ..core.media import MediaBundle
 
-
 JsonObject = dict[str, Any]
 Transport = Callable[[str, bytes, float], tuple[int, bytes]]
 ModelsTransport = Callable[[str, float], tuple[int, bytes]]

@@ -1,5 +1,5 @@
-import { api } from "../../scripts/api.js"
-import { app } from "../../scripts/app.js"
+import type { ComfyApi, ComfyApp } from "@comfyorg/comfyui-frontend-types"
+
 import type {
   ComfyNodeDefinitionLike,
   ComfyNodeLike,
@@ -15,7 +15,7 @@ const requestSequence: unique symbol = Symbol("ollamaModelsRequestSequence")
 
 type ConnectivityNode = ComfyNodeLike & { [requestSequence]?: number }
 
-function showError(message: string): void {
+function showError(app: ComfyApp, message: string): void {
   app.extensionManager.toast.add({
     severity: "error",
     summary: `${PROJECT_NAME} model fetch failed`,
@@ -24,7 +24,7 @@ function showError(message: string): void {
   })
 }
 
-function parseModels(payload: unknown): string[] {
+export function parseModels(payload: unknown): string[] {
   if (!payload || typeof payload !== "object" || !("models" in payload)) {
     throw new Error("ComfyUI returned an invalid Ollama model list.")
   }
@@ -35,7 +35,7 @@ function parseModels(payload: unknown): string[] {
   return models
 }
 
-async function requestModels(url: string): Promise<string[]> {
+async function requestModels(api: ComfyApi, url: string): Promise<string[]> {
   const response = await api.fetchApi(MODELS_ROUTE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,7 +70,12 @@ function copySelectionToModel(
   node.setDirtyCanvas(true, true)
 }
 
-async function refreshModels(node: ConnectivityNode, buttonWidget: ComfyWidget): Promise<void> {
+async function refreshModels(
+  app: ComfyApp,
+  api: ComfyApi,
+  node: ConnectivityNode,
+  buttonWidget: ComfyWidget,
+): Promise<void> {
   const urlWidget = getWidget(node, "url")
   const availableWidget = getWidget(node, "available_models")
   const modelWidget = getWidget(node, "model")
@@ -83,7 +88,7 @@ async function refreshModels(node: ConnectivityNode, buttonWidget: ComfyWidget):
   node.setDirtyCanvas(true, true)
 
   try {
-    const models = await requestModels(String(urlWidget.value ?? ""))
+    const models = await requestModels(api, String(urlWidget.value ?? ""))
     if (node[requestSequence] !== sequence) return
 
     availableWidget.options ??= {}
@@ -101,7 +106,7 @@ async function refreshModels(node: ConnectivityNode, buttonWidget: ComfyWidget):
     node.setDirtyCanvas(true, true)
   } catch (error) {
     if (node[requestSequence] === sequence) {
-      showError(error instanceof Error ? error.message : "Unknown error.")
+      showError(app, error instanceof Error ? error.message : "Unknown error.")
     }
   } finally {
     if (node[requestSequence] === sequence) {
@@ -112,35 +117,37 @@ async function refreshModels(node: ConnectivityNode, buttonWidget: ComfyWidget):
   }
 }
 
-app.registerExtension({
-  name: EXTENSION_NAMES.CONNECTIVITY,
+export function registerOllamaConnectivity(app: ComfyApp, api: ComfyApi): void {
+  app.registerExtension({
+    name: EXTENSION_NAMES.CONNECTIVITY,
 
-  beforeRegisterNodeDef(nodeType, nodeData) {
-    const definition = nodeData as unknown as ComfyNodeDefinitionLike
-    if (definition.name !== NODE_CLASS) return
+    beforeRegisterNodeDef(nodeType, nodeData) {
+      const definition = nodeData as unknown as ComfyNodeDefinitionLike
+      if (definition.name !== NODE_CLASS) return
 
-    const typedNodeType = nodeType as unknown as ComfyNodeTypeLike
-    const originalOnNodeCreated = typedNodeType.prototype.onNodeCreated
-    typedNodeType.prototype.onNodeCreated = function (...args: unknown[]) {
-      const node = this as ConnectivityNode
-      const result = originalOnNodeCreated?.apply(node, args)
-      const availableWidget = getWidget(node, "available_models")
-      const modelWidget = getWidget(node, "model")
-      if (!availableWidget || !modelWidget) return result
+      const typedNodeType = nodeType as unknown as ComfyNodeTypeLike
+      const originalOnNodeCreated = typedNodeType.prototype.onNodeCreated
+      typedNodeType.prototype.onNodeCreated = function (...args: unknown[]) {
+        const node = this as ConnectivityNode
+        const result = originalOnNodeCreated?.apply(node, args)
+        const availableWidget = getWidget(node, "available_models")
+        const modelWidget = getWidget(node, "model")
+        if (!availableWidget || !modelWidget) return result
 
-      const originalAvailableCallback = availableWidget.callback
-      availableWidget.callback = (value, ...callbackArgs) => {
-        originalAvailableCallback?.call(availableWidget, value, ...callbackArgs)
-        copySelectionToModel(node, modelWidget, value)
+        const originalAvailableCallback = availableWidget.callback
+        availableWidget.callback = (value, ...callbackArgs) => {
+          originalAvailableCallback?.call(availableWidget, value, ...callbackArgs)
+          copySelectionToModel(node, modelWidget, value)
+        }
+
+        const fetchButton = node.addWidget("button", "Fetch", null, () => {
+          void refreshModels(app, api, node, fetchButton)
+        })
+        fetchButton.serialize = false
+
+        setTimeout(() => void refreshModels(app, api, node, fetchButton), 0)
+        return result
       }
-
-      const fetchButton = node.addWidget("button", "Fetch", null, () => {
-        void refreshModels(node, fetchButton)
-      })
-      fetchButton.serialize = false
-
-      setTimeout(() => void refreshModels(node, fetchButton), 0)
-      return result
-    }
-  },
-})
+    },
+  })
+}

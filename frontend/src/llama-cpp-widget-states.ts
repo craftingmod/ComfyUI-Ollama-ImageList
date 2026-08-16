@@ -1,4 +1,5 @@
-import { app } from "../../scripts/app.js"
+import type { ComfyApp } from "@comfyorg/comfyui-frontend-types"
+
 import type { ComfyNodeDefinitionLike, ComfyNodeLike, ComfyNodeTypeLike } from "./comfy-types.ts"
 import { getWidget } from "./comfy-types.ts"
 import { EXTENSION_NAMES } from "./constants.ts"
@@ -93,20 +94,22 @@ function initializeNode(node: ComfyNodeLike, className: string): void {
   }
 }
 
-app.registerExtension({
-  name: EXTENSION_NAMES.LLAMA_CPP_WIDGET_STATES,
+export function registerLlamaCppWidgetStates(app: ComfyApp): void {
+  app.registerExtension({
+    name: EXTENSION_NAMES.LLAMA_CPP_WIDGET_STATES,
 
-  beforeRegisterNodeDef(nodeType, nodeData) {
-    const definition = nodeData as unknown as ComfyNodeDefinitionLike
-    if (!HANDLED_CLASSES.has(definition.name)) return
+    beforeRegisterNodeDef(nodeType, nodeData) {
+      const definition = nodeData as unknown as ComfyNodeDefinitionLike
+      if (!HANDLED_CLASSES.has(definition.name)) return
 
-    const typedNodeType = nodeType as unknown as ComfyNodeTypeLike
-    const originalOnNodeCreated = typedNodeType.prototype.onNodeCreated
-    typedNodeType.prototype.onNodeCreated = function (...args: unknown[]) {
-      const node = this as ComfyNodeLike
-      const result = originalOnNodeCreated?.apply(node, args)
-      initializeNode(node, definition.name)
-      return result
-    }
-  },
-})
+      const typedNodeType = nodeType as unknown as ComfyNodeTypeLike
+      const originalOnNodeCreated = typedNodeType.prototype.onNodeCreated
+      typedNodeType.prototype.onNodeCreated = function (...args: unknown[]) {
+        const node = this as ComfyNodeLike
+        const result = originalOnNodeCreated?.apply(node, args)
+        initializeNode(node, definition.name)
+        return result
+      }
+    },
+  })
+}
