@@ -52,7 +52,7 @@ describe("llama.cpp widget state", () => {
   })
 
   it("disables draft selection for the internal MTP preset", () => {
-    const preset = { name: "preset", value: "Qwen 3.5 Internal MTP" }
+    const preset = { name: "preset", value: "Qwen 3.5+ Internal MTP" }
     const draft = { name: "draft_model", disabled: false }
     const customType = { name: "custom_spec_type", disabled: false }
     const node = makeNode([preset, draft, customType])

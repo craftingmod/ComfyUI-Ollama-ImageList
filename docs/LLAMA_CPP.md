@@ -159,8 +159,8 @@ their decoder history cannot yet be guaranteed independent. Native Speculative C
 remains under the `experimental` subcategory because its providers require experimental
 backend support.
 
-Model Profile choices are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5 Thinking`,
-`Qwen 3.5 Non-thinking`, `Qwen 3 VL`, and `Custom`. Selecting `Custom` enables the Advanced
+Model Profile choices are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5+ Thinking`,
+`Qwen 3.5+ Non-thinking`, `Qwen 3 VL`, and `Custom`. Selecting `Custom` enables the Advanced
 handler and six sampling inputs; switching back to a named profile preserves those custom
 widget values without applying them. The published general-purpose values are encoded as:
 
@@ -169,8 +169,8 @@ widget values without applying them. The published general-purpose values are en
 | General | 0.2 | 0.95 | 40 | 0.05 | 0.0 | 1.0 | model default |
 | Gemma 4 Vision | 1.0 | 0.95 | 64 | 0.0 | 0.0 | 1.0 | model default |
 | Muse Glimmer | 1.0 | 0.95 | 64 | 0.0 | 0.0 | 1.0 | model default |
-| Qwen 3.5 Thinking | 1.0 | 0.95 | 20 | 0.0 | 1.5 | 1.0 | on |
-| Qwen 3.5 Non-thinking | 0.7 | 0.8 | 20 | 0.0 | 1.5 | 1.0 | off |
+| Qwen 3.5+ Thinking | 1.0 | 0.95 | 20 | 0.0 | 0.0 | 1.0 | on |
+| Qwen 3.5+ Non-thinking | 0.7 | 0.8 | 20 | 0.0 | 1.5 | 1.0 | off |
 | Qwen 3 VL | 0.7 | 0.8 | 20 | 0.0 | 1.5 | 1.0 | model default |
 
 The Qwen 3 VL card does not prescribe `min_p`; its profile uses `0.0` so no additional
@@ -185,7 +185,7 @@ override is sent to llama.cpp.
 
 Thinking / Reasoning Config has exactly `reasoning_mode`, `reasoning_effort`, and
 `max_reasoning_tokens`. `auto` or a disconnected socket leaves chat-template reasoning
-controls untouched for ordinary profiles; Qwen 3.5 Thinking/Non-thinking instead applies
+controls untouched for ordinary profiles; Qwen 3.5+ Thinking/Non-thinking instead applies
 the mode named by the profile. An explicitly connected opposite mode fails before model
 loading. `off` explicitly disables reasoning; `on` applies effort and a positive token
 budget. `max_reasoning_tokens=0` omits the separate reasoning limit, but reasoning and the
@@ -196,10 +196,10 @@ visible because these are request budgets. A value of `0` for either image-token
 leaves that mmproj/handler default untouched; a positive value enables the explicit override.
 For Qwen-VL grounding tasks, set `image_min_tokens=1024`. Explicit image-token limits must
 fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
-and output length remain user-selected even when a Qwen 3.5 profile supplies its mode.
+and output length remain user-selected even when a Qwen 3.5+ profile supplies its mode.
 
 Native Speculative Config choices are `Off`, `Muse Glimmer DFlash`, `Generic DFlash`,
-`Generic DSpark`, `Gemma 4 External MTP`, `Qwen 3.5 Internal MTP`, and `Custom`.
+`Generic DSpark`, `Gemma 4 External MTP`, `Qwen 3.5+ Internal MTP`, and `Custom`.
 The Muse preset uses a 16-token DFlash proposal block. Qwen internal MTP ignores the
 draft selector; DFlash, DSpark, and Gemma external MTP resolve the selected draft GGUF
 only when Compact Generate receives that Native config. The Compact N-gram and Native
@@ -281,7 +281,7 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 `Llama.cpp Native Speculative Config (Compat)` is registered under `Ollama / llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
-This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses only `LlamaNativeSpeculativeDecoding`. DFlash, DSpark, and Gemma 4 external MTP require a separate draft/assistant GGUF. Qwen 3.5 internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
+This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses only `LlamaNativeSpeculativeDecoding`. DFlash, DSpark, and Gemma 4 external MTP require a separate draft/assistant GGUF. Qwen 3.5+ internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
 The node requires an experimental wheel that provides `llama_cpp.llama_speculative.LlamaNativeSpeculativeDecoding`. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. Installation details for the existing DFlash/DSpark build are in the [v0.3.46 native speculative release](https://github.com/craftingmod/llama-cpp-python/releases/tag/v0.3.46-native-speculative.1). Native MTP additionally requires a wheel freshly built from the experimental fork with `draft-mtp`, external/internal MTP bridging, and speculative ABI v2; the older DFlash/DSpark wheel is not sufficient. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
@@ -293,7 +293,7 @@ For Native MTP, choose one explicit `mtp_provider`:
 | --- | --- | --- | --- |
 | `off` | Existing DFlash/DSpark behavior | Required | Selected draft GGUF |
 | `external_gemma4` | Gemma 4 target GGUF | Matching `gemma4-assistant` GGUF required | Selected assistant GGUF |
-| `internal_qwen35` | Qwen 3.5 GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
+| `internal_qwen35` | Qwen 3.5+ GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
 
 Select `spec_type=draft-mtp` together with an external or internal MTP provider. The `mtp_provider` widget is disabled for every other `spec_type`, and any preserved inactive value is treated as `off` during node execution. MTP uses the same `spec_n_max`, `spec_n_min`, and `spec_p_min` values as DFlash/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
 

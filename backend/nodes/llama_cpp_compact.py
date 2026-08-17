@@ -88,15 +88,15 @@ COMPACT_MODEL_PROFILES: dict[str, dict[str, Any]] = {
         top_k=64,
         min_p=0.0,
     ),
-    "Qwen 3.5 Thinking": _model_profile(
+    "Qwen 3.5+ Thinking": _model_profile(
         recommended_reasoning_mode="on",
         temperature=1.0,
         top_p=0.95,
         top_k=20,
         min_p=0.0,
-        presence_penalty=1.5,
+        presence_penalty=0.0,
     ),
-    "Qwen 3.5 Non-thinking": _model_profile(
+    "Qwen 3.5+ Non-thinking": _model_profile(
         recommended_reasoning_mode="off",
         temperature=0.7,
         top_p=0.8,
@@ -119,6 +119,11 @@ COMPACT_HARDWARE_PROFILES: dict[str, dict[str, Any]] = {
     "GPU Vision 512": {
         **_BASE_HARDWARE_PROFILE,
         "n_ubatch": 512,
+    },
+    "Qwen Vision 1024": {
+        **_BASE_HARDWARE_PROFILE,
+        "n_batch": 1024,
+        "n_ubatch": 1024,
     },
     "Automatic Offload": {
         **_BASE_HARDWARE_PROFILE,
@@ -171,7 +176,7 @@ NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
         "spec_p_min": 0.0,
         "uses_draft_model": True,
     },
-    "Qwen 3.5 Internal MTP": {
+    "Qwen 3.5+ Internal MTP": {
         "spec_type": "draft-mtp",
         "mtp_provider": "internal_qwen35",
         "spec_n_max": 2,
@@ -745,7 +750,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                     default=draft_options[0],
                     tooltip=(
                         "Required by DFlash, DSpark, and Gemma 4 external MTP; ignored by "
-                        "Off and Qwen 3.5 internal MTP."
+                        "Off and Qwen 3.5+ internal MTP."
                     ),
                 ),
                 io.Combo.Input(

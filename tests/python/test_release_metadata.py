@@ -31,25 +31,17 @@ def test_release_identity_and_archive_defaults_are_stable():
     assert '"build:custom-node"' in package
     assert '"release:check"' in package
 
-    build_script = (REPO_ROOT / "scripts" / "build-custom-node-zip.ps1").read_text(
-        encoding="utf-8-sig"
+    build_script = (REPO_ROOT / "scripts" / "build-custom-nodes.ts").read_text(
+        encoding="utf-8"
     )
-    assert '[string]$PackageName = "ComfyUI-Ollama-ImageList"' in build_script
-    assert '[string]$OutputDirectory = "build/releases"' in build_script
-    assert '"CHANGELOG.md"' in build_script
-    assert '"docs"' in build_script
-    assert '"presets"' in build_script
-    assert '"workflows"' in build_script
-    assert '"dist"' in build_script
-    assert '"js"' not in build_script
+    assert "zipSync" in build_script
+    assert "pyproject.toml" in build_script
 
     publish_workflow = (
         REPO_ROOT / ".github" / "workflows" / "publish_action.yaml"
     ).read_text(encoding="utf-8")
     assert '      - "v*"' in publish_workflow
     assert "contents: write" in publish_workflow
-    assert "./scripts/build-custom-node-zip.ps1" in publish_workflow
-    assert "build/releases/ComfyUI-Ollama-ImageList-$version.zip" in publish_workflow
     assert "gh release create" in publish_workflow
     assert "--verify-tag" in publish_workflow
     assert "--generate-notes" in publish_workflow
@@ -57,5 +49,3 @@ def test_release_identity_and_archive_defaults_are_stable():
     assert "bun run build" in publish_workflow
     assert "publish-node-action@main" in publish_workflow
     assert "windows-latest" not in publish_workflow
-    assert publish_workflow.count("runs-on: ubuntu-latest") == 2
-    assert publish_workflow.count("shell: pwsh") == 2

@@ -608,8 +608,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "General",
         "Gemma 4 Vision",
         "Muse Glimmer",
-        "Qwen 3.5 Thinking",
-        "Qwen 3.5 Non-thinking",
+        "Qwen 3.5+ Thinking",
+        "Qwen 3.5+ Non-thinking",
         "Qwen 3 VL",
         "Custom",
     ]
@@ -640,16 +640,16 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "repeat_penalty",
     }
     qwen35_thinking_profile = compact_profile_class.execute(
-        **{**model_profile_defaults, "profile": "Qwen 3.5 Thinking"}
+        **{**model_profile_defaults, "profile": "Qwen 3.5+ Thinking"}
     )[0]
     assert qwen35_thinking_profile["recommended_reasoning_mode"] == "on"
     assert qwen35_thinking_profile["temperature"] == 1.0
     assert qwen35_thinking_profile["top_p"] == 0.95
     assert qwen35_thinking_profile["top_k"] == 20
     assert qwen35_thinking_profile["min_p"] == 0.0
-    assert qwen35_thinking_profile["presence_penalty"] == 1.5
+    assert qwen35_thinking_profile["presence_penalty"] == 0.0
     qwen35_non_thinking_profile = compact_profile_class.execute(
-        **{**model_profile_defaults, "profile": "Qwen 3.5 Non-thinking"}
+        **{**model_profile_defaults, "profile": "Qwen 3.5+ Non-thinking"}
     )[0]
     assert qwen35_non_thinking_profile["recommended_reasoning_mode"] == "off"
     assert qwen35_non_thinking_profile["temperature"] == 0.7
@@ -692,6 +692,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert hardware_schema.inputs[0].options["options"] == [
         "GPU Full Offload",
         "GPU Vision 512",
+        "Qwen Vision 1024",
         "Automatic Offload",
         "CPU",
         "Custom",
@@ -796,7 +797,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Generic DFlash",
         "Generic DSpark",
         "Gemma 4 External MTP",
-        "Qwen 3.5 Internal MTP",
+        "Qwen 3.5+ Internal MTP",
         "Custom",
     ]
     assert native_config_schema.outputs[0].data_type == (
@@ -833,7 +834,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         },
     }
     internal_mtp_config = native_config_class.execute(
-        "Qwen 3.5 Internal MTP",
+        "Qwen 3.5+ Internal MTP",
         "stale/draft.gguf",
         "draft-dflash",
         "off",
@@ -1208,7 +1209,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["top_p"] == 0.95
     assert captured_speculative_call["top_k"] == 20
     assert captured_speculative_call["min_p"] == 0.0
-    assert captured_speculative_call["presence_penalty"] == 1.5
+    assert captured_speculative_call["presence_penalty"] == 0.0
 
     captured_speculative_call.clear()
     compact_qwen35_non_thinking_values = dict(compact_qwen35_thinking_values)

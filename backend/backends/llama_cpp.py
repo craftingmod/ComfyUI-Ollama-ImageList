@@ -353,7 +353,7 @@ def _normalize_native_speculative(
             )
         if provider == "internal_qwen35" and resolved_draft is not None:
             raise InputNormalizationError(
-                "Qwen 3.5 internal MTP uses embedded NextN layers; leave draft_model "
+                "Qwen 3.5+ internal MTP uses embedded NextN layers; leave draft_model "
                 "unselected."
             )
         return {
@@ -430,7 +430,7 @@ def _create_native_speculative_decoder(
                 close_decoder()
             raise BackendError(
                 "The installed native speculative binding does not provide the requested "
-                "Gemma 4/Qwen 3.5 MTP provider. Reinstall the matching experimental wheel."
+                "Gemma 4/Qwen 3.5+ MTP provider. Reinstall the matching experimental wheel."
             )
     return decoder
 
@@ -1248,7 +1248,7 @@ def run_chat(
                 mtp_n_layer_nextn = int(n_layer_nextn())
                 if mtp_n_layer_nextn <= 0:
                     raise BackendError(
-                        "Selected Qwen 3.5 target GGUF has no usable embedded NextN/MTP "
+                        "Selected Qwen 3.5+ target GGUF has no usable embedded NextN/MTP "
                         "layers."
                     )
             load_seconds = time.perf_counter() - load_started

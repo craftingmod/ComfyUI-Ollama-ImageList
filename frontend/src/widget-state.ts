@@ -76,7 +76,7 @@ export function updateNgramPresetWidgets(node: ComfyNodeLike): void {
 export function updateNativeSpeculativeConfigWidgets(node: ComfyNodeLike): void {
   const preset = getWidget(node, "preset")?.value
   setWidgetsDisabled(node, NATIVE_DRAFT_CUSTOM_WIDGETS, preset !== "Custom")
-  setWidgetsDisabled(node, ["draft_model"], preset === "Off" || preset === "Qwen 3.5 Internal MTP")
+  setWidgetsDisabled(node, ["draft_model"], preset === "Off" || preset === "Qwen 3.5+ Internal MTP")
 }
 
 export function updateCompactModelProfileWidgets(node: ComfyNodeLike): void {
