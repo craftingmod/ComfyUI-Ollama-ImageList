@@ -20,7 +20,7 @@ MINIMAX_PROMPT_TYPES = (
 )
 REFERENCE_PROMPT_TYPES = frozenset({"R2V", "R2I", "R2A"})
 
-PRESETS_DIRECTORY = Path(__file__).resolve().parents[2] / "presets"
+PRESETS_DIRECTORY = Path(__file__).resolve().parents[2] / "presets" / "prompt"
 BASE_PROMPT_PATH = PRESETS_DIRECTORY / "PROMPT_BASE.md"
 REFERENCE_BASE_PROMPT_PATH = PRESETS_DIRECTORY / "PROMPT_REFERENCE_BASE.md"
 
