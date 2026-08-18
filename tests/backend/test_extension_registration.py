@@ -168,6 +168,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_Options",
         "OllamaImageList_Generate",
         "OllamaImageList_MiniMaxSystemPromptPreset",
+        "OllamaImageList_JinjaChatTemplatePreset",
         "OllamaImageList_LlamaCppSamplingPreset",
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
@@ -188,6 +189,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama Image List Options",
         "Ollama Generate (Image List)",
         "MiniMax System Prompt Preset",
+        "Jinja Chat Template Preset",
         "Llama.cpp Sampling Preset",
         "Llama.cpp Gemma 4 Runtime Preset",
         "Llama.cpp N-gram Speculative Preset",
@@ -207,7 +209,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/Image List",
         "Ollama/Image List",
         "Ollama/Image List",
-        "Ollama/prompt",
+        "Ollama/preset",
+        "Ollama/preset",
         "Ollama/llama_cpp/legacy",
         "Ollama/llama_cpp/legacy",
         "Ollama/llama_cpp/legacy",
@@ -288,6 +291,35 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         match="Unknown MiniMax prompt preset 'invalid'.*I2V.*R2A.*L2V",
     ):
         minimax_class.execute("I2V", "invalid")
+
+    jinja_class, jinja_schema = registered[
+        "OllamaImageList_JinjaChatTemplatePreset"
+    ]
+    assert [(field.name, field.data_type) for field in jinja_schema.inputs] == [
+        ("template", "combo"),
+    ]
+    assert jinja_schema.inputs[0].options["options"] == [
+        "qwen_fixed",
+    ]
+    assert [(field.name, field.data_type) for field in jinja_schema.outputs] == [
+        ("chat_template", "string"),
+    ]
+    jinja_module = importlib.import_module("backend.nodes.jinja_chat_template")
+    qwen_fixed_text = (
+        jinja_module.PRESETS_DIRECTORY / "qwen_fixed.jinja"
+    ).read_text(encoding="utf-8")
+    assert jinja_class.execute("qwen_fixed.jinja") == (qwen_fixed_text,)
+    assert jinja_class.execute("qwen_fixed") == (qwen_fixed_text,)
+    with pytest.raises(
+        ValueError,
+        match="Unknown Jinja chat template preset 'invalid'.*qwen_fixed.jinja",
+    ):
+        jinja_class.execute("invalid")
+    with pytest.raises(
+        ValueError,
+        match="Unknown Jinja chat template preset 'qwen_fixed.md'.*qwen_fixed.jinja",
+    ):
+        jinja_class.execute("qwen_fixed.md")
 
     muse_class, muse_schema = registered[
         "OllamaImageList_MuseGlimmerResponseParser"
@@ -596,6 +628,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert [field.name for field in compact_profile_schema.inputs] == [
         "profile",
+        "custom_chat_template",
         "custom_handler",
         "temperature",
         "top_p",
@@ -613,9 +646,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Qwen 3 VL",
         "Custom",
     ]
+    assert compact_profile_schema.inputs[1].options["optional"] is True
+    assert compact_profile_schema.inputs[1].options["force_input"] is True
     assert all(
         field.options["advanced"] is True
-        for field in compact_profile_schema.inputs[1:]
+        for field in compact_profile_schema.inputs[2:]
     )
     assert compact_profile_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
@@ -623,12 +658,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     model_profile_defaults = {
         field.name: field.options["default"]
         for field in compact_profile_schema.inputs
+        if "default" in field.options
     }
     muse_profile = compact_profile_class.execute(
         **{**model_profile_defaults, "profile": "Muse Glimmer"}
     )[0]
     assert muse_profile["temperature"] == 1.0
     assert muse_profile["top_k"] == 64
+    assert muse_profile["custom_chat_template"] == ""
     assert set(muse_profile) == {
         "handler",
         "recommended_reasoning_mode",
@@ -638,6 +675,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "min_p",
         "presence_penalty",
         "repeat_penalty",
+        "custom_chat_template",
     }
     qwen35_thinking_profile = compact_profile_class.execute(
         **{**model_profile_defaults, "profile": "Qwen 3.5+ Thinking"}
@@ -674,6 +712,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "min_p": 0.1,
         "presence_penalty": 1.25,
         "repeat_penalty": 1.1,
+        "custom_chat_template": "",
     }
 
     hardware_class, hardware_schema = registered[
@@ -725,6 +764,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "reasoning_mode",
         "reasoning_effort",
         "max_reasoning_tokens",
+        "preserve_thinking",
     ]
     assert reasoning_schema.inputs[0].options["options"] == ["auto", "off", "on"]
     assert reasoning_schema.search_aliases == ["thinking", "reasoning"]
@@ -736,6 +776,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "xhigh",
     ]
     assert reasoning_schema.inputs[2].options["default"] == 0
+    assert reasoning_schema.inputs[3].options["default"] is False
     assert reasoning_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
     )
@@ -744,6 +785,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "reasoning_mode": "auto",
         "reasoning_effort": "auto",
         "max_reasoning_tokens": 0,
+        "preserve_thinking": False,
     }
     off_reasoning = reasoning_class.execute("off", "high", 1024)[0]
     assert off_reasoning == (
@@ -751,6 +793,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
             "reasoning_mode": "off",
             "reasoning_effort": "auto",
             "max_reasoning_tokens": 0,
+            "preserve_thinking": False,
         }
     )
     muse_reasoning = reasoning_class.execute("on", "high", 1024)[0]
@@ -758,6 +801,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "reasoning_mode": "on",
         "reasoning_effort": "high",
         "max_reasoning_tokens": 1024,
+        "preserve_thinking": False,
     }
 
     compact_ngram_class, compact_ngram_schema = registered[
@@ -942,6 +986,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "qwen3_vl",
         "qwen25_vl",
         "qwen3_asr",
+        "qwen35",
     ]
     assert llama_inputs["thinking"].data_type == "boolean"
     assert llama_inputs["thinking"].options["default"] is False
@@ -1043,8 +1088,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert speculative_inputs["spec_p_min"].options["default"] == 0.0
     assert speculative_inputs["mtp_provider"].options["options"] == [
         "off",
-        "external_gemma4",
-        "internal_qwen35",
+        "external",
+        "internal",
     ]
     assert speculative_inputs["mtp_provider"].options["default"] == "off"
     assert "mtp_n_max" not in speculative_inputs
@@ -1352,7 +1397,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     speculative_values.update(
         draft_model=["external/mtp-model-a.gguf"],
         spec_type=["draft-dflash"],
-        mtp_provider=["internal_qwen35"],
+        mtp_provider=["internal"],
     )
     speculative_output = speculative_class.execute(**speculative_values)
     assert speculative_output[0] == "done"
@@ -1375,12 +1420,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     speculative_values.update(
         draft_model=["[none]"],
         spec_type=["draft-mtp"],
-        mtp_provider=["internal_qwen35"],
+        mtp_provider=["internal"],
     )
     speculative_output = speculative_class.execute(**speculative_values)
     assert speculative_output[0] == "done"
     assert captured_speculative_call["draft_model_path"] == ""
-    assert captured_speculative_call["mtp_provider"] == "internal_qwen35"
+    assert captured_speculative_call["mtp_provider"] == "internal"
 
     def missing_speculative_api():
         raise BackendError("native speculative dependency is not installed")

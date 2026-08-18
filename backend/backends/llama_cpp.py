@@ -19,6 +19,7 @@ HANDLER_NAMES = (
     "qwen3_vl",
     "qwen25_vl",
     "qwen3_asr",
+    "qwen35",
 )
 REASONING_STRENGTHS = ("auto", "low", "medium", "high", "xhigh")
 _MAX_REASONING_BUDGET = 65536
@@ -28,10 +29,11 @@ _HANDLER_CLASSES = {
     "qwen3_vl": "Qwen3VLChatHandler",
     "qwen25_vl": "Qwen25VLChatHandler",
     "qwen3_asr": "Qwen3ASRChatHandler",
+    "qwen35": "Qwen35ChatHandler",
 }
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
 _SPECULATIVE_TYPES = {"draft-dflash", "draft-dspark"}
-_MTP_PROVIDERS = {"off", "external_gemma4", "internal_qwen35"}
+_MTP_PROVIDERS = {"off", "external", "internal"}
 _SPECULATIVE_STAT_KEYS = (
     "draft_calls",
     "accept_calls",
@@ -47,13 +49,12 @@ _VISION_INSTALL_GUIDE_URL = (
     "LLAMA_CPP_PYTHON_VISION_INSTALL.md"
 )
 _NATIVE_SPECULATIVE_RELEASE_URL = (
-    "https://github.com/craftingmod/llama-cpp-python/releases/tag/"
-    "v0.3.46-native-speculative.1"
+    "https://github.com/craftingmod/llama-cpp-python/releases/latest"
 )
 _NATIVE_SPECULATIVE_WHEEL_URL = (
     "https://github.com/craftingmod/llama-cpp-python/releases/download/"
-    "v0.3.46-native-speculative.1/"
-    "llama_cpp_python-0.3.46-speculative-cp313-cu132-win_amd64.whl"
+    "v0.3.47-native-speculative.2/"
+    "llama_cpp_python-0.3.47-cp313-cp313-win_amd64.whl"
 )
 
 
@@ -108,24 +109,28 @@ class _SequentialLlamaProxy:
 
     def create_chat_completion(self, **kwargs: Any) -> Any:
         llm = self._session.llm
-        if hasattr(llm, "_native_speculative"):
-            reset = getattr(llm, "reset", None)
-            if not callable(reset):
-                raise BackendError(
-                    "The native-speculative llama-cpp-python fork must expose "
-                    "Llama.reset() for independent sequential requests."
-                )
-            reset()
-        else:
-            context = getattr(llm, "_ctx", None)
-            memory_clear = getattr(context, "memory_clear", None)
-            if not callable(memory_clear):
-                raise BackendError(
-                    "Sequential generation requires either native-speculative "
-                    "Llama.reset() support or llama._ctx.memory_clear(True)."
-                )
-            memory_clear(True)
-            llm.n_tokens = 0
+        # Fixed in https://github.com/JamePeng/llama-cpp-python/issues/168
+        # requires llama_cpp_python v0.3.47+
+        
+        # if hasattr(llm, "_native_speculative"):
+        #     reset = getattr(llm, "reset", None)
+        #     if not callable(reset):
+        #         raise BackendError(
+        #             "The native-speculative llama-cpp-python fork must expose "
+        #             "Llama.reset() for independent sequential requests."
+        #         )
+        #     reset()
+        # else:
+        #     context = getattr(llm, "_ctx", None)
+        #     memory_clear = getattr(context, "memory_clear", None)
+        #     if not callable(memory_clear):
+        #         raise BackendError(
+        #             "Sequential generation requires either native-speculative "
+        #             "Llama.reset() support or llama._ctx.memory_clear(True)."
+        #         )
+        #     memory_clear(True)
+        #     llm.n_tokens = 0
+        llm.reset()
         self._session.reset_count += 1
         return llm.create_chat_completion(**kwargs)
 
@@ -307,7 +312,7 @@ def _normalize_native_speculative(
     provider = str(mtp_provider)
     if provider not in _MTP_PROVIDERS:
         raise InputNormalizationError(
-            "mtp_provider must be off, external_gemma4, or internal_qwen35."
+            "mtp_provider must be off, external, or internal."
         )
 
     if spec_type == "none":
@@ -346,12 +351,11 @@ def _normalize_native_speculative(
             raise InputNormalizationError(
                 "n_ctx must be at least spec_n_max + 1 for Native MTP."
             )
-        if provider == "external_gemma4" and resolved_draft is None:
+        if provider == "external" and resolved_draft is None:
             raise InputNormalizationError(
-                "Gemma 4 external MTP requires a matching gemma4-assistant GGUF in "
-                "draft_model."
+                "External MTP requires a draft GGUF in draft_model."
             )
-        if provider == "internal_qwen35" and resolved_draft is not None:
+        if provider == "internal" and resolved_draft is not None:
             raise InputNormalizationError(
                 "Qwen 3.5+ internal MTP uses embedded NextN layers; leave draft_model "
                 "unselected."
@@ -359,7 +363,7 @@ def _normalize_native_speculative(
         return {
             "implementation": "draft-mtp",
             "provider": provider,
-            "model_path": resolved_draft if provider == "external_gemma4" else None,
+            "model_path": resolved_draft if provider == "external" else None,
             "n_max": n_max,
             "n_min": n_min,
             "p_min": p_min,
@@ -368,7 +372,7 @@ def _normalize_native_speculative(
 
     if spec_type == "draft-mtp":
         raise InputNormalizationError(
-            "draft-mtp requires mtp_provider external_gemma4 or internal_qwen35."
+            "draft-mtp requires mtp_provider external or internal."
         )
     if resolved_draft is None:
         return None
@@ -421,7 +425,7 @@ def _create_native_speculative_decoder(
     if configuration["provider"] != "off":
         is_mtp = getattr(decoder, "is_mtp", None)
         is_internal = getattr(decoder, "is_internal_mtp", None)
-        expected_internal = configuration["provider"] == "internal_qwen35"
+        expected_internal = configuration["provider"] == "internal"
         if is_mtp is False or (
             is_internal is not None and bool(is_internal) != expected_internal
         ):
@@ -629,6 +633,7 @@ def _create_handler(
     reasoning_strength: str | None,
     image_min_tokens: int | None,
     image_max_tokens: int | None,
+    custom_chat_template: str = "",
 ) -> Any | None:
     if handler == "auto":
         return None
@@ -666,8 +671,8 @@ def _create_handler(
             handler_kwargs["extra_template_arguments"]["reasoning_strength"] = (
                 reasoning_strength
             )
-    if handler == "generic":
-        handler_kwargs["chat_format"] = None
+    if handler == "generic" and custom_chat_template:
+        handler_kwargs["chat_format"] = custom_chat_template
     return handler_class(**handler_kwargs)
 
 
@@ -677,25 +682,34 @@ def _install_text_template_handler(
     *,
     thinking: bool | None,
     reasoning_strength: str | None,
+    custom_chat_template: str = "",
 ) -> bool:
-    if thinking is None and reasoning_strength is None:
+    if thinking is None and reasoning_strength is None and not custom_chat_template:
         return False
     formatter_class = bindings.jinja_formatter_class
     to_handler = bindings.chat_formatter_to_handler
     metadata = getattr(llm, "metadata", None)
     template = (
-        metadata.get("tokenizer.chat_template")
-        if isinstance(metadata, dict)
-        else None
+        custom_chat_template
+        if custom_chat_template
+        else (
+            metadata.get("tokenizer.chat_template")
+            if isinstance(metadata, dict)
+            else None
+        )
     )
     if not isinstance(template, str) or not template:
         return False
     if formatter_class is None or not callable(to_handler):
-        if "enable_thinking" in template or "force_reasoning" in template:
+        if (
+            "enable_thinking" in template
+            or "force_reasoning" in template
+            or custom_chat_template
+        ):
             raise BackendError(
-                "The installed llama-cpp-python fork cannot pass thinking controls to "
-                "a text-only GGUF chat template. Upgrade the JamePeng fork to a build "
-                "that exposes Jinja2ChatFormatter and "
+                "The installed llama-cpp-python fork cannot pass thinking controls or "
+                "custom Jinja chat templates to a text-only GGUF chat template. Upgrade the "
+                "JamePeng fork to a build that exposes Jinja2ChatFormatter and "
                 "chat_formatter_to_chat_completion_handler."
             )
         return False
@@ -793,14 +807,19 @@ def _reasoning_budget_arguments(
     metadata: Any,
     handler: str,
     reasoning_budget: int,
+    custom_chat_template: str = "",
 ) -> tuple[dict[str, Any], str | None]:
     if reasoning_budget == 0:
         return {}, None
 
     template = (
-        metadata.get("tokenizer.chat_template", "")
-        if isinstance(metadata, dict)
-        else ""
+        custom_chat_template
+        if custom_chat_template
+        else (
+            metadata.get("tokenizer.chat_template", "")
+            if isinstance(metadata, dict)
+            else ""
+        )
     )
     if handler == "qwen3_vl" or (
         isinstance(template, str)
@@ -1016,6 +1035,7 @@ def run_chat(
     thinking: bool | None = False,
     reasoning_strength: str = "auto",
     reasoning_budget: int = 0,
+    preserve_thinking: bool = False,
     override_image_min_tokens: bool = False,
     image_min_tokens: int = 1024,
     override_image_max_tokens: bool = False,
@@ -1039,6 +1059,7 @@ def run_chat(
     bindings: LlamaCppBindings | None = None,
     speculative_class: type | None = None,
     ngram_speculative_class: type | None = None,
+    custom_chat_template: str = "",
 ) -> LlamaCppResult:
     effective_reasoning_strength = _effective_reasoning_strength(
         bool(thinking),
@@ -1145,6 +1166,7 @@ def run_chat(
                     reasoning_strength=effective_reasoning_strength,
                     image_min_tokens=image_min_tokens_override,
                     image_max_tokens=image_max_tokens_override,
+                    custom_chat_template=custom_chat_template,
                 )
                 if has_media
                 else None
@@ -1168,6 +1190,21 @@ def run_chat(
                 if resolved_mmproj is not None:
                     model_kwargs["mmproj_path"] = resolved_mmproj
                 model_kwargs["chat_handler_kwargs"] = {"verbose": bool(verbose)}
+                
+                # for Qwen 3.8
+                if handler == "qwen35":
+                    model_kwargs["chat_handler_kwargs"]["preserve_thinking"] = bool(
+                        preserve_thinking
+                    )
+                    
+                    if effective_reasoning_strength is not None:
+                        qwen_effort = "xhigh" if effective_reasoning_strength == "high" else effective_reasoning_strength
+                        model_kwargs["chat_handler_kwargs"]["reasoning_effort"] = qwen_effort
+
+                if custom_chat_template:
+                    model_kwargs["chat_format"] = (
+                        custom_chat_template
+                    )
                 if thinking is not None or effective_reasoning_strength is not None:
                     model_kwargs["chat_handler_kwargs"]["extra_template_arguments"] = {
                         "enable_thinking": bool(thinking),
@@ -1234,10 +1271,11 @@ def run_chat(
                     llm,
                     thinking=thinking,
                     reasoning_strength=effective_reasoning_strength,
+                    custom_chat_template=custom_chat_template,
                 )
             if (
                 native_configuration is not None
-                and native_configuration["provider"] == "internal_qwen35"
+                and native_configuration["provider"] == "internal"
             ):
                 n_layer_nextn = getattr(llm, "n_layer_nextn", None)
                 if not callable(n_layer_nextn):
@@ -1279,6 +1317,7 @@ def run_chat(
                 metadata=getattr(llm, "metadata", None),
                 handler=handler,
                 reasoning_budget=effective_reasoning_budget,
+                custom_chat_template=custom_chat_template,
             )
             completion_kwargs.update(budget_arguments)
             completion = llm.create_chat_completion(**completion_kwargs)
@@ -1408,6 +1447,7 @@ def run_chat(
             "reasoning_budget": effective_reasoning_budget,
             "reasoning_budget_applied": reasoning_budget_format is not None,
             "reasoning_budget_format": reasoning_budget_format,
+            "custom_chat_template": bool(custom_chat_template),
             "n_ctx": int(n_ctx),
             "n_batch": int(n_batch),
             "n_ubatch_override": n_ubatch_override,
@@ -1471,6 +1511,7 @@ def run_chat(
 def run_chat_sequential(
     *,
     media_items: list[MediaBundle],
+    prompt_items: list[str] | None = None,
     bindings: LlamaCppBindings | None = None,
     **kwargs: Any,
 ) -> list[LlamaCppResult]:
@@ -1479,11 +1520,15 @@ def run_chat_sequential(
         raise InputNormalizationError(
             "Sequential generation requires at least one input item."
         )
-    if kwargs.get("draft_model_path") or kwargs.get("mtp_provider", "off") != "off":
+    if prompt_items is not None and len(prompt_items) != len(media_items):
         raise InputNormalizationError(
-            "Sequential generation does not support native draft models because their "
-            "cross-request state cannot yet be guaranteed independent."
+            "Sequential generation requires exactly one prompt per input item."
         )
+    # if kwargs.get("draft_model_path") or kwargs.get("mtp_provider", "off") != "off":
+    #     raise InputNormalizationError(
+    #         "Sequential generation does not support native draft models because their "
+    #         "cross-request state cannot yet be guaranteed independent."
+    #     )
     if normalize_ngram_speculative(kwargs.get("ngram_speculative"))[
         "speculative_mode"
     ] != "off":
@@ -1504,12 +1549,15 @@ def run_chat_sequential(
     cleanup_seconds = 0.0
     try:
         with _NATIVE_EXECUTION_LOCK:
-            for media in media_items:
+            for index, media in enumerate(media_items):
+                item_kwargs = kwargs
+                if prompt_items is not None:
+                    item_kwargs = {**kwargs, "prompt": prompt_items[index]}
                 results.append(
                     run_chat(
                         media=media,
                         bindings=session_bindings,
-                        **kwargs,
+                        **item_kwargs,
                     )
                 )
     finally:

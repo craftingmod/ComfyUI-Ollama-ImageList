@@ -14,6 +14,7 @@ from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativePresetNode
 from .llama_cpp_runtime import LlamaCppGemma4RuntimePresetNode
 from .llama_cpp_sampling import LlamaCppSamplingPresetNode
 from .llama_cpp_speculative_generate import LlamaCppSpeculativeGenerateNode
+from .jinja_chat_template import JinjaChatTemplatePresetNode
 from .minimax_prompt import MiniMaxSystemPromptPresetNode
 from .muse_glimmer_response import MuseGlimmerResponseParserNode
 from .ollama_connectivity import OllamaImageListConnectivityNode
@@ -22,6 +23,7 @@ from .ollama_options import OllamaImageListOptionsNode
 
 __all__ = [
     "ClipImageListGenerateNode",
+    "JinjaChatTemplatePresetNode",
     "LlamaCppHardwareRuntimeProfileNode",
     "LlamaCppModelProfileNode",
     "LlamaCppNGramSpeculativeConfigNode",

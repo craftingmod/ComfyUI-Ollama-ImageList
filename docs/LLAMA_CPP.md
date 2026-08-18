@@ -56,6 +56,7 @@ Any request containing IMAGE, AUDIO, or VIDEO requires a matching `mmproj` GGUF.
 | `qwen3_vl` | Applies the Qwen 3 VL handler and `force_reasoning`. |
 | `qwen25_vl` | Applies the Qwen 2.5 VL handler. |
 | `qwen3_asr` | Applies the Qwen 3 ASR handler supplied by compatible fork builds. |
+| `qwen35` | Applies the Qwen 3.5 handler. |
 
 `thinking` is an explicit Boolean request. It does not infer a model default and cannot turn an Instruct-only checkpoint into a Thinking checkpoint. The generic path supplies both known template arguments so the model template can use the one it recognizes.
 
@@ -158,6 +159,10 @@ unloads once after the sequence. Speculative configs are rejected on this node b
 their decoder history cannot yet be guaranteed independent. Native Speculative Config
 remains under the `experimental` subcategory because its providers require experimental
 backend support.
+
+Its `prompt` input is also a list: with media, it must contain either one shared prompt
+or exactly one prompt per media item; any other length is rejected. Without media, multiple
+prompts run as independent text-only items.
 
 Model Profile choices are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5+ Thinking`,
 `Qwen 3.5+ Non-thinking`, `Qwen 3 VL`, and `Custom`. Selecting `Custom` enables the Advanced
@@ -281,7 +286,7 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 `Llama.cpp Native Speculative Config (Compat)` is registered under `Ollama / llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
-This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses only `LlamaNativeSpeculativeDecoding`. DFlash, DSpark, and Gemma 4 external MTP require a separate draft/assistant GGUF. Qwen 3.5+ internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
+This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses only `LlamaNativeSpeculativeDecoding`. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
 The node requires an experimental wheel that provides `llama_cpp.llama_speculative.LlamaNativeSpeculativeDecoding`. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. Installation details for the existing DFlash/DSpark build are in the [v0.3.46 native speculative release](https://github.com/craftingmod/llama-cpp-python/releases/tag/v0.3.46-native-speculative.1). Native MTP additionally requires a wheel freshly built from the experimental fork with `draft-mtp`, external/internal MTP bridging, and speculative ABI v2; the older DFlash/DSpark wheel is not sufficient. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
@@ -292,8 +297,8 @@ For Native MTP, choose one explicit `mtp_provider`:
 | Provider | Target | `draft_model` | Native decoder path |
 | --- | --- | --- | --- |
 | `off` | Existing DFlash/DSpark behavior | Required | Selected draft GGUF |
-| `external_gemma4` | Gemma 4 target GGUF | Matching `gemma4-assistant` GGUF required | Selected assistant GGUF |
-| `internal_qwen35` | Qwen 3.5+ GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
+| `external` | Target GGUF | Selected draft GGUF required | Selected draft GGUF |
+| `internal` | Target GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
 
 Select `spec_type=draft-mtp` together with an external or internal MTP provider. The `mtp_provider` widget is disabled for every other `spec_type`, and any preserved inactive value is treated as `off` during node execution. MTP uses the same `spec_n_max`, `spec_n_min`, and `spec_p_min` values as DFlash/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
 

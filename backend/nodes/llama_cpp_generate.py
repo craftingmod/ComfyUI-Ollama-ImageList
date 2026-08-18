@@ -571,7 +571,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         backend_execution_values = (
             {} if resolved_spec_type == "none" else cls._prepare_backend_execution()
         )
-        bundle = normalize_media(images=images, audio=audio, video=video)
+        bundle = normalize_media(images=images, audio=audio, video=video, audio_sample_rate=16_000, audio_channels=1)
         model_selection = str(unwrap_required_scalar("model_path", model_path))
         mmproj_selection = str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION))
         resolved_mmproj_path = (
@@ -623,15 +623,15 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         if draft_model is not None or resolved_mtp_provider != "off":
             draft_required = resolved_spec_type in {"draft-dflash", "draft-dspark"} or (
                 resolved_spec_type == "draft-mtp"
-                and resolved_mtp_provider == "external_gemma4"
+                and resolved_mtp_provider == "external"
             )
             speculative_values = {
                 "draft_model_path": (
                     _resolve_gguf_selection(
                         str(draft_selection),
                         label=(
-                            "Gemma 4 MTP assistant GGUF"
-                            if resolved_mtp_provider == "external_gemma4"
+                            "external MTP draft GGUF"
+                            if resolved_mtp_provider == "external"
                             else "draft model GGUF"
                         ),
                         required=draft_required,

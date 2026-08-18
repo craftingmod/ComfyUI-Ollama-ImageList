@@ -61,7 +61,7 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
                 default="none",
                 tooltip=(
                     "Native speculative implementation. Select draft-mtp together with "
-                    "external_gemma4 or internal_qwen35 in mtp_provider."
+                    "external or internal in mtp_provider."
                 ),
             ),
             io.Int.Input(
@@ -95,11 +95,11 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
         mtp_inputs = [
             io.Combo.Input(
                 "mtp_provider",
-                options=["off", "external_gemma4", "internal_qwen35"],
+                options=["off", "external", "internal"],
                 default="off",
                 tooltip=(
-                    "Native MTP provider. external_gemma4 uses the selected draft_model "
-                    "as a matching gemma4-assistant GGUF. internal_qwen35 uses embedded "
+                    "Native MTP provider. external uses the selected draft_model. "
+                    "internal uses embedded "
                     "NextN/MTP layers and requires draft_model to remain unselected."
                 ),
             ),

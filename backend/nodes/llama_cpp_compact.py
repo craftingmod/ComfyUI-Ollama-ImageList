@@ -58,6 +58,7 @@ _BASE_MODEL_PROFILE: dict[str, Any] = {
     "min_p": 0.05,
     "presence_penalty": 0.0,
     "repeat_penalty": 1.0,
+    "custom_chat_template": "",
 }
 
 _BASE_HARDWARE_PROFILE: dict[str, Any] = {
@@ -90,6 +91,7 @@ COMPACT_MODEL_PROFILES: dict[str, dict[str, Any]] = {
     ),
     "Qwen 3.5+ Thinking": _model_profile(
         recommended_reasoning_mode="on",
+        handler="qwen35",
         temperature=1.0,
         top_p=0.95,
         top_k=20,
@@ -98,6 +100,7 @@ COMPACT_MODEL_PROFILES: dict[str, dict[str, Any]] = {
     ),
     "Qwen 3.5+ Non-thinking": _model_profile(
         recommended_reasoning_mode="off",
+        handler="qwen35",
         temperature=0.7,
         top_p=0.8,
         top_k=20,
@@ -170,7 +173,7 @@ NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
     },
     "Gemma 4 External MTP": {
         "spec_type": "draft-mtp",
-        "mtp_provider": "external_gemma4",
+        "mtp_provider": "external",
         "spec_n_max": 2,
         "spec_n_min": 0,
         "spec_p_min": 0.0,
@@ -178,7 +181,7 @@ NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
     },
     "Qwen 3.5+ Internal MTP": {
         "spec_type": "draft-mtp",
-        "mtp_provider": "internal_qwen35",
+        "mtp_provider": "internal",
         "spec_n_max": 2,
         "spec_n_min": 0,
         "spec_p_min": 0.0,
@@ -193,12 +196,19 @@ def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
             "model_profile must be a Llama.cpp Compact Model Profile object."
         )
 
-    missing = [name for name in _BASE_MODEL_PROFILE if name not in value]
+    missing = [
+        name
+        for name in _BASE_MODEL_PROFILE
+        if name != "custom_chat_template" and name not in value
+    ]
     if missing:
         raise InputNormalizationError(
             f"model_profile is missing required field(s): {', '.join(missing)}."
         )
-    normalized = {name: value[name] for name in _BASE_MODEL_PROFILE}
+    normalized = {
+        name: value.get(name, _BASE_MODEL_PROFILE[name])
+        for name in _BASE_MODEL_PROFILE
+    }
     handler = normalized.get("handler")
     if handler not in HANDLER_NAMES:
         raise InputNormalizationError(
@@ -209,6 +219,13 @@ def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
         raise InputNormalizationError(
             "model_profile.recommended_reasoning_mode must be auto, off, or on."
         )
+
+    custom_chat_template = normalized.get("custom_chat_template", "")
+    if not isinstance(custom_chat_template, str):
+        raise InputNormalizationError(
+            "model_profile.custom_chat_template must be a string."
+        )
+    normalized["custom_chat_template"] = custom_chat_template
 
     integer_ranges = {
         "top_k": (0, 10_000),
@@ -305,6 +322,9 @@ def normalize_reasoning_config(value: Any) -> dict[str, Any]:
         raise InputNormalizationError(
             "max_reasoning_tokens must be between 0 and 65536."
         )
+    preserve_thinking = value.get("preserve_thinking")
+    if not isinstance(preserve_thinking, bool):
+        raise InputNormalizationError("preserve_thinking must be a boolean.")
     if mode != "on":
         effort = "auto"
         maximum = 0
@@ -312,6 +332,7 @@ def normalize_reasoning_config(value: Any) -> dict[str, Any]:
         "reasoning_mode": mode,
         "reasoning_effort": effort,
         "max_reasoning_tokens": maximum,
+        "preserve_thinking": preserve_thinking,
     }
 
 
@@ -326,9 +347,9 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
             "native_speculative.spec_type must be none, draft-dflash, draft-dspark, or draft-mtp."
         )
     provider = value.get("mtp_provider")
-    if provider not in {"off", "external_gemma4", "internal_qwen35"}:
+    if provider not in {"off", "external", "internal"}:
         raise InputNormalizationError(
-            "native_speculative.mtp_provider must be off, external_gemma4, or internal_qwen35."
+            "native_speculative.mtp_provider must be off, external, or internal."
         )
     n_max = value.get("spec_n_max")
     n_min = value.get("spec_n_min")
@@ -359,7 +380,7 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
             raise InputNormalizationError(
                 "native_speculative draft-mtp requires an external or internal MTP provider."
             )
-        if provider == "internal_qwen35":
+        if provider == "internal":
             draft_model = NO_DRAFT_OPTION
     elif provider != "off":
         raise InputNormalizationError(
@@ -413,6 +434,15 @@ class LlamaCppModelProfileNode(io.ComfyNode):
             inputs=[
                 io.Combo.Input(
                     "profile", options=[*names, "Custom"], default="General"
+                ),
+                io.String.Input(
+                    "custom_chat_template",
+                    optional=True,
+                    force_input=True,
+                    tooltip=(
+                        "Optional custom Jinja chat template connected as an input socket. "
+                        "When provided, it overrides the GGUF metadata chat template."
+                    ),
                 ),
                 io.Combo.Input(
                     "custom_handler",
@@ -482,7 +512,11 @@ class LlamaCppModelProfileNode(io.ComfyNode):
         min_p: float,
         repeat_penalty: float,
         presence_penalty: float,
+        custom_chat_template: str = "",
     ) -> io.NodeOutput:
+        resolved_template = str(
+            unwrap_optional_scalar("custom_chat_template", custom_chat_template, "")
+        )
         if profile == "Custom":
             value = {
                 "handler": custom_handler,
@@ -493,14 +527,16 @@ class LlamaCppModelProfileNode(io.ComfyNode):
                 "min_p": min_p,
                 "presence_penalty": presence_penalty,
                 "repeat_penalty": repeat_penalty,
+                "custom_chat_template": resolved_template,
             }
         else:
             try:
-                value = COMPACT_MODEL_PROFILES[profile]
+                base = COMPACT_MODEL_PROFILES[profile]
             except KeyError as exc:
                 raise InputNormalizationError(
                     f"Unknown Llama.cpp Compact profile: {profile}"
                 ) from exc
+            value = {**base, "custom_chat_template": resolved_template}
         return io.NodeOutput(normalize_compact_model_profile(value))
 
 
@@ -632,6 +668,15 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
                         "output still share Generate's max_tokens."
                     ),
                 ),
+                io.Boolean.Input(
+                    "preserve_thinking",
+                    default=False,
+                    tooltip=(
+                        "Preserve thinking/reasoning content in the chat history "
+                        "passed to the model."
+                        "Currently, Qwen3.5+ only and may not work."
+                    ),
+                ),
             ],
             outputs=[
                 LlamaCppReasoningConfigType.Output(
@@ -646,6 +691,7 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
         reasoning_mode: str,
         reasoning_effort: str,
         max_reasoning_tokens: int,
+        preserve_thinking: bool = False,
     ) -> io.NodeOutput:
         return io.NodeOutput(
             normalize_reasoning_config(
@@ -653,6 +699,7 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
                     "reasoning_mode": reasoning_mode,
                     "reasoning_effort": reasoning_effort,
                     "max_reasoning_tokens": max_reasoning_tokens,
+                    "preserve_thinking": preserve_thinking,
                 }
             )
         )
@@ -749,7 +796,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                     options=draft_options,
                     default=draft_options[0],
                     tooltip=(
-                        "Required by DFlash, DSpark, and Gemma 4 external MTP; ignored by "
+                        "Required by DFlash, DSpark, and external MTP; ignored by "
                         "Off and Qwen 3.5+ internal MTP."
                     ),
                 ),
@@ -761,7 +808,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                 ),
                 io.Combo.Input(
                     "custom_mtp_provider",
-                    options=["off", "external_gemma4", "internal_qwen35"],
+                    options=["off", "external", "internal"],
                     default="off",
                     advanced=True,
                 ),
@@ -872,9 +919,29 @@ def _sequential_media_bundles(
             images=item(media_values["images"], index),
             audio=item(media_values["audio"], index),
             video=item(media_values["video"], index),
+            audio_sample_rate=16_000,
+            audio_channels=1,
         )
         for index in range(item_count)
     ]
+
+
+def _sequential_prompts(prompt: Any, item_count: int) -> list[str]:
+    prompts = prompt if isinstance(prompt, (list, tuple)) else [prompt]
+    prompts = [str(value) for value in prompts]
+    if not prompts:
+        raise InputNormalizationError(
+            "Sequential Generate requires at least one prompt."
+        )
+    if item_count > 1 and len(prompts) not in (1, item_count):
+        raise InputNormalizationError(
+            "When vision media is connected, prompt must contain exactly one "
+            "prompt or one prompt for each media item "
+            f"(received {len(prompts)}, expected 1 or {item_count})."
+        )
+    if len(prompts) == 1:
+        return prompts * item_count
+    return prompts
 
 
 def _compact_output_fields(*, is_output_list: bool = False) -> list[Any]:
@@ -988,11 +1055,11 @@ def _execute_compact(
         speculative_config = normalize_compact_speculative(
             unwrap_required_scalar("speculative", speculative)
         )
-    if sequential and speculative_config["kind"] != "off":
-        raise InputNormalizationError(
-            "Sequential Generate requires speculative=off so decoder history cannot "
-            "carry between independent items."
-        )
+    # if sequential and speculative_config["kind"] != "off":
+    #     raise InputNormalizationError(
+    #         "Sequential Generate requires speculative=off so decoder history cannot "
+    #         "carry between independent items."
+    #     )
     if speculative_config["kind"] == "native":
         native_config = speculative_config["config"]
         if native_config["spec_type"] != "none":
@@ -1002,6 +1069,7 @@ def _execute_compact(
         "reasoning_mode": "auto",
         "reasoning_effort": "auto",
         "max_reasoning_tokens": 0,
+        "preserve_thinking": False,
     }
     if reasoning is not None:
         reasoning_config = normalize_reasoning_config(
@@ -1049,8 +1117,14 @@ def _execute_compact(
     bundles = (
         _sequential_media_bundles(images=images, audio=audio, video=video)
         if sequential
-        else [normalize_media(images=images, audio=audio, video=video)]
+        else [normalize_media(images=images, audio=audio, video=video, audio_sample_rate=16_000, audio_channels=1)]
     )
+    prompt_items = None
+    if sequential:
+        raw_prompts = prompt if isinstance(prompt, (list, tuple)) else [prompt]
+        if not any(bundle.items for bundle in bundles) and len(raw_prompts) > 1:
+            bundles = [normalize_media() for _ in raw_prompts]
+        prompt_items = _sequential_prompts(prompt, len(bundles))
     resolved_mmproj = (
         _resolve_gguf_selection(
             str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION)),
@@ -1067,7 +1141,7 @@ def _execute_compact(
         spec_type = native_config["spec_type"]
         draft_required = spec_type in {"draft-dflash", "draft-dspark"} or (
             spec_type == "draft-mtp"
-            and native_config["mtp_provider"] == "external_gemma4"
+            and native_config["mtp_provider"] == "external"
         )
         extra.update(
             draft_model_path=(
@@ -1096,7 +1170,11 @@ def _execute_compact(
         ),
         mmproj_path=resolved_mmproj,
         system=str(unwrap_required_scalar("system", system)),
-        prompt=str(unwrap_required_scalar("prompt", prompt)),
+        prompt=(
+            prompt_items[0]
+            if prompt_items is not None
+            else str(unwrap_required_scalar("prompt", prompt))
+        ),
         n_ctx=int(unwrap_optional_scalar("n_ctx", n_ctx, 8_192)),
         max_tokens=output_token_limit,
         override_image_min_tokens=image_token_floor > 0,
@@ -1108,6 +1186,7 @@ def _execute_compact(
         thinking=thinking_value,
         reasoning_strength=reasoning_config["reasoning_effort"],
         reasoning_budget=reasoning_token_limit,
+        preserve_thinking=reasoning_config["preserve_thinking"],
         seed=int(unwrap_optional_scalar("seed", seed, -1)),
         stop=str(unwrap_optional_scalar("stop", stop, "")),
         verbose=bool(unwrap_optional_scalar("verbose", verbose, False)),
@@ -1117,7 +1196,9 @@ def _execute_compact(
     )
     if sequential:
         return _compact_sequential_outputs(
-            run_chat_sequential(media_items=bundles, **run_kwargs)
+            run_chat_sequential(
+                media_items=bundles, prompt_items=prompt_items, **run_kwargs
+            )
         )
     result = run_chat(media=bundles[0], **run_kwargs)
     return _compact_outputs(result, as_lists=outputs_as_lists)

@@ -54,7 +54,7 @@ class MiniMaxSystemPromptPresetNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_MiniMaxSystemPromptPreset",
             display_name="MiniMax System Prompt Preset",
-            category="Ollama/prompt",
+            category="Ollama/preset",
             description=(
                 "Loads a packaged MiniMax prompt preset. Reference modes use their "
                 "reference base; other modes use the common base. The selected base and "

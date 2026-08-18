@@ -144,7 +144,20 @@ def normalize_images(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS)
     return MediaBundle(tuple(items))
 
 
-def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) -> MediaBundle:
+def _convert_audio(waveform: Any, channels: int, samples: int, sample_rate: int) -> list[list[float]]:
+    value = waveform.tolist() if hasattr(waveform, "tolist") else waveform
+    mono = [sum(float(value[channel][index]) for channel in range(channels)) / channels for index in range(samples)]
+    output_samples = max(1, round(samples * 16_000 / sample_rate))
+    if output_samples == samples and sample_rate == 16_000:
+        return [mono]
+    return [[
+        mono[min(samples - 1, int(position))] * (1 - (position - int(position)))
+        + mono[min(samples - 1, int(position) + 1)] * (position - int(position))
+        for position in (index * (samples - 1) / max(1, output_samples - 1) for index in range(output_samples))
+    ]]
+
+
+def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS, target_sample_rate: int | None = None, target_channels: int | None = None) -> MediaBundle:
     items: list[MediaItem] = []
     raw_bytes = 0
 
@@ -190,20 +203,24 @@ def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) 
             )
 
         for batch_index, audio_item in enumerate(batches):
+            if target_sample_rate is not None or target_channels is not None:
+                audio_item = _convert_audio(audio_item, channels, samples, sample_rate)
+            output_channels = target_channels or channels
+            output_samples = len(audio_item[0])
             index = len(items)
             if index >= limits.max_audio_items:
                 raise InputNormalizationError(
                     f"Audio item count exceeds the configured limit of {limits.max_audio_items}."
                 )
-            raw_bytes += _raw_bytes(audio_item, (channels, samples))
+            raw_bytes += _raw_bytes(audio_item, (output_channels, output_samples))
             if raw_bytes > limits.max_total_raw_bytes:
                 _check_totals(items, raw_bytes, limits)
             try:
                 payload, digest = encode_audio_wav(
                     audio_item,
-                    sample_rate=sample_rate,
-                    channels=channels,
-                    samples=samples,
+                    sample_rate=target_sample_rate or sample_rate,
+                    channels=output_channels,
+                    samples=output_samples,
                 )
             except InputNormalizationError as exc:
                 raise InputNormalizationError(f"Audio {index}: {exc}") from exc
@@ -214,10 +231,10 @@ def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) 
                     mime_type="audio/wav",
                     payload=payload,
                     metadata={
-                        "sample_rate": sample_rate,
-                        "channels": channels,
-                        "samples": samples,
-                        "duration_seconds": duration,
+                        "sample_rate": target_sample_rate or sample_rate,
+                        "channels": output_channels,
+                        "samples": output_samples,
+                        "duration_seconds": output_samples / (target_sample_rate or sample_rate),
                         "sha256": digest,
                         "source": f"{source_path}.batch[{batch_index}]" if batch > 1 else source_path,
                     },
@@ -433,9 +450,11 @@ def normalize_media(
     audio: Any = None,
     video: Any = None,
     limits: MediaLimits = DEFAULT_MEDIA_LIMITS,
+    audio_sample_rate: int | None = None,
+    audio_channels: int | None = None,
 ) -> MediaBundle:
     image_items = normalize_images(images, limits=limits).items
-    audio_items = normalize_audio(audio, limits=limits).items
+    audio_items = normalize_audio(audio, limits=limits, target_sample_rate=audio_sample_rate, target_channels=audio_channels).items
     video_items = normalize_video(video, limits=limits).items
     combined = MediaBundle(tuple(image_items + audio_items + video_items)).reindexed()
     if sum(len(item.payload) for item in combined.items) > limits.max_total_encoded_bytes:
