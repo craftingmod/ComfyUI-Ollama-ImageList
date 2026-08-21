@@ -1,7 +1,7 @@
 import fs from "node:fs/promises"
 import Path from "node:path"
 
-export type ReleaseMetadata = {
+type ReleaseMetadata = {
   packageName: unknown
   projectName: unknown
   repository: unknown
@@ -55,7 +55,9 @@ function containsTemplateValue(value: string): boolean {
 function readConstant(source: string, name: string, language: "typescript" | "python"): string {
   const prefix = language === "typescript" ? `export\\s+const\\s+${name}` : name
   const match = source.match(new RegExp(`^${prefix}\\s*=\\s*["']([^"']+)["']\\s*$`, "m"))
-  if (!match) throw new Error(`Could not read ${name} from ${language} source.`)
+  if (!match) {
+    throw new Error(`Could not read ${name} from ${language} source.`)
+  }
   return match[1]!
 }
 
@@ -102,7 +104,9 @@ export function validateReleaseMetadata(metadata: ReleaseMetadata): string[] {
   }
 
   if (projectName && packageName && projectName !== packageName) {
-    errors.push(`package.json name (${packageName}) must match project.name (${projectName}).`)
+    errors.push(
+      `package.json name (${packageName}) must match pyproject project.name (${projectName}).`,
+    )
   }
   if (projectName && frontendProjectId && projectName !== frontendProjectId) {
     errors.push(
@@ -131,6 +135,7 @@ export function validateReleaseMetadata(metadata: ReleaseMetadata): string[] {
       errors.push(`Repository must be ${expectedRepository} for this GitHub repository.`)
     }
   }
+
   return errors
 }
 
@@ -139,7 +144,7 @@ export async function validateRelease(projectRoot = projectDir): Promise<string[
     fs.readFile(Path.join(projectRoot, "pyproject.toml"), "utf8"),
     fs.readFile(Path.join(projectRoot, "package.json"), "utf8"),
     fs.readFile(Path.join(projectRoot, "frontend", "src", "constants.ts"), "utf8"),
-    fs.readFile(Path.join(projectRoot, "backend", "__init__.py"), "utf8"),
+    fs.readFile(Path.join(projectRoot, "backend", "nodes", "example_normalize_text.py"), "utf8"),
   ])
   const pyproject = Bun.TOML.parse(pyprojectSource) as ProjectConfig
   const packageJson = JSON.parse(packageSource) as { name?: unknown }
@@ -163,7 +168,10 @@ if (import.meta.main) {
   const errors = await validateRelease()
   if (errors.length > 0) {
     console.error("Release metadata validation failed:")
-    for (const error of errors) console.error(`- ${error}`)
+    for (const error of errors) {
+      console.error(`- ${error}`)
+    }
+    console.error("Run `bun run init:template` and fix the fields above before tagging a release.")
     process.exit(1)
   }
   console.log("Release metadata is ready for publishing.")

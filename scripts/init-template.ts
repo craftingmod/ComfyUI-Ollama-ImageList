@@ -6,7 +6,11 @@ const projectDir = Path.resolve(import.meta.dir, "../")
 
 function requireMatch(value: string, pattern: RegExp, message: string): string {
   const trimmed = value.trim()
-  if (!pattern.test(trimmed)) throw new Error(message)
+
+  if (!pattern.test(trimmed)) {
+    throw new Error(message)
+  }
+
   return trimmed
 }
 
@@ -16,7 +20,11 @@ export function validateProjectId(value: string): string {
     /^[a-z](?:[a-z0-9]|[._-](?=[a-z0-9]))*$/,
     "Project ID must start with a lowercase letter and use lowercase letters, numbers, '.', '_' or single '-'.",
   )
-  if (projectId.length >= 100) throw new Error("Project ID must be less than 100 characters long.")
+
+  if (projectId.length >= 100) {
+    throw new Error("Project ID must be less than 100 characters long.")
+  }
+
   return projectId
 }
 
@@ -31,6 +39,7 @@ export function validateProjectName(value: string): string {
       "Project Name must be a non-empty display name without control characters and at most 100 characters long.",
     )
   }
+
   return projectName
 }
 
@@ -40,7 +49,11 @@ export function validateGitHubUsername(value: string): string {
     /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/,
     "GitHub username must contain only letters, numbers or single hyphens, and cannot start or end with a hyphen.",
   )
-  if (username.length > 39) throw new Error("GitHub username must be at most 39 characters long.")
+
+  if (username.length > 39) {
+    throw new Error("GitHub username must be at most 39 characters long.")
+  }
+
   return username
 }
 
@@ -50,9 +63,11 @@ export function validateGitHubRepo(value: string): string {
     /^[A-Za-z0-9._-]+$/,
     "GitHub repository name must contain only letters, numbers, '.', '_' or '-'.",
   )
+
   if (repo.length > 100 || repo === "." || repo === "..") {
     throw new Error("GitHub repository name must be valid and at most 100 characters long.")
   }
+
   return repo
 }
 
@@ -62,14 +77,19 @@ export function validatePublisherId(value: string): string {
     /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/,
     "Registry Publisher ID must use lowercase letters, numbers, '.', '_' or '-'.",
   )
+
   if (publisherId.length > 100) {
     throw new Error("Registry Publisher ID must be at most 100 characters long.")
   }
+
   return publisherId
 }
 
 function replaceQuotedValue(source: string, pattern: RegExp, value: string, label: string): string {
-  if (!pattern.test(source)) throw new Error(`Could not find ${label}`)
+  if (!pattern.test(source)) {
+    throw new Error(`Could not find ${label}`)
+  }
+
   return source.replace(pattern, (_match, prefix: string) => `${prefix}${JSON.stringify(value)}`)
 }
 
@@ -79,23 +99,23 @@ export async function initializeTemplate(
   githubUsername: string,
   githubRepo: string,
   publisherId: string,
-  targetDir = projectDir,
 ): Promise<void> {
-  const pyprojectPath = Path.join(targetDir, "pyproject.toml")
-  const packagePath = Path.join(targetDir, "package.json")
-  const constantsPath = Path.join(targetDir, "frontend", "src", "constants.ts")
-  const backendPath = Path.join(targetDir, "backend", "__init__.py")
-  const [originalPyproject, originalPackage, originalConstants, originalBackend] =
-    await Promise.all([
-      fs.readFile(pyprojectPath, "utf8"),
-      fs.readFile(packagePath, "utf8"),
-      fs.readFile(constantsPath, "utf8"),
-      fs.readFile(backendPath, "utf8"),
-    ])
+  const pyprojectPath = Path.join(projectDir, "pyproject.toml")
+  const packagePath = Path.join(projectDir, "package.json")
+  const constantsPath = Path.join(projectDir, "frontend", "src", "constants.ts")
+  const nodePath = Path.join(projectDir, "backend", "nodes", "example_normalize_text.py")
+  const [originalPyproject, originalPackage, originalConstants, originalNode] = await Promise.all([
+    fs.readFile(pyprojectPath, "utf8"),
+    fs.readFile(packagePath, "utf8"),
+    fs.readFile(constantsPath, "utf8"),
+    fs.readFile(nodePath, "utf8"),
+  ])
 
   const projectSectionPattern = /(^\[project\]\s*$)([\s\S]*?)(?=^\[|(?![\s\S]))/m
   const projectSection = originalPyproject.match(projectSectionPattern)
-  if (!projectSection) throw new Error("Could not find [project] in pyproject.toml")
+  if (!projectSection) {
+    throw new Error("Could not find [project] in pyproject.toml")
+  }
 
   const updatedProjectSection = replaceQuotedValue(
     projectSection[0],
@@ -103,6 +123,7 @@ export async function initializeTemplate(
     projectId,
     "project.name in pyproject.toml",
   )
+
   let updatedPyproject = originalPyproject.replace(
     projectSectionPattern,
     () => updatedProjectSection,
@@ -147,31 +168,33 @@ export async function initializeTemplate(
     projectName,
     "PROJECT_NAME in frontend/src/constants.ts",
   )
-  let updatedBackend = replaceQuotedValue(
-    originalBackend,
+  let updatedNode = replaceQuotedValue(
+    originalNode,
     /^(PROJECT_ID\s*=\s*)["'][^"']+["']\s*$/m,
     projectId,
-    "PROJECT_ID in backend/__init__.py",
+    "PROJECT_ID in the example backend node",
   )
-  updatedBackend = replaceQuotedValue(
-    updatedBackend,
+  updatedNode = replaceQuotedValue(
+    updatedNode,
     /^(PROJECT_NAME\s*=\s*)["'][^"']+["']\s*$/m,
     projectName,
-    "PROJECT_NAME in backend/__init__.py",
+    "PROJECT_NAME in the example backend node",
   )
 
   await Promise.all([
     fs.writeFile(pyprojectPath, updatedPyproject),
     fs.writeFile(packagePath, updatedPackage),
     fs.writeFile(constantsPath, updatedConstants),
-    fs.writeFile(backendPath, updatedBackend),
+    fs.writeFile(nodePath, updatedNode),
   ])
 }
 
 async function main(): Promise<void> {
   let answers: [string, string, string, string, string]
+
   if (process.stdin.isTTY) {
     const input = createInterface({ input: process.stdin, output: process.stdout })
+
     try {
       answers = [
         await input.question("Project ID: "),
@@ -193,15 +216,15 @@ async function main(): Promise<void> {
     answers = [lines[0]!, lines[1]!, lines[2]!, lines[3]!, lines[4]!]
   }
 
-  await initializeTemplate(
-    validateProjectId(answers[0]),
-    validateProjectName(answers[1]),
-    validateGitHubUsername(answers[2]),
-    validateGitHubRepo(answers[3]),
-    validatePublisherId(answers[4]),
-  )
+  const projectId = validateProjectId(answers[0])
+  const projectName = validateProjectName(answers[1])
+  const githubUsername = validateGitHubUsername(answers[2])
+  const githubRepo = validateGitHubRepo(answers[3])
+  const publisherId = validatePublisherId(answers[4])
+
+  await initializeTemplate(projectId, projectName, githubUsername, githubRepo, publisherId)
   console.log(
-    `Initialized ${answers[1]!.trim()} (${answers[0]!.trim()}) for https://github.com/${answers[2]!.trim()}/${answers[3]!.trim()}.`,
+    `Initialized ${projectName} (${projectId}) for https://github.com/${githubUsername}/${githubRepo}.`,
   )
   console.log("Run `uv lock` and `bun install` to refresh the lockfiles.")
 }

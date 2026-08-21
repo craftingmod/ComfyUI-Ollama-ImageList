@@ -22,6 +22,9 @@ class TensorStub:
     def tolist(self):
         return self._data
 
+    def __len__(self) -> int:
+        return len(self._data)
+
 
 def solid_image(batch: int, height: int, width: int, channels: int, value: float) -> TensorStub:
     data = [
