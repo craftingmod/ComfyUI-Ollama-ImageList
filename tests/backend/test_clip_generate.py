@@ -97,9 +97,10 @@ def test_qwen_system_role_and_image_list_use_one_generate_call(clip_module):
     assert len(kwargs["images"]) == 3
     assert all(image.shape[0] == 1 for image in kwargs["images"])
     assert kwargs["llama_template"].count("<|image_pad|>") == 3
-    assert "<|im_start|>system\nAnswer briefly {{and accurately}}." in kwargs[
-        "llama_template"
-    ]
+    assert (
+        "<|im_start|>system\nAnswer briefly {{and accurately}}."
+        in kwargs["llama_template"]
+    )
     assert kwargs["thinking"] is True
     assert kwargs["skip_template"] is False
     assert clip.generate_call[1]["seed"] == 7

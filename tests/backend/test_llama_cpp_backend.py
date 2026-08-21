@@ -279,7 +279,9 @@ def test_missing_ngram_speculative_api_fails_only_when_requested(monkeypatch):
     assert "DFlash/DSpark support is not required" in message
 
 
-def test_target_only_path_does_not_import_or_pass_speculative_binding(tmp_path, monkeypatch):
+def test_target_only_path_does_not_import_or_pass_speculative_binding(
+    tmp_path, monkeypatch
+):
     model, _ = gguf_files(tmp_path)
 
     def unexpected_import():
@@ -356,9 +358,7 @@ def test_text_only_auto_reasoning_leaves_template_arguments_untouched(tmp_path):
         ),
     )
 
-    assert FakeLlama.instances[0].kwargs["chat_handler_kwargs"] == {
-        "verbose": False
-    }
+    assert FakeLlama.instances[0].kwargs["chat_handler_kwargs"] == {"verbose": False}
     assert FakeJinjaFormatter.instances == []
     assert result.metrics["configuration"]["thinking"] is None
     assert result.metrics["configuration"]["reasoning_strength"] == "auto"
@@ -414,7 +414,9 @@ def test_text_only_thinking_template_requires_configurable_jinja_api(tmp_path):
     assert FakeLlama.instances[0].closed is True
 
 
-def test_ngram_speculative_forwards_parameters_and_preserves_multimodal_request(tmp_path):
+def test_ngram_speculative_forwards_parameters_and_preserves_multimodal_request(
+    tmp_path,
+):
     model, mmproj = gguf_files(tmp_path)
     bundle = normalize_images(solid_image(1, 2, 3, 3, 0.5))
 
@@ -1012,7 +1014,9 @@ def test_auto_adapts_images_for_muse_glimmer_embedded_template(tmp_path):
 
     content = FakeLlama.instances[0].completion_kwargs["messages"][-1]["content"]
     assert [part["type"] for part in content] == ["text", "image", "image"]
-    assert all(part["image"].startswith("data:image/png;base64,") for part in content[1:])
+    assert all(
+        part["image"].startswith("data:image/png;base64,") for part in content[1:]
+    )
 
 
 def test_explicit_generic_keeps_openai_image_parts_for_muse_glimmer(tmp_path):
@@ -1123,7 +1127,9 @@ def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
         "image_url",
         "input_audio",
     ]
-    assert base64.b64decode(content[2]["input_audio"]["data"]) == bundle.items[1].payload
+    assert (
+        base64.b64decode(content[2]["input_audio"]["data"]) == bundle.items[1].payload
+    )
     assert result.media_diagnostics["requested"]["image_count"] == 1
     assert result.media_diagnostics["requested"]["audio_count"] == 1
     assert result.media_diagnostics["evaluated"]["image_count"] == 1
@@ -1205,8 +1211,9 @@ def test_qwen3_asr_handler_is_available_for_audio_models(tmp_path):
     assert FakeLlama.instances[0].kwargs["chat_handler"] is handler
     assert FakeLlama.instances[0].closed is True
 
+
 # @TODO fix this
-'''
+"""
 def test_auto_handler_inherits_enabled_verbose_setting(tmp_path):
     model, mmproj = gguf_files(tmp_path)
 
@@ -1232,7 +1239,8 @@ def test_auto_handler_inherits_enabled_verbose_setting(tmp_path):
             "preserve_thinking": False,
         },
     }
-'''
+"""
+
 
 def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
     model, mmproj = gguf_files(tmp_path)
@@ -1298,7 +1306,7 @@ def test_qwen3_vl_thinking_maps_to_force_reasoning(tmp_path):
 
 
 # @TODO fix this
-'''
+"""
 def test_auto_handler_receives_thinking_and_image_token_overrides(tmp_path):
     model, mmproj = gguf_files(tmp_path)
 
@@ -1334,7 +1342,8 @@ def test_auto_handler_receives_thinking_and_image_token_overrides(tmp_path):
         "image_max_tokens": 1120,
         "reasoning_effort": "xhigh",
     }
-'''
+"""
+
 
 def test_disabled_thinking_ignores_selected_reasoning_strength(tmp_path):
     model, mmproj = gguf_files(tmp_path)
@@ -1385,9 +1394,7 @@ def test_auto_reasoning_strength_is_not_forwarded_when_thinking_is_enabled(tmp_p
 
 def test_qwen_reasoning_budget_is_forwarded_to_completion(tmp_path):
     model, _ = gguf_files(tmp_path)
-    FakeLlama.metadata = {
-        "tokenizer.chat_template": "<think>{{ messages }}</think>"
-    }
+    FakeLlama.metadata = {"tokenizer.chat_template": "<think>{{ messages }}</think>"}
 
     result = run_chat(
         model_path=str(model),
@@ -1646,7 +1653,9 @@ def test_reasoning_tags_are_split_from_response(tmp_path, content):
         ("<|channel>thought\npartial reasoning", "partial reasoning", ""),
     ],
 )
-def test_gemma4_thought_channel_is_split(tmp_path, content, expected_thinking, expected_response):
+def test_gemma4_thought_channel_is_split(
+    tmp_path, content, expected_thinking, expected_response
+):
     model, _ = gguf_files(tmp_path)
     FakeLlama.response = {
         "choices": [{"message": {"role": "assistant", "content": content}}],
@@ -1740,8 +1749,9 @@ def test_custom_chat_template_with_thinking_controls(tmp_path):
     assert formatter.call_kwargs["reasoning_strength"] == "high"
     assert result.metrics["configuration"]["custom_chat_template"] is True
 
+
 # @TODO FIX... WHEN?
-'''
+"""
 def test_compact_model_profile_custom_chat_template_execution(tmp_path, monkeypatch):
     import backend.nodes.llama_cpp_compact as compact_nodes
 
@@ -1796,4 +1806,4 @@ def test_compact_model_profile_custom_chat_template_execution(tmp_path, monkeypa
     )
     assert len(FakeJinjaFormatter.instances) == 1
     assert FakeJinjaFormatter.instances[0].kwargs["template"] == custom_template
-'''
+"""

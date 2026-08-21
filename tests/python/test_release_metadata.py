@@ -12,7 +12,9 @@ def test_registry_runtime_avoids_dynamic_import_scanner_trigger():
 
     for source_path in runtime_sources:
         source = source_path.read_text(encoding="utf-8")
-        assert "importlib.import_module" not in source, source_path.relative_to(REPO_ROOT)
+        assert "importlib.import_module" not in source, source_path.relative_to(
+            REPO_ROOT
+        )
 
 
 def test_release_identity_and_archive_defaults_are_stable():

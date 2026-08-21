@@ -111,7 +111,7 @@ class _SequentialLlamaProxy:
         llm = self._session.llm
         # Fixed in https://github.com/JamePeng/llama-cpp-python/issues/168
         # requires llama_cpp_python v0.3.47+
-        
+
         # if hasattr(llm, "_native_speculative"):
         #     reset = getattr(llm, "reset", None)
         #     if not callable(reset):
@@ -271,8 +271,7 @@ def _speculative_stats_snapshot(decoder: Any) -> dict[str, int]:
     try:
         stats = getattr(decoder, "stats", None)
         return {
-            key: int((stats or {}).get(key, 0) or 0)
-            for key in _SPECULATIVE_STAT_KEYS
+            key: int((stats or {}).get(key, 0) or 0) for key in _SPECULATIVE_STAT_KEYS
         }
     except Exception:
         return {key: 0 for key in _SPECULATIVE_STAT_KEYS}
@@ -489,7 +488,9 @@ def normalize_ngram_speculative(value: Any | None) -> dict[str, Any]:
             normalized[name] = None
             continue
         if isinstance(candidate, bool) or not isinstance(candidate, int):
-            raise InputNormalizationError(f"ngram_speculative.{name} must be an integer.")
+            raise InputNormalizationError(
+                f"ngram_speculative.{name} must be an integer."
+            )
         if not minimum <= candidate <= maximum:
             raise InputNormalizationError(
                 f"ngram_speculative.{name} must be between {minimum} and {maximum}."
@@ -498,9 +499,7 @@ def normalize_ngram_speculative(value: Any | None) -> dict[str, Any]:
 
     ngram_mode = value.get("ngram_mode")
     if ngram_mode not in {"k", "k4v"}:
-        raise InputNormalizationError(
-            "ngram_speculative.ngram_mode must be k or k4v."
-        )
+        raise InputNormalizationError("ngram_speculative.ngram_mode must be k or k4v.")
     normalized["ngram_mode"] = ngram_mode
     if normalized["ngram_max_entries_per_key"] == 0:
         normalized["ngram_max_entries_per_key"] = None
@@ -531,7 +530,9 @@ def _data_uri(mime_type: str, payload: bytes) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def _build_messages(system: str, prompt: str, media: MediaBundle) -> list[dict[str, Any]]:
+def _build_messages(
+    system: str, prompt: str, media: MediaBundle
+) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -642,7 +643,9 @@ def _create_handler(
             f"handler must be one of {', '.join(HANDLER_NAMES)}."
         )
     if mmproj_path is None:
-        raise InputNormalizationError(f"mmproj_path is required for the {handler} handler.")
+        raise InputNormalizationError(
+            f"mmproj_path is required for the {handler} handler."
+        )
     handler_class = bindings.handlers.get(handler)
     if handler_class is None:
         class_name = _HANDLER_CLASSES[handler]
@@ -776,7 +779,9 @@ def _optional_positive_override(name: str, enabled: bool, value: int) -> int | N
         return None
     normalized = int(value)
     if normalized < 1:
-        raise InputNormalizationError(f"{name} must be at least 1 when its override is enabled.")
+        raise InputNormalizationError(
+            f"{name} must be at least 1 when its override is enabled."
+        )
     return normalized
 
 
@@ -822,9 +827,7 @@ def _reasoning_budget_arguments(
         )
     )
     if handler == "qwen3_vl" or (
-        isinstance(template, str)
-        and "<think>" in template
-        and "</think>" in template
+        isinstance(template, str) and "<think>" in template and "</think>" in template
     ):
         return {
             "reasoning_budget": reasoning_budget,
@@ -905,10 +908,14 @@ def _validate_multimodal_batch_settings(
 def _extract_response(raw: dict[str, Any]) -> tuple[str, str]:
     choices = raw.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise BackendError("llama-cpp-python returned a response without a choices array.")
+        raise BackendError(
+            "llama-cpp-python returned a response without a choices array."
+        )
     message = choices[0].get("message")
     if not isinstance(message, dict):
-        raise BackendError("llama-cpp-python returned a response without an assistant message.")
+        raise BackendError(
+            "llama-cpp-python returned a response without an assistant message."
+        )
 
     content = message.get("content")
     response = "" if content is None else str(content)
@@ -944,7 +951,9 @@ def _capture_media_diagnostics(
 ) -> dict[str, Any]:
     """Copy fork MTMD state while the native handler is still alive."""
     active_handler = getattr(llm, "chat_handler", None) or fallback_handler
-    handler_name = type(active_handler).__name__ if active_handler is not None else "none"
+    handler_name = (
+        type(active_handler).__name__ if active_handler is not None else "none"
+    )
     vision_available = bool(getattr(active_handler, "is_support_vision", False))
     audio_available = bool(getattr(active_handler, "is_support_audio", False))
     video_available = bool(getattr(active_handler, "is_support_video", False))
@@ -1083,7 +1092,9 @@ def run_chat(
         required=False,
     )
     if flash_attention not in _FLASH_ATTN_TYPES:
-        raise InputNormalizationError("flash_attention must be auto, enabled, or disabled.")
+        raise InputNormalizationError(
+            "flash_attention must be auto, enabled, or disabled."
+        )
     if gpu_layers not in {"auto", "all", "cpu"}:
         raise InputNormalizationError("gpu_layers must be auto, all, or cpu.")
     native_configuration = _normalize_native_speculative(
@@ -1190,21 +1201,25 @@ def run_chat(
                 if resolved_mmproj is not None:
                     model_kwargs["mmproj_path"] = resolved_mmproj
                 model_kwargs["chat_handler_kwargs"] = {"verbose": bool(verbose)}
-                
+
                 # for Qwen 3.8
                 if handler == "qwen35":
                     model_kwargs["chat_handler_kwargs"]["preserve_thinking"] = bool(
                         preserve_thinking
                     )
-                    
+
                     if effective_reasoning_strength is not None:
-                        qwen_effort = "xhigh" if effective_reasoning_strength == "high" else effective_reasoning_strength
-                        model_kwargs["chat_handler_kwargs"]["reasoning_effort"] = qwen_effort
+                        qwen_effort = (
+                            "xhigh"
+                            if effective_reasoning_strength == "high"
+                            else effective_reasoning_strength
+                        )
+                        model_kwargs["chat_handler_kwargs"]["reasoning_effort"] = (
+                            qwen_effort
+                        )
 
                 if custom_chat_template:
-                    model_kwargs["chat_format"] = (
-                        custom_chat_template
-                    )
+                    model_kwargs["chat_format"] = custom_chat_template
                 if thinking is not None or effective_reasoning_strength is not None:
                     model_kwargs["chat_handler_kwargs"]["extra_template_arguments"] = {
                         "enable_thinking": bool(thinking),
@@ -1338,7 +1353,9 @@ def run_chat(
                     try:
                         stats_value = getattr(draft_model, "stats", None)
                         speculative_stats = dict(stats_value or {})
-                    except Exception:  # native stats are diagnostic and must not mask a valid response
+                    except (
+                        Exception
+                    ):  # native stats are diagnostic and must not mask a valid response
                         speculative_stats = {}
                 try:
                     drafted_tokens = int(
@@ -1391,7 +1408,9 @@ def run_chat(
                 model_path=resolved_model,
                 mmproj_path=resolved_mmproj,
             )
-        except Exception as exc:  # preserve cleanup while presenting a stable node error
+        except (
+            Exception
+        ) as exc:  # preserve cleanup while presenting a stable node error
             execution_error = exc
         finally:
             cleanup_started = time.perf_counter()
@@ -1399,7 +1418,9 @@ def run_chat(
             if llm is not None:
                 try:
                     llm.close()
-                except Exception as exc:  # pragma: no cover - platform-specific native failure
+                except (
+                    Exception
+                ) as exc:  # pragma: no cover - platform-specific native failure
                     cleanup_errors.append(exc)
             else:
                 for resource in (draft_model, chat_handler):
@@ -1409,7 +1430,9 @@ def run_chat(
                         close_resource = getattr(resource, "close", None)
                         if callable(close_resource):
                             close_resource()
-                    except Exception as exc:  # pragma: no cover - platform-specific native failure
+                    except (
+                        Exception
+                    ) as exc:  # pragma: no cover - platform-specific native failure
                         cleanup_errors.append(exc)
             if cleanup_errors:
                 cleanup_error = cleanup_errors[0]
@@ -1422,7 +1445,9 @@ def run_chat(
     if execution_error is not None:
         if isinstance(execution_error, (BackendError, InputNormalizationError)):
             raise execution_error
-        raise BackendError(f"llama-cpp-python inference failed: {execution_error}") from execution_error
+        raise BackendError(
+            f"llama-cpp-python inference failed: {execution_error}"
+        ) from execution_error
     if cleanup_error is not None:
         raise BackendError(
             f"llama-cpp-python completed, but the model could not be fully unloaded: {cleanup_error}"
@@ -1471,15 +1496,9 @@ def run_chat(
             "stats": speculative_stats or {},
         }
         if native_configuration["provider"] != "off":
-            choices = (
-                raw.get("choices")
-                if isinstance(raw.get("choices"), list)
-                else []
-            )
+            choices = raw.get("choices") if isinstance(raw.get("choices"), list) else []
             first_choice = (
-                choices[0]
-                if choices and isinstance(choices[0], dict)
-                else {}
+                choices[0] if choices and isinstance(choices[0], dict) else {}
             )
             completion_tokens = int(usage.get("completion_tokens", 0) or 0)
             metrics["speculative"].update(
@@ -1529,9 +1548,10 @@ def run_chat_sequential(
     #         "Sequential generation does not support native draft models because their "
     #         "cross-request state cannot yet be guaranteed independent."
     #     )
-    if normalize_ngram_speculative(kwargs.get("ngram_speculative"))[
-        "speculative_mode"
-    ] != "off":
+    if (
+        normalize_ngram_speculative(kwargs.get("ngram_speculative"))["speculative_mode"]
+        != "off"
+    ):
         raise InputNormalizationError(
             "Sequential generation does not support N-gram speculative decoding because "
             "its history map may carry state between items."

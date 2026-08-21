@@ -17,9 +17,7 @@ def test_parses_reasoning_and_the_last_final_marker():
 
 
 def test_parses_direct_final_with_or_without_eot():
-    with_eot = parse_muse_glimmer_response(
-        " to=user<|message|>Answer<|eot|>ignored"
-    )
+    with_eot = parse_muse_glimmer_response(" to=user<|message|>Answer<|eot|>ignored")
     without_eot = parse_muse_glimmer_response(" to=user<|message|>Answer")
 
     assert with_eot.response == "Answer"
@@ -57,8 +55,7 @@ def test_non_muse_and_empty_strings_are_preserved_safely():
 
 def test_other_recipient_message_is_preserved_in_raw():
     tool_message = (
-        "<|start|>assistant to=functions.lookup<|message|>"
-        '{"query":"weather"}<|eom|>'
+        '<|start|>assistant to=functions.lookup<|message|>{"query":"weather"}<|eom|>'
     )
     parsed = parse_muse_glimmer_response(
         " to=self<|message|>Need a lookup.<|eom|>"

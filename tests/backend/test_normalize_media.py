@@ -27,8 +27,14 @@ def test_flattens_heterogeneous_lists_and_batches_in_stable_order():
     bundle = normalize_images([[first], second])
 
     assert [item.index for item in bundle.items] == [0, 1, 2]
-    assert [png_dimensions(item.payload) for item in bundle.items] == [(3, 2), (3, 2), (1, 4)]
-    assert [(item.metadata["width"], item.metadata["height"]) for item in bundle.items] == [
+    assert [png_dimensions(item.payload) for item in bundle.items] == [
+        (3, 2),
+        (3, 2),
+        (1, 4),
+    ]
+    assert [
+        (item.metadata["width"], item.metadata["height"]) for item in bundle.items
+    ] == [
         (3, 2),
         (3, 2),
         (1, 4),
@@ -61,7 +67,10 @@ def test_audio_batch_becomes_independent_pcm16_wav_items():
     assert len(bundle.items) == 2
     assert all(item.payload.startswith(b"RIFF") for item in bundle.items)
     assert all(item.payload[8:12] == b"WAVE" for item in bundle.items)
-    assert [item.metadata["duration_seconds"] for item in bundle.items] == [0.005, 0.005]
+    assert [item.metadata["duration_seconds"] for item in bundle.items] == [
+        0.005,
+        0.005,
+    ]
 
 
 def test_video_input_preserves_encoded_stream_and_metadata():

@@ -5,7 +5,9 @@ from typing import Any
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 from ..core import InputNormalizationError
@@ -53,7 +55,9 @@ _FLOAT_RANGES = {
 
 def normalize_sampling(value: Any) -> dict[str, float | int]:
     if not isinstance(value, dict):
-        raise InputNormalizationError("sampling must be a llama.cpp sampling preset object.")
+        raise InputNormalizationError(
+            "sampling must be a llama.cpp sampling preset object."
+        )
 
     normalized: dict[str, float | int] = {}
     for name, (minimum, maximum) in _FLOAT_RANGES.items():
@@ -110,7 +114,9 @@ class LlamaCppSamplingPresetNode(io.ComfyNode):
         try:
             sampling = SAMPLING_PRESETS[preset]
         except KeyError as exc:
-            raise InputNormalizationError(f"Unknown llama.cpp sampling preset: {preset}") from exc
+            raise InputNormalizationError(
+                f"Unknown llama.cpp sampling preset: {preset}"
+            ) from exc
         return io.NodeOutput(dict(sampling))
 
 

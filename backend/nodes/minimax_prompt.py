@@ -4,7 +4,9 @@ from pathlib import Path
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 
@@ -42,9 +44,9 @@ def load_minimax_system_prompt(prompt_type: str) -> str:
         else BASE_PROMPT_PATH
     )
     base_prompt = _read_prompt(base_path).rstrip("\r\n")
-    type_prompt = _read_prompt(
-        PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md"
-    ).lstrip("\r\n")
+    type_prompt = _read_prompt(PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md").lstrip(
+        "\r\n"
+    )
     return f"{base_prompt}\n\n{type_prompt}"
 
 

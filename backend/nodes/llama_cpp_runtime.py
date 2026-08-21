@@ -4,14 +4,14 @@ from typing import Any
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 from ..core import InputNormalizationError
 
-LlamaCppGemma4RuntimeType = io.Custom(
-    "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
-)
+LlamaCppGemma4RuntimeType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME")
 
 GEMMA4_RUNTIME_PRESETS: dict[str, dict[str, bool | int]] = {
     "Text / Audio": {
@@ -96,9 +96,7 @@ def normalize_gemma4_runtime(value: Any) -> dict[str, bool | int]:
     n_ubatch = int(normalized["n_ubatch"])
     image_max_tokens = int(normalized["image_max_tokens"])
     if normalized["override_n_ubatch"] and n_ubatch > n_batch:
-        raise InputNormalizationError(
-            "runtime.n_ubatch cannot exceed runtime.n_batch."
-        )
+        raise InputNormalizationError("runtime.n_ubatch cannot exceed runtime.n_batch.")
     if normalized["override_image_max_tokens"]:
         if image_max_tokens > n_batch:
             raise InputNormalizationError(

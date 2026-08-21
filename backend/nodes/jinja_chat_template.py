@@ -4,13 +4,13 @@ from pathlib import Path
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 
-PRESETS_DIRECTORY = (
-    Path(__file__).resolve().parents[2] / "presets" / "chat_template"
-)
+PRESETS_DIRECTORY = Path(__file__).resolve().parents[2] / "presets" / "chat_template"
 
 
 def get_chat_template_presets() -> list[str]:
@@ -27,9 +27,7 @@ def get_chat_template_presets() -> list[str]:
 
 def load_chat_template(template_name: str) -> str:
     template_filename = (
-        template_name
-        if template_name.endswith(".jinja")
-        else f"{template_name}.jinja"
+        template_name if template_name.endswith(".jinja") else f"{template_name}.jinja"
     )
     resolved_path = (PRESETS_DIRECTORY / template_filename).resolve()
 

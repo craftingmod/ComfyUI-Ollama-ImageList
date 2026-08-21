@@ -132,7 +132,9 @@ def test_default_http_transport_calls_a_mock_ollama_server_once():
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
             length = int(self.headers["Content-Length"])
-            received.append({"path": self.path, "body": json.loads(self.rfile.read(length))})
+            received.append(
+                {"path": self.path, "body": json.loads(self.rfile.read(length))}
+            )
             response = json.dumps(
                 {"message": {"role": "assistant", "content": "ok"}, "done": True}
             ).encode()
@@ -216,7 +218,9 @@ def test_audio_is_rejected_by_default_instead_of_changing_request_meaning():
     from tests.backend.tensor_stub import silent_audio
 
     bundle = normalize_audio({"waveform": silent_audio(1, 1, 8), "sample_rate": 8_000})
-    with pytest.raises(InputNormalizationError, match="no documented native audio field"):
+    with pytest.raises(
+        InputNormalizationError, match="no documented native audio field"
+    ):
         chat(
             url="http://localhost:11434",
             model="model",

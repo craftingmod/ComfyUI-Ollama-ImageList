@@ -37,7 +37,9 @@ def parse_ollama_options_json(value: str) -> dict[str, Any]:
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as exc:
-        raise InputNormalizationError(f"options_json is invalid JSON: {exc.msg}.") from exc
+        raise InputNormalizationError(
+            f"options_json is invalid JSON: {exc.msg}."
+        ) from exc
     if not isinstance(parsed, dict):
         raise InputNormalizationError("options_json must contain a JSON object.")
     return parsed
@@ -58,7 +60,9 @@ def resolve_ollama_options(
     try:
         json.dumps(resolved, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
-        raise InputNormalizationError("options must contain JSON-serializable values.") from exc
+        raise InputNormalizationError(
+            "options must contain JSON-serializable values."
+        ) from exc
     return resolved
 
 

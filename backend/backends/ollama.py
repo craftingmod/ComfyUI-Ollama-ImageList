@@ -17,7 +17,9 @@ from ..core.media import MediaBundle
 JsonObject = dict[str, Any]
 Transport = Callable[[str, bytes, float], tuple[int, bytes]]
 ModelsTransport = Callable[[str, float], tuple[int, bytes]]
-_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])")
+_BASE64_RUN = re.compile(
+    r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])"
+)
 _METRIC_FIELDS = (
     "model",
     "created_at",
@@ -57,7 +59,9 @@ def _validated_url(value: str) -> SplitResult:
     if not hostname:
         raise InputNormalizationError("Ollama URL must include a hostname.")
     if parsed.query or parsed.fragment:
-        raise InputNormalizationError("Ollama URL cannot include a query string or fragment.")
+        raise InputNormalizationError(
+            "Ollama URL cannot include a query string or fragment."
+        )
     return parsed
 
 
@@ -145,16 +149,18 @@ def build_chat_request(
                 "Ollama native audio transport is not available in the documented API."
             )
         if audio_transport != "experimental_wav_in_images":
-            raise InputNormalizationError(f"Unsupported audio_transport value {audio_transport!r}.")
+            raise InputNormalizationError(
+                f"Unsupported audio_transport value {audio_transport!r}."
+            )
 
     encoded_media = (
-        list(media.items)
-        if audio_transport == "experimental_wav_in_images"
-        else images
+        list(media.items) if audio_transport == "experimental_wav_in_images" else images
     )
     user_message: JsonObject = {"role": "user", "content": prompt}
     if encoded_media:
-        user_message["images"] = [base64.b64encode(item.payload).decode("ascii") for item in encoded_media]
+        user_message["images"] = [
+            base64.b64encode(item.payload).decode("ascii") for item in encoded_media
+        ]
 
     messages: list[JsonObject] = [
         {"role": "system", "content": system},
@@ -203,7 +209,9 @@ def build_request_manifest(
 
 
 def _default_transport(url: str, body: bytes, timeout: float) -> tuple[int, bytes]:
-    request = Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    request = Request(
+        url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+    )
     try:
         with urlopen(request, timeout=timeout) as response:
             return int(response.status), response.read()
@@ -212,7 +220,9 @@ def _default_transport(url: str, body: bytes, timeout: float) -> tuple[int, byte
         raise BackendError(_http_error_message(exc.code, detail)) from exc
     except (URLError, TimeoutError, socket.timeout) as exc:
         reason = getattr(exc, "reason", exc)
-        raise BackendError(f"Could not reach Ollama: {_redact_text(str(reason))}") from exc
+        raise BackendError(
+            f"Could not reach Ollama: {_redact_text(str(reason))}"
+        ) from exc
 
 
 def _default_models_transport(url: str, timeout: float) -> tuple[int, bytes]:
@@ -225,7 +235,9 @@ def _default_models_transport(url: str, timeout: float) -> tuple[int, bytes]:
         raise BackendError(_http_error_message(exc.code, detail)) from exc
     except (URLError, TimeoutError, socket.timeout) as exc:
         reason = getattr(exc, "reason", exc)
-        raise BackendError(f"Could not reach Ollama: {_redact_text(str(reason))}") from exc
+        raise BackendError(
+            f"Could not reach Ollama: {_redact_text(str(reason))}"
+        ) from exc
 
 
 def _http_error_message(status: int, body: bytes) -> str:
@@ -313,7 +325,9 @@ def chat(
         media=media,
         audio_transport=audio_transport,
     )
-    body = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    body = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
     call = transport or _default_transport
     status, response_body = call(_endpoint_url(url), body, float(timeout_seconds))
     if status < 200 or status >= 300:
@@ -321,7 +335,9 @@ def chat(
     try:
         parsed = json.loads(response_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BackendError("Ollama returned a successful response with invalid JSON.") from exc
+        raise BackendError(
+            "Ollama returned a successful response with invalid JSON."
+        ) from exc
     if not isinstance(parsed, dict):
         raise BackendError("Ollama returned a JSON value that was not an object.")
     message = parsed.get("message", {})

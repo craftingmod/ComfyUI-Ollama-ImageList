@@ -67,9 +67,7 @@ llm = Llama(
 
 ```python
 max_entries_per_key = (
-    None
-    if ngram_max_entries_per_key == 0
-    else ngram_max_entries_per_key
+    None if ngram_max_entries_per_key == 0 else ngram_max_entries_per_key
 )
 ```
 

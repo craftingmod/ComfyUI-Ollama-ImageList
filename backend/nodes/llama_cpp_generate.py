@@ -5,7 +5,9 @@ import os
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 from ..backends.llama_cpp import HANDLER_NAMES, REASONING_STRENGTHS, run_chat
@@ -36,7 +38,10 @@ def _get_folder_paths():
 
 def _register_llm_folder(folder_paths) -> None:
     source_paths: list[str] = []
-    for folder_name, (paths, _extensions) in folder_paths.folder_names_and_paths.items():
+    for folder_name, (
+        paths,
+        _extensions,
+    ) in folder_paths.folder_names_and_paths.items():
         if folder_name.casefold() == "llm":
             source_paths.extend(paths)
     source_paths.append(os.path.join(folder_paths.models_dir, "LLM"))
@@ -565,15 +570,21 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         override_image_min_tokens=False,
         image_min_tokens=1024,
     ) -> io.NodeOutput:
-        resolved_spec_type = str(
-            unwrap_optional_scalar("spec_type", spec_type, "none")
-        )
+        resolved_spec_type = str(unwrap_optional_scalar("spec_type", spec_type, "none"))
         backend_execution_values = (
             {} if resolved_spec_type == "none" else cls._prepare_backend_execution()
         )
-        bundle = normalize_media(images=images, audio=audio, video=video, audio_sample_rate=16_000, audio_channels=1)
+        bundle = normalize_media(
+            images=images,
+            audio=audio,
+            video=video,
+            audio_sample_rate=16_000,
+            audio_channels=1,
+        )
         model_selection = str(unwrap_required_scalar("model_path", model_path))
-        mmproj_selection = str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION))
+        mmproj_selection = str(
+            unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION)
+        )
         resolved_mmproj_path = (
             _resolve_gguf_selection(
                 mmproj_selection,
@@ -640,12 +651,8 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     else ""
                 ),
                 "spec_type": resolved_spec_type,
-                "spec_n_max": int(
-                    unwrap_optional_scalar("spec_n_max", spec_n_max, 2)
-                ),
-                "spec_n_min": int(
-                    unwrap_optional_scalar("spec_n_min", spec_n_min, 0)
-                ),
+                "spec_n_max": int(unwrap_optional_scalar("spec_n_max", spec_n_max, 2)),
+                "spec_n_min": int(unwrap_optional_scalar("spec_n_min", spec_n_min, 0)),
                 "spec_p_min": float(
                     unwrap_optional_scalar("spec_p_min", spec_p_min, 0.0)
                 ),
@@ -681,13 +688,9 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
             n_batch=int(runtime_values["n_batch"]),
             override_n_ubatch=bool(runtime_values["override_n_ubatch"]),
             n_ubatch=int(runtime_values["n_ubatch"]),
-            override_image_min_tokens=bool(
-                runtime_values["override_image_min_tokens"]
-            ),
+            override_image_min_tokens=bool(runtime_values["override_image_min_tokens"]),
             image_min_tokens=int(runtime_values["image_min_tokens"]),
-            override_image_max_tokens=bool(
-                runtime_values["override_image_max_tokens"]
-            ),
+            override_image_max_tokens=bool(runtime_values["override_image_max_tokens"]),
             image_max_tokens=int(runtime_values["image_max_tokens"]),
             gpu_layers=str(unwrap_optional_scalar("gpu_layers", gpu_layers, "all")),
             main_gpu=int(unwrap_optional_scalar("main_gpu", main_gpu, 0)),

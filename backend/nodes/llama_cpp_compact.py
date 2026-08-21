@@ -6,7 +6,9 @@ from typing import Any
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 from ..backends.llama_cpp import (
@@ -32,15 +34,11 @@ from .llama_cpp_generate import (
 from .llama_cpp_ngram_speculative import normalize_ngram_speculative
 from .llama_cpp_speculative_generate import _draft_gguf_options
 
-LlamaCppModelProfileType = io.Custom(
-    "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
-)
+LlamaCppModelProfileType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE")
 LlamaCppHardwareRuntimeProfileType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
 )
-LlamaCppReasoningConfigType = io.Custom(
-    "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
-)
+LlamaCppReasoningConfigType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG")
 LlamaCppSpeculativeConfigType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
 )
@@ -206,8 +204,7 @@ def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
             f"model_profile is missing required field(s): {', '.join(missing)}."
         )
     normalized = {
-        name: value.get(name, _BASE_MODEL_PROFILE[name])
-        for name in _BASE_MODEL_PROFILE
+        name: value.get(name, _BASE_MODEL_PROFILE[name]) for name in _BASE_MODEL_PROFILE
     }
     handler = normalized.get("handler")
     if handler not in HANDLER_NAMES:
@@ -280,7 +277,9 @@ def normalize_compact_hardware_profile(value: Any) -> dict[str, Any]:
     for name, (minimum, maximum) in integer_ranges.items():
         candidate = normalized.get(name)
         if isinstance(candidate, bool) or not isinstance(candidate, int):
-            raise InputNormalizationError(f"hardware_profile.{name} must be an integer.")
+            raise InputNormalizationError(
+                f"hardware_profile.{name} must be an integer."
+            )
         if not minimum <= candidate <= maximum:
             raise InputNormalizationError(
                 f"hardware_profile.{name} must be between {minimum} and {maximum}."
@@ -371,7 +370,9 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
         )
     draft_model = value.get("draft_model", NO_DRAFT_OPTION)
     if not isinstance(draft_model, str):
-        raise InputNormalizationError("native_speculative.draft_model must be a string.")
+        raise InputNormalizationError(
+            "native_speculative.draft_model must be a string."
+        )
     if spec_type == "none":
         provider = "off"
         draft_model = NO_DRAFT_OPTION
@@ -414,9 +415,7 @@ def normalize_compact_speculative(value: Any) -> dict[str, Any]:
             "kind": "native",
             "config": normalize_native_draft_config(value.get("config")),
         }
-    raise InputNormalizationError(
-        "speculative.kind must be off, ngram, or native."
-    )
+    raise InputNormalizationError("speculative.kind must be off, ngram, or native.")
 
 
 class LlamaCppModelProfileNode(io.ComfyNode):
@@ -887,7 +886,10 @@ def _compact_sequential_outputs(results: list[Any]) -> io.NodeOutput:
         [result.response for result in results],
         [result.thinking for result in results],
         [json.dumps(result.raw, ensure_ascii=False, indent=2) for result in results],
-        [json.dumps(result.metrics, ensure_ascii=False, indent=2) for result in results],
+        [
+            json.dumps(result.metrics, ensure_ascii=False, indent=2)
+            for result in results
+        ],
         [result.media_diagnostics for result in results],
     )
 
@@ -970,9 +972,7 @@ def _compact_common_inputs() -> list[Any]:
     model_options, mmproj_options = _gguf_options()
     return [
         io.Combo.Input("model_path", options=model_options, default=model_options[0]),
-        io.Combo.Input(
-            "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
-        ),
+        io.Combo.Input("mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION),
         LlamaCppModelProfileType.Input(
             "model_profile",
             tooltip="Required output from Llama.cpp Model Profile.",
@@ -985,12 +985,8 @@ def _compact_common_inputs() -> list[Any]:
                 "Disconnected uses GPU Full Offload."
             ),
         ),
-        io.String.Input(
-            "system", default="", multiline=True, dynamic_prompts=False
-        ),
-        io.String.Input(
-            "prompt", default="", multiline=True, dynamic_prompts=False
-        ),
+        io.String.Input("system", default="", multiline=True, dynamic_prompts=False),
+        io.String.Input("prompt", default="", multiline=True, dynamic_prompts=False),
         io.Int.Input("n_ctx", default=8_192, min=512, max=1_048_576, step=512),
         io.Int.Input("max_tokens", default=512, min=1, max=131_072, step=1),
         io.Int.Input(
@@ -1004,9 +1000,7 @@ def _compact_common_inputs() -> list[Any]:
                 "per-image or per-video-frame token ceiling."
             ),
         ),
-        io.Int.Input(
-            "seed", default=-1, min=-1, max=0xFFFFFFFF, step=1
-        ),
+        io.Int.Input("seed", default=-1, min=-1, max=0xFFFFFFFF, step=1),
         io.String.Input("stop", default="", advanced=True),
         io.Image.Input("images", optional=True),
         io.Audio.Input("audio", optional=True),
@@ -1079,9 +1073,7 @@ def _execute_compact(
     compact_model_profile = normalize_compact_model_profile(
         unwrap_required_scalar("model_profile", model_profile)
     )
-    profile_reasoning_mode = compact_model_profile.pop(
-        "recommended_reasoning_mode"
-    )
+    profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
     compact_hardware_profile = normalize_compact_hardware_profile(
         COMPACT_HARDWARE_PROFILES["GPU Full Offload"]
         if hardware_profile is None
@@ -1117,7 +1109,15 @@ def _execute_compact(
     bundles = (
         _sequential_media_bundles(images=images, audio=audio, video=video)
         if sequential
-        else [normalize_media(images=images, audio=audio, video=video, audio_sample_rate=16_000, audio_channels=1)]
+        else [
+            normalize_media(
+                images=images,
+                audio=audio,
+                video=video,
+                audio_sample_rate=16_000,
+                audio_channels=1,
+            )
+        ]
     )
     prompt_items = None
     if sequential:
@@ -1140,8 +1140,7 @@ def _execute_compact(
     if native_config is not None:
         spec_type = native_config["spec_type"]
         draft_required = spec_type in {"draft-dflash", "draft-dspark"} or (
-            spec_type == "draft-mtp"
-            and native_config["mtp_provider"] == "external"
+            spec_type == "draft-mtp" and native_config["mtp_provider"] == "external"
         )
         extra.update(
             draft_model_path=(
@@ -1320,6 +1319,7 @@ class LlamaCppSequentialGenerateNode(_LlamaCppGenerateNodeBase):
             inputs=_compact_profiled_generate_inputs(),
             outputs=_compact_output_fields(is_output_list=True),
         )
+
 
 __all__ = [
     "COMPACT_HARDWARE_PROFILES",

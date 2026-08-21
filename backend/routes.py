@@ -16,7 +16,9 @@ async def fetch_models_endpoint(request: Any):
     try:
         data = await request.json()
     except Exception:
-        return web.json_response({"error": "Request body must be valid JSON."}, status=400)
+        return web.json_response(
+            {"error": "Request body must be valid JSON."}, status=400
+        )
 
     if not isinstance(data, dict) or not isinstance(data.get("url"), str):
         return web.json_response({"error": "url must be a string."}, status=400)

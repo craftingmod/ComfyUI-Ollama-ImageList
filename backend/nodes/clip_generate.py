@@ -24,7 +24,9 @@ def _tensor_shape(value: Any, label: str) -> tuple[int, ...]:
     try:
         result = tuple(int(dimension) for dimension in shape)
     except (TypeError, ValueError) as exc:
-        raise InputNormalizationError(f"{label} has an invalid shape {shape!r}.") from exc
+        raise InputNormalizationError(
+            f"{label} has an invalid shape {shape!r}."
+        ) from exc
     if any(dimension < 0 for dimension in result):
         raise InputNormalizationError(f"{label} has an invalid shape {result!r}.")
     return result
@@ -144,7 +146,9 @@ def _batch_images(images: list[Any]) -> Any | None:
 
         return torch.cat(images, dim=0)
     except (ImportError, RuntimeError, TypeError, ValueError) as exc:
-        raise InputNormalizationError("The IMAGE list could not be combined into one batch.") from exc
+        raise InputNormalizationError(
+            "The IMAGE list could not be combined into one batch."
+        ) from exc
 
 
 def _escape_template_text(value: str) -> str:
@@ -183,9 +187,11 @@ def _gemma_template(
     if video_frame_count:
         media = _gemma_video_media(video_frame_count)
     elif image_count:
-        media = "\n\n" + "\n\n\n\n".join(
-            "<|image><|image|><image|>" for _ in range(image_count)
-        ) + "\n\n"
+        media = (
+            "\n\n"
+            + "\n\n\n\n".join("<|image><|image|><image|>" for _ in range(image_count))
+            + "\n\n"
+        )
     model_open = "" if thinking else "<|channel>thought\n<channel|>"
     return (
         f"<|turn>system\n{system_body}<turn|>\n"
@@ -227,7 +233,9 @@ class ClipImageListGenerateNode(io.ComfyNode):
             io.DynamicCombo.Option(
                 key="on",
                 inputs=[
-                    io.Float.Input("temperature", default=0.7, min=0.01, max=2.0, step=0.000001),
+                    io.Float.Input(
+                        "temperature", default=0.7, min=0.01, max=2.0, step=0.000001
+                    ),
                     io.Int.Input("top_k", default=64, min=0, max=1000),
                     io.Float.Input("top_p", default=0.95, min=0.0, max=1.0, step=0.01),
                     io.Float.Input("min_p", default=0.05, min=0.0, max=1.0, step=0.01),
@@ -262,8 +270,12 @@ class ClipImageListGenerateNode(io.ComfyNode):
             ),
             inputs=[
                 io.Clip.Input("clip"),
-                io.String.Input("system", multiline=True, dynamic_prompts=False, default=""),
-                io.String.Input("prompt", multiline=True, dynamic_prompts=True, default=""),
+                io.String.Input(
+                    "system", multiline=True, dynamic_prompts=False, default=""
+                ),
+                io.String.Input(
+                    "prompt", multiline=True, dynamic_prompts=True, default=""
+                ),
                 io.Image.Input("images", optional=True),
                 io.Image.Input(
                     "video",
@@ -279,7 +291,9 @@ class ClipImageListGenerateNode(io.ComfyNode):
                 ),
                 io.Int.Input("max_length", default=512, min=1, max=32768),
                 io.DynamicCombo.Input(
-                    "sampling_mode", options=sampling_options, display_name="Sampling Mode"
+                    "sampling_mode",
+                    options=sampling_options,
+                    display_name="Sampling Mode",
                 ),
                 io.Boolean.Input(
                     "thinking",
@@ -336,7 +350,9 @@ class ClipImageListGenerateNode(io.ComfyNode):
         image_values = _collect_images(images)
 
         detected_format = _detect_model_format(clip_value)
-        resolved_format = detected_format if requested_format == "auto" else requested_format
+        resolved_format = (
+            detected_format if requested_format == "auto" else requested_format
+        )
         if requested_format == "auto" and system_value and resolved_format is None:
             raise InputNormalizationError(
                 "The CLIP tokenizer is not recognized, so its system-role format cannot be "

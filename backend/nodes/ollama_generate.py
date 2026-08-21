@@ -5,7 +5,9 @@ from typing import Any
 
 try:
     from comfy_api.v0_0_2 import io
-except ImportError:  # pragma: no cover - compatibility with newer ComfyUI development builds
+except (
+    ImportError
+):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import io
 
 from ..backends.ollama import chat
@@ -53,7 +55,9 @@ class OllamaImageListGenerateNode(io.ComfyNode):
                     default="http://127.0.0.1:11434",
                     tooltip="Ollama base URL. Only HTTP and HTTPS are accepted.",
                 ),
-                io.String.Input("model", default="", tooltip="Exact Ollama model name."),
+                io.String.Input(
+                    "model", default="", tooltip="Exact Ollama model name."
+                ),
                 io.String.Input(
                     "system",
                     default="",
@@ -176,7 +180,9 @@ class OllamaImageListGenerateNode(io.ComfyNode):
                     "unload_after_response", unload_after_response, False
                 )
             ),
-            timeout_seconds=float(unwrap_optional_scalar("timeout_seconds", timeout_seconds, 300)),
+            timeout_seconds=float(
+                unwrap_optional_scalar("timeout_seconds", timeout_seconds, 300)
+            ),
         )
         manifest = _image_manifest(
             bundle,

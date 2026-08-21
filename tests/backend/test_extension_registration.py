@@ -151,10 +151,10 @@ def install_comfy_api_stub(monkeypatch):
 def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     routes = install_comfy_api_stub(monkeypatch)
     for module_name in tuple(sys.modules):
-        if (
-            module_name in {"backend.extension", "backend.routes"}
-            or module_name.startswith("backend.nodes")
-        ):
+        if module_name in {
+            "backend.extension",
+            "backend.routes",
+        } or module_name.startswith("backend.nodes"):
             monkeypatch.delitem(sys.modules, module_name)
 
     extension_module = importlib.import_module("backend.extension")
@@ -265,13 +265,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         ("system_prompt", "string"),
     ]
     minimax_module = importlib.import_module("backend.nodes.minimax_prompt")
-    base_prompt = minimax_module.BASE_PROMPT_PATH.read_text(
-        encoding="utf-8"
-    ).rstrip("\r\n")
+    base_prompt = minimax_module.BASE_PROMPT_PATH.read_text(encoding="utf-8").rstrip(
+        "\r\n"
+    )
     for prompt_type in ("I2V", "FL2V", "FL2V_LOOP", "T2V", "L2V"):
         type_prompt = (
-            minimax_module.PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md"
-        ).read_text(encoding="utf-8").lstrip("\r\n")
+            (minimax_module.PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md")
+            .read_text(encoding="utf-8")
+            .lstrip("\r\n")
+        )
         assert minimax_class.execute(prompt_type) == (
             f"{base_prompt}\n\n{type_prompt}",
         )
@@ -280,8 +282,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ).rstrip("\r\n")
     for prompt_type in ("R2V", "R2I", "R2A"):
         type_prompt = (
-            minimax_module.PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md"
-        ).read_text(encoding="utf-8").lstrip("\r\n")
+            (minimax_module.PRESETS_DIRECTORY / f"PROMPT_{prompt_type}.md")
+            .read_text(encoding="utf-8")
+            .lstrip("\r\n")
+        )
         assert minimax_class.execute(prompt_type) == (
             f"{reference_base_prompt}\n\n{type_prompt}",
         )
@@ -292,9 +296,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ):
         minimax_class.execute("I2V", "invalid")
 
-    jinja_class, jinja_schema = registered[
-        "OllamaImageList_JinjaChatTemplatePreset"
-    ]
+    jinja_class, jinja_schema = registered["OllamaImageList_JinjaChatTemplatePreset"]
     assert [(field.name, field.data_type) for field in jinja_schema.inputs] == [
         ("template", "combo"),
     ]
@@ -305,9 +307,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         ("chat_template", "string"),
     ]
     jinja_module = importlib.import_module("backend.nodes.jinja_chat_template")
-    qwen_fixed_text = (
-        jinja_module.PRESETS_DIRECTORY / "qwen_fixed.jinja"
-    ).read_text(encoding="utf-8")
+    qwen_fixed_text = (jinja_module.PRESETS_DIRECTORY / "qwen_fixed.jinja").read_text(
+        encoding="utf-8"
+    )
     assert jinja_class.execute("qwen_fixed.jinja") == (qwen_fixed_text,)
     assert jinja_class.execute("qwen_fixed") == (qwen_fixed_text,)
     with pytest.raises(
@@ -321,9 +323,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ):
         jinja_class.execute("qwen_fixed.md")
 
-    muse_class, muse_schema = registered[
-        "OllamaImageList_MuseGlimmerResponseParser"
-    ]
+    muse_class, muse_schema = registered["OllamaImageList_MuseGlimmerResponseParser"]
     assert [(field.name, field.data_type) for field in muse_schema.inputs] == [
         ("muse_response", "string"),
     ]
@@ -408,7 +408,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "DICT",
         "string",
     ]
-    assert [field.name for field in options_schema.outputs] == ["options", "options_json"]
+    assert [field.name for field in options_schema.outputs] == [
+        "options",
+        "options_json",
+    ]
     assert [field.options["display_name"] for field in options_schema.outputs] == [
         "options",
         "options_json",
@@ -450,7 +453,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert "media" not in generate_input_names
     assert "audio" not in generate_input_names
     assert "audio_transport" not in generate_input_names
-    assert generate_input_names.index("options") < generate_input_names.index("options_json")
+    assert generate_input_names.index("options") < generate_input_names.index(
+        "options_json"
+    )
     assert [field.name for field in generate_schema.outputs] == [
         "response",
         "thinking",
@@ -502,9 +507,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         ),
     }
     assert generate_inputs["keep_alive"].data_type == "string"
-    assert generate_input_names.index("unload_after_response") + 1 == generate_input_names.index(
-        "keep_alive"
-    )
+    assert generate_input_names.index(
+        "unload_after_response"
+    ) + 1 == generate_input_names.index("keep_alive")
 
     sampling_class, sampling_schema = registered[
         "OllamaImageList_LlamaCppSamplingPreset"
@@ -516,7 +521,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Gemma 4 Uncensored",
         "llama.cpp default",
     ]
-    assert sampling_schema.outputs[0].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
+    assert (
+        sampling_schema.outputs[0].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
+    )
     assert sampling_class.execute("Gemma 4") == (
         {
             "temperature": 1.0,
@@ -566,7 +573,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
             for name, value in runtime_preset.items()
             if name not in {"n_ctx", "max_tokens"}
         }
-        assert runtime_module.normalize_gemma4_runtime(advanced_runtime) == advanced_runtime
+        assert (
+            runtime_module.normalize_gemma4_runtime(advanced_runtime)
+            == advanced_runtime
+        )
     invalid_runtime = dict(runtime_class.execute("Vision Standard")[0])
     invalid_runtime["n_batch"] = 2048
     invalid_runtime["image_max_tokens"] = 1120
@@ -616,9 +626,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "ngram_sync_check_tokens": 16,
         "ngram_mode": "k",
     }
-    ngram_module = importlib.import_module(
-        "backend.nodes.llama_cpp_ngram_speculative"
-    )
+    ngram_module = importlib.import_module("backend.nodes.llama_cpp_ngram_speculative")
     assert ngram_module.normalize_ngram_speculative(ngram_configuration) == (
         ngram_configuration
     )
@@ -649,8 +657,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert compact_profile_schema.inputs[1].options["optional"] is True
     assert compact_profile_schema.inputs[1].options["force_input"] is True
     assert all(
-        field.options["advanced"] is True
-        for field in compact_profile_schema.inputs[2:]
+        field.options["advanced"] is True for field in compact_profile_schema.inputs[2:]
     )
     assert compact_profile_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
@@ -822,9 +829,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert compact_ngram_class.execute("off", 3, 10, "k", 2, 8, 16) == (
         {"kind": "off"},
     )
-    compact_ngram_config = compact_ngram_class.execute(
-        "ngram", 3, 10, "k", 2, 0, 16
-    )[0]
+    compact_ngram_config = compact_ngram_class.execute("ngram", 3, 10, "k", 2, 0, 16)[0]
     assert compact_ngram_config == {
         "kind": "ngram",
         "config": ngram_configuration,
@@ -946,8 +951,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         field.name for field in compact_schema.outputs
     ]
     assert all(
-        field.options["is_output_list"] is True
-        for field in sequential_schema.outputs
+        field.options["is_output_list"] is True for field in sequential_schema.outputs
     )
 
     llama_class, llama_schema = registered["OllamaImageList_LlamaCppGenerate"]
@@ -1062,9 +1066,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert speculative_schema.is_input_list is True
     assert speculative_schema.not_idempotent is True
     assert speculative_schema.is_experimental is True
-    speculative_inputs = {
-        field.name: field for field in speculative_schema.inputs
-    }
+    speculative_inputs = {field.name: field for field in speculative_schema.inputs}
     speculative_input_names = [field.name for field in speculative_schema.inputs]
     assert speculative_input_names.index("mmproj_path") + 1 == (
         speculative_input_names.index("draft_model")
@@ -1258,9 +1260,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
 
     captured_speculative_call.clear()
     compact_qwen35_non_thinking_values = dict(compact_qwen35_thinking_values)
-    compact_qwen35_non_thinking_values["model_profile"] = [
-        qwen35_non_thinking_profile
-    ]
+    compact_qwen35_non_thinking_values["model_profile"] = [qwen35_non_thinking_profile]
     compact_qwen35_non_thinking_output = compact_class.execute(
         **compact_qwen35_non_thinking_values
     )
@@ -1287,7 +1287,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         compact_class.execute(**compact_excessive_values)
 
     def unexpected_compact_speculative_dependency():
-        raise AssertionError("an off Compact config imported the speculative dependency")
+        raise AssertionError(
+            "an off Compact config imported the speculative dependency"
+        )
 
     monkeypatch.setattr(
         compact_module,
@@ -1508,12 +1510,18 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "override_image_max_tokens": True,
         "image_max_tokens": 512,
     }
-    assert llama_module._resolve_gguf_selection(
-        "external/model-a.gguf", label="model GGUF", required=True
-    ) == "D:/SharedModels/LLM/external/model-a.gguf"
-    assert llama_module._resolve_gguf_selection(
-        "[none]", label="mmproj GGUF", required=False
-    ) == ""
+    assert (
+        llama_module._resolve_gguf_selection(
+            "external/model-a.gguf", label="model GGUF", required=True
+        )
+        == "D:/SharedModels/LLM/external/model-a.gguf"
+    )
+    assert (
+        llama_module._resolve_gguf_selection(
+            "[none]", label="mmproj GGUF", required=False
+        )
+        == ""
+    )
     with pytest.raises(InputNormalizationError, match="No model GGUF is selected"):
         llama_module._resolve_gguf_selection(
             "[no GGUF models found]", label="model GGUF", required=True

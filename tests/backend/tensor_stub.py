@@ -26,7 +26,9 @@ class TensorStub:
         return len(self._data)
 
 
-def solid_image(batch: int, height: int, width: int, channels: int, value: float) -> TensorStub:
+def solid_image(
+    batch: int, height: int, width: int, channels: int, value: float
+) -> TensorStub:
     data = [
         [
             [[value for _ in range(channels)] for _ in range(width)]
@@ -39,8 +41,7 @@ def solid_image(batch: int, height: int, width: int, channels: int, value: float
 
 def silent_audio(batch: int, channels: int, samples: int) -> TensorStub:
     data = [
-        [[0.0 for _ in range(samples)] for _ in range(channels)]
-        for _ in range(batch)
+        [[0.0 for _ in range(samples)] for _ in range(channels)] for _ in range(batch)
     ]
     return TensorStub(data, (batch, channels, samples))
 

@@ -44,11 +44,15 @@ def unwrap_optional_scalar(name: str, values: Any, default: Any) -> Any:
 def _shape(value: Any, *, label: str) -> tuple[int, ...]:
     shape = getattr(value, "shape", None)
     if shape is None:
-        raise InputNormalizationError(f"{label} is not a tensor-like value with a shape.")
+        raise InputNormalizationError(
+            f"{label} is not a tensor-like value with a shape."
+        )
     try:
         result = tuple(int(dimension) for dimension in shape)
     except (TypeError, ValueError) as exc:
-        raise InputNormalizationError(f"{label} has an invalid shape {shape!r}.") from exc
+        raise InputNormalizationError(
+            f"{label} has an invalid shape {shape!r}."
+        ) from exc
     if any(dimension < 0 for dimension in result):
         raise InputNormalizationError(f"{label} has an invalid shape {result!r}.")
     return result
@@ -73,7 +77,9 @@ def _check_totals(items: list[MediaItem], raw_bytes: int, limits: MediaLimits) -
         )
 
 
-def normalize_images(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) -> MediaBundle:
+def normalize_images(
+    values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS
+) -> MediaBundle:
     items: list[MediaItem] = []
     raw_bytes = 0
 
@@ -94,7 +100,9 @@ def normalize_images(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS)
         if len(shape) == 4:
             batch, height, width, channels = shape
             for batch_index in range(batch):
-                visit(value[batch_index], depth + 1, f"{source_path}.batch[{batch_index}]")
+                visit(
+                    value[batch_index], depth + 1, f"{source_path}.batch[{batch_index}]"
+                )
             return
         if len(shape) != 3:
             raise InputNormalizationError(
@@ -104,9 +112,13 @@ def normalize_images(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS)
         height, width, channels = shape
         index = len(items)
         if index >= limits.max_images:
-            raise InputNormalizationError(f"Image count exceeds the configured limit of {limits.max_images}.")
+            raise InputNormalizationError(
+                f"Image count exceeds the configured limit of {limits.max_images}."
+            )
         if height <= 0 or width <= 0:
-            raise InputNormalizationError(f"Image {index} has empty dimensions {height}×{width}.")
+            raise InputNormalizationError(
+                f"Image {index} has empty dimensions {height}×{width}."
+            )
         if channels not in (1, 3, 4):
             raise InputNormalizationError(
                 f"Image {index} has {channels} channels; expected 1, 3, or 4."
@@ -120,7 +132,9 @@ def normalize_images(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS)
         if raw_bytes > limits.max_total_raw_bytes:
             _check_totals(items, raw_bytes, limits)
         try:
-            payload, digest = encode_image_png(value, height=height, width=width, channels=channels)
+            payload, digest = encode_image_png(
+                value, height=height, width=width, channels=channels
+            )
         except InputNormalizationError as exc:
             raise InputNormalizationError(f"Image {index}: {exc}") from exc
         items.append(
@@ -144,20 +158,36 @@ def normalize_images(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS)
     return MediaBundle(tuple(items))
 
 
-def _convert_audio(waveform: Any, channels: int, samples: int, sample_rate: int) -> list[list[float]]:
+def _convert_audio(
+    waveform: Any, channels: int, samples: int, sample_rate: int
+) -> list[list[float]]:
     value = waveform.tolist() if hasattr(waveform, "tolist") else waveform
-    mono = [sum(float(value[channel][index]) for channel in range(channels)) / channels for index in range(samples)]
+    mono = [
+        sum(float(value[channel][index]) for channel in range(channels)) / channels
+        for index in range(samples)
+    ]
     output_samples = max(1, round(samples * 16_000 / sample_rate))
     if output_samples == samples and sample_rate == 16_000:
         return [mono]
-    return [[
-        mono[min(samples - 1, int(position))] * (1 - (position - int(position)))
-        + mono[min(samples - 1, int(position) + 1)] * (position - int(position))
-        for position in (index * (samples - 1) / max(1, output_samples - 1) for index in range(output_samples))
-    ]]
+    return [
+        [
+            mono[min(samples - 1, int(position))] * (1 - (position - int(position)))
+            + mono[min(samples - 1, int(position) + 1)] * (position - int(position))
+            for position in (
+                index * (samples - 1) / max(1, output_samples - 1)
+                for index in range(output_samples)
+            )
+        ]
+    ]
 
 
-def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS, target_sample_rate: int | None = None, target_channels: int | None = None) -> MediaBundle:
+def normalize_audio(
+    values: Any,
+    *,
+    limits: MediaLimits = DEFAULT_MEDIA_LIMITS,
+    target_sample_rate: int | None = None,
+    target_channels: int | None = None,
+) -> MediaBundle:
     items: list[MediaItem] = []
     raw_bytes = 0
 
@@ -173,7 +203,11 @@ def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS, 
             for offset, child in enumerate(value):
                 visit(child, depth + 1, f"{source_path}[{offset}]")
             return
-        if not isinstance(value, dict) or "waveform" not in value or "sample_rate" not in value:
+        if (
+            not isinstance(value, dict)
+            or "waveform" not in value
+            or "sample_rate" not in value
+        ):
             raise InputNormalizationError(
                 f"Audio input {source_path} must contain waveform and sample_rate."
             )
@@ -193,9 +227,13 @@ def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS, 
         try:
             sample_rate = int(value["sample_rate"])
         except (TypeError, ValueError) as exc:
-            raise InputNormalizationError(f"Audio input {source_path} has an invalid sample rate.") from exc
+            raise InputNormalizationError(
+                f"Audio input {source_path} has an invalid sample rate."
+            ) from exc
         if sample_rate <= 0 or channels <= 0 or samples <= 0:
-            raise InputNormalizationError(f"Audio input {source_path} has empty or invalid dimensions.")
+            raise InputNormalizationError(
+                f"Audio input {source_path} has empty or invalid dimensions."
+            )
         duration = samples / sample_rate
         if duration > limits.max_audio_seconds:
             raise InputNormalizationError(
@@ -234,9 +272,12 @@ def normalize_audio(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS, 
                         "sample_rate": target_sample_rate or sample_rate,
                         "channels": output_channels,
                         "samples": output_samples,
-                        "duration_seconds": output_samples / (target_sample_rate or sample_rate),
+                        "duration_seconds": output_samples
+                        / (target_sample_rate or sample_rate),
                         "sha256": digest,
-                        "source": f"{source_path}.batch[{batch_index}]" if batch > 1 else source_path,
+                        "source": f"{source_path}.batch[{batch_index}]"
+                        if batch > 1
+                        else source_path,
                     },
                 )
             )
@@ -341,7 +382,9 @@ def _read_video_source(source: Any, *, source_path: str, limit: int) -> bytes:
     return payload
 
 
-def normalize_video(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) -> MediaBundle:
+def normalize_video(
+    values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS
+) -> MediaBundle:
     items: list[MediaItem] = []
 
     def visit(value: Any, depth: int, source_path: str) -> None:
@@ -397,7 +440,9 @@ def normalize_video(values: Any, *, limits: MediaLimits = DEFAULT_MEDIA_LIMITS) 
         if not payload:
             raise InputNormalizationError(f"Video input {source_path} is empty.")
 
-        container = str(_video_property(value, "get_container_format", "") or "").lower()
+        container = str(
+            _video_property(value, "get_container_format", "") or ""
+        ).lower()
         container = container.split(",", 1)[0].strip().lstrip(".")
         mime_type = _VIDEO_MIME_TYPES.get(container, "video/mp4")
         metadata: dict[str, Any] = {
@@ -454,10 +499,18 @@ def normalize_media(
     audio_channels: int | None = None,
 ) -> MediaBundle:
     image_items = normalize_images(images, limits=limits).items
-    audio_items = normalize_audio(audio, limits=limits, target_sample_rate=audio_sample_rate, target_channels=audio_channels).items
+    audio_items = normalize_audio(
+        audio,
+        limits=limits,
+        target_sample_rate=audio_sample_rate,
+        target_channels=audio_channels,
+    ).items
     video_items = normalize_video(video, limits=limits).items
     combined = MediaBundle(tuple(image_items + audio_items + video_items)).reindexed()
-    if sum(len(item.payload) for item in combined.items) > limits.max_total_encoded_bytes:
+    if (
+        sum(len(item.payload) for item in combined.items)
+        > limits.max_total_encoded_bytes
+    ):
         raise InputNormalizationError(
             f"Combined media payload exceeds the {limits.max_total_encoded_bytes}-byte limit."
         )

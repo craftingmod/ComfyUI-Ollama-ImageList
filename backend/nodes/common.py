@@ -31,7 +31,9 @@ def collect_bundles(values: Any) -> MediaBundle:
 
 
 def combine_bundles(*bundles: MediaBundle) -> MediaBundle:
-    combined = MediaBundle(tuple(item for bundle in bundles for item in bundle.items)).reindexed()
+    combined = MediaBundle(
+        tuple(item for bundle in bundles for item in bundle.items)
+    ).reindexed()
     image_count = sum(item.kind == "image" for item in combined.items)
     audio_count = sum(item.kind == "audio" for item in combined.items)
     encoded_bytes = sum(len(item.payload) for item in combined.items)

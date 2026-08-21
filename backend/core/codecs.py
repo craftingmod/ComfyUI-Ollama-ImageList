@@ -12,7 +12,12 @@ from .errors import InputNormalizationError
 
 
 def _png_chunk(kind: bytes, data: bytes) -> bytes:
-    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data))
+    )
 
 
 def _as_cpu_value(value: Any) -> Any:
@@ -24,7 +29,9 @@ def _as_cpu_value(value: Any) -> Any:
     return result
 
 
-def _encode_png_numpy(image: Any, height: int, width: int, channels: int) -> bytes | None:
+def _encode_png_numpy(
+    image: Any, height: int, width: int, channels: int
+) -> bytes | None:
     try:
         import numpy as np
     except ModuleNotFoundError:
@@ -56,10 +63,14 @@ def _encode_png_python(image: Any, height: int, width: int, channels: int) -> by
                 for channel in range(channels):
                     sample = float(pixel[channel])
                     if not math.isfinite(sample):
-                        raise InputNormalizationError("Image contains NaN or infinite values.")
+                        raise InputNormalizationError(
+                            "Image contains NaN or infinite values."
+                        )
                     rows.append(round(max(0.0, min(1.0, sample)) * 255.0))
     except (IndexError, TypeError) as exc:
-        raise InputNormalizationError("Image data does not match its declared H×W×C shape.") from exc
+        raise InputNormalizationError(
+            "Image data does not match its declared H×W×C shape."
+        ) from exc
     return _build_png(width, height, channels, bytes(rows))
 
 
@@ -74,9 +85,13 @@ def _build_png(width: int, height: int, channels: int, rows: bytes) -> bytes:
     )
 
 
-def encode_image_png(image: Any, *, height: int, width: int, channels: int) -> tuple[bytes, str]:
+def encode_image_png(
+    image: Any, *, height: int, width: int, channels: int
+) -> tuple[bytes, str]:
     if channels not in (1, 3, 4):
-        raise InputNormalizationError(f"Unsupported image channel count {channels}; expected 1, 3, or 4.")
+        raise InputNormalizationError(
+            f"Unsupported image channel count {channels}; expected 1, 3, or 4."
+        )
     payload = _encode_png_numpy(image, height, width, channels)
     if payload is None:
         payload = _encode_png_python(image, height, width, channels)
@@ -110,10 +125,16 @@ def _audio_python_bytes(waveform: Any, channels: int, samples: int) -> bytes:
             for channel in range(channels):
                 sample = float(value[channel][sample_index])
                 if not math.isfinite(sample):
-                    raise InputNormalizationError("Audio contains NaN or infinite values.")
-                frames.extend(struct.pack("<h", round(max(-1.0, min(1.0, sample)) * 32767.0)))
+                    raise InputNormalizationError(
+                        "Audio contains NaN or infinite values."
+                    )
+                frames.extend(
+                    struct.pack("<h", round(max(-1.0, min(1.0, sample)) * 32767.0))
+                )
     except (IndexError, TypeError) as exc:
-        raise InputNormalizationError("Audio data does not match its declared C×T shape.") from exc
+        raise InputNormalizationError(
+            "Audio data does not match its declared C×T shape."
+        ) from exc
     return bytes(frames)
 
 
