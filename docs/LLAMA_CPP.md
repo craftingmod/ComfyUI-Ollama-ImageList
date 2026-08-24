@@ -76,9 +76,9 @@ Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each gro
 | --- | --- | --- |
 | IMAGE | Independent lossless PNG data URI in an `image_url` part | No resize, crop, montage, or padding is performed. |
 | AUDIO | Lossless PCM16 WAV data URI in an `input_audio` part | Requires an audio-capable model/projector/template. |
-| VIDEO | Original encoded ComfyUI stream in an internal `video` part | Native `libmtmd` decoding requires `MTMD_VIDEO` in the wheel build. Embedded audio is not ingested. |
+| VIDEO | Original encoded ComfyUI stream in an internal `video` part | Native `libmtmd` decoding requires `MTMD_VIDEO` in the wheel build. `video_with_audio` optionally extracts the first embedded audio track with PyAV and adds it as an `input_audio` part. |
 
-Connect AUDIO separately when a video's soundtrack is required. The code deliberately uses the fork's internal `video` representation instead of a `video_url` widget because model templates such as Gemma 4 may not render `video_url` into an MTMD media marker.
+The compact Generate and Sequential Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. The extracted audio is passed separately from the video, so the selected model/projector/template must support both modalities.
 
 ## Generate inputs
 
@@ -362,7 +362,7 @@ Use a Gemma 4 Runtime Preset or ensure that explicit `image_min_tokens` and `ima
 
 ### VIDEO fails before generation
 
-Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. Connect AUDIO separately for the soundtrack.
+Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. When `video_with_audio` is disabled, connect AUDIO separately for the soundtrack; when enabled, PyAV extracts it automatically.
 
 ### Console output is unexpectedly long
 

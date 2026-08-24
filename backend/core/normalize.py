@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
+import sys
+from array import array
 from math import prod
 from pathlib import Path
 from typing import Any
@@ -63,6 +66,18 @@ def _raw_bytes(value: Any, shape: tuple[int, ...]) -> int:
         return int(value.element_size()) * prod(shape)
     except (AttributeError, TypeError, ValueError):
         return 4 * prod(shape)
+
+
+class _Waveform:
+    def __init__(self, data: list[list[float]]) -> None:
+        self._data = data
+        self.shape = (len(data), len(data[0]))
+
+    def element_size(self) -> int:
+        return 4
+
+    def tolist(self) -> list[list[float]]:
+        return self._data
 
 
 def _check_totals(items: list[MediaItem], raw_bytes: int, limits: MediaLimits) -> None:
@@ -489,23 +504,91 @@ def normalize_video(
     return MediaBundle(tuple(items))
 
 
+def _pcm16_samples(frame: Any, *, source_path: str) -> list[float]:
+    expected_bytes = int(frame.samples) * 2
+    if len(frame.planes) != 1:
+        raise InputNormalizationError(
+            f"Decoded audio for {source_path} is not packed mono PCM16."
+        )
+    payload = bytes(frame.planes[0])[:expected_bytes]
+    if len(payload) != expected_bytes:
+        raise InputNormalizationError(
+            f"Decoded audio for {source_path} has an incomplete PCM16 frame."
+        )
+    samples = array("h")
+    samples.frombytes(payload)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return [sample / 32_768.0 for sample in samples]
+
+
+def _extract_video_audio(video_item: MediaItem) -> dict[str, Any]:
+    try:
+        import av
+    except ImportError as exc:
+        raise InputNormalizationError(
+            "video_with_audio requires PyAV (the 'av' package) to be installed."
+        ) from exc
+
+    source_path = str(video_item.metadata.get("source", "video"))
+    samples: list[float] = []
+    try:
+        with av.open(io.BytesIO(video_item.payload), mode="r") as container:
+            audio_stream = next(iter(container.streams.audio), None)
+            if audio_stream is None:
+                raise InputNormalizationError(
+                    f"Video input {source_path} has no audio track."
+                )
+            resampler = av.AudioResampler(
+                format="s16",
+                layout="mono",
+                rate=16_000,
+            )
+            # PyAV's audio selector is relative to the audio-stream collection;
+            # Stream.index is the container-wide index and may include VIDEO streams.
+            for frame in container.decode(audio=0):
+                for resampled in resampler.resample(frame):
+                    samples.extend(_pcm16_samples(resampled, source_path=source_path))
+            for resampled in resampler.resample(None):
+                samples.extend(_pcm16_samples(resampled, source_path=source_path))
+    except InputNormalizationError:
+        raise
+    except Exception as exc:
+        raise InputNormalizationError(
+            f"Could not decode audio from video input {source_path}: {exc}"
+        ) from exc
+
+    if not samples:
+        raise InputNormalizationError(f"Video input {source_path} has an empty audio track.")
+    return {
+        "waveform": _Waveform([samples]),
+        "sample_rate": 16_000,
+    }
+
+
 def normalize_media(
     *,
     images: Any = None,
     audio: Any = None,
     video: Any = None,
+    video_with_audio: bool = False,
     limits: MediaLimits = DEFAULT_MEDIA_LIMITS,
     audio_sample_rate: int | None = None,
     audio_channels: int | None = None,
 ) -> MediaBundle:
     image_items = normalize_images(images, limits=limits).items
+    video_items = normalize_video(video, limits=limits).items
+    audio_values: list[Any] = []
+    if audio is not None:
+        audio_values.append(audio)
+    if video_with_audio:
+        audio_values.extend(_extract_video_audio(item) for item in video_items)
     audio_items = normalize_audio(
-        audio,
+        audio_values or None,
         limits=limits,
         target_sample_rate=audio_sample_rate,
         target_channels=audio_channels,
     ).items
-    video_items = normalize_video(video, limits=limits).items
     combined = MediaBundle(tuple(image_items + audio_items + video_items)).reindexed()
     if (
         sum(len(item.payload) for item in combined.items)

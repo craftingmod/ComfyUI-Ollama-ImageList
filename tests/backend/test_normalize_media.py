@@ -1,4 +1,7 @@
+import io
 import struct
+import wave
+from types import SimpleNamespace
 
 import pytest
 
@@ -101,6 +104,66 @@ def test_combined_media_keeps_existing_order_and_appends_video():
 
     assert [item.kind for item in bundle.items] == ["image", "audio", "video"]
     assert bundle.manifest()["video_count"] == 1
+
+
+def test_video_with_audio_reuses_audio_normalization():
+    extracted = io.BytesIO()
+    with wave.open(extracted, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(16_000)
+        wav.writeframes(struct.pack("<hh", 0, 16_384))
+
+    bundle = normalize_media(
+        video=VideoInputStub(extracted.getvalue()),
+        video_with_audio=True,
+        audio_sample_rate=16_000,
+        audio_channels=1,
+    )
+
+    assert [item.kind for item in bundle.items] == ["audio", "video"]
+    assert bundle.items[0].payload.startswith(b"RIFF")
+    assert bundle.items[0].metadata["sample_rate"] == 16_000
+    assert bundle.items[0].metadata["channels"] == 1
+
+
+def test_video_audio_selects_first_audio_stream_not_container_stream_index(monkeypatch):
+    import av
+
+    frame = av.AudioFrame(format="s16", layout="mono", samples=2)
+    frame.planes[0].update(struct.pack("<hh", 0, 16_384))
+
+    class FakeResampler:
+        def __init__(self, **_kwargs):
+            pass
+
+        def resample(self, value):
+            return [frame] if value is not None else []
+
+    class FakeContainer:
+        streams = SimpleNamespace(audio=(SimpleNamespace(index=1),))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def decode(self, **kwargs):
+            assert kwargs == {"audio": 0}
+            return iter((frame,))
+
+    monkeypatch.setattr(av, "AudioResampler", FakeResampler)
+    monkeypatch.setattr(av, "open", lambda *_args, **_kwargs: FakeContainer())
+
+    bundle = normalize_media(
+        video=VideoInputStub(b"video-with-audio"),
+        video_with_audio=True,
+        audio_sample_rate=16_000,
+        audio_channels=1,
+    )
+
+    assert [item.kind for item in bundle.items] == ["audio", "video"]
 
 
 def test_scalar_unwrapping_never_silently_selects_from_a_data_list():

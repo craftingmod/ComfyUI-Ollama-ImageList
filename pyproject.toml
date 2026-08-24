@@ -7,7 +7,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 
 [dependency-groups]
-dev = ["pytest>=9.1.1", "pytest-xdist>=3.8.0", "ruff>=0.16.3"]
+dev = ["av>=16.0.0", "pytest>=9.1.1", "pytest-xdist>=3.8.0", "ruff>=0.16.3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -917,6 +917,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "images",
         "audio",
         "video",
+        "video_with_audio",
         "verbose",
         "image_min_tokens",
     ]
@@ -936,6 +937,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert compact_inputs["speculative"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
     )
+    assert compact_inputs["video_with_audio"].data_type == "boolean"
+    assert compact_inputs["video_with_audio"].options["default"] is False
     assert compact_inputs["speculative"].options["optional"] is True
 
     sequential_class, sequential_schema = registered[

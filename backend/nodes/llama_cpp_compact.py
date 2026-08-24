@@ -895,7 +895,11 @@ def _compact_sequential_outputs(results: list[Any]) -> io.NodeOutput:
 
 
 def _sequential_media_bundles(
-    *, images: Any = None, audio: Any = None, video: Any = None
+    *,
+    images: Any = None,
+    audio: Any = None,
+    video: Any = None,
+    video_with_audio: bool = False,
 ) -> list[Any]:
     def values(value: Any) -> list[Any]:
         if value is None:
@@ -921,6 +925,7 @@ def _sequential_media_bundles(
             images=item(media_values["images"], index),
             audio=item(media_values["audio"], index),
             video=item(media_values["video"], index),
+            video_with_audio=video_with_audio,
             audio_sample_rate=16_000,
             audio_channels=1,
         )
@@ -1005,6 +1010,14 @@ def _compact_common_inputs() -> list[Any]:
         io.Image.Input("images", optional=True),
         io.Audio.Input("audio", optional=True),
         io.Video.Input("video", optional=True),
+        io.Boolean.Input(
+            "video_with_audio",
+            default=False,
+            tooltip=(
+                "When enabled, extract the first embedded video audio track with "
+                "PyAV and pass it through the AUDIO input path."
+            ),
+        ),
         io.Boolean.Input("verbose", default=False, advanced=True),
         io.Int.Input(
             "image_min_tokens",
@@ -1036,6 +1049,7 @@ def _execute_compact(
     images: Any,
     audio: Any,
     video: Any,
+    video_with_audio: Any,
     verbose: Any,
     reasoning: Any = None,
     speculative: Any = None,
@@ -1107,13 +1121,23 @@ def _execute_compact(
         reasoning_mode = profile_reasoning_mode
     thinking_value = None if reasoning_mode == "auto" else reasoning_mode == "on"
     bundles = (
-        _sequential_media_bundles(images=images, audio=audio, video=video)
+        _sequential_media_bundles(
+            images=images,
+            audio=audio,
+            video=video,
+            video_with_audio=bool(
+                unwrap_optional_scalar("video_with_audio", video_with_audio, False)
+            ),
+        )
         if sequential
         else [
             normalize_media(
                 images=images,
                 audio=audio,
                 video=video,
+                video_with_audio=bool(
+                    unwrap_optional_scalar("video_with_audio", video_with_audio, False)
+                ),
                 audio_sample_rate=16_000,
                 audio_channels=1,
             )
@@ -1253,6 +1277,7 @@ class _LlamaCppGenerateNodeBase(io.ComfyNode):
         images=None,
         audio=None,
         video=None,
+        video_with_audio=False,
         hardware_profile=None,
         reasoning=None,
         speculative=None,
@@ -1274,6 +1299,7 @@ class _LlamaCppGenerateNodeBase(io.ComfyNode):
             images=images,
             audio=audio,
             video=video,
+            video_with_audio=video_with_audio,
             verbose=verbose,
             reasoning=reasoning,
             speculative=speculative,
