@@ -1,5 +1,4 @@
 import base64
-from functools import partial
 import sys
 from types import ModuleType
 
@@ -47,6 +46,13 @@ class FakeLlama:
     }
     generation_error = None
     nextn_layers = 0
+    speculative_stats = {
+        "drafted": 20,
+        "accepted_draft_tokens": 9,
+        "draft_calls": 4,
+        "accept_calls": 3,
+        "draft_token_acceptance_rate": 0.45,
+    }
 
     def __init__(self, **kwargs):
         NATIVE_EVENTS.append("target")
@@ -56,6 +62,7 @@ class FakeLlama:
         self.reset_count = 0
         self._native_speculative = None
         self.metadata = dict(type(self).metadata)
+        self.last_speculative_stats = dict(type(self).speculative_stats)
         self.closed = False
         self.close_count = 0
         if "chat_handler" in kwargs:
@@ -121,32 +128,6 @@ class FakeJinjaFormatter:
         return object()
 
 
-class FakeDraftModel:
-    instances = []
-
-    def __init__(self, **kwargs):
-        NATIVE_EVENTS.append("draft")
-        self.kwargs = kwargs
-        self.closed = False
-        type(self).instances.append(self)
-
-    @property
-    def stats(self):
-        if self.closed:
-            raise RuntimeError("stats accessed after close")
-        return {
-            "draft_calls": 4,
-            "accept_calls": 3,
-            "drafted_tokens": 20,
-            "accepted_tokens": 9,
-            "acceptance_rate": 0.45,
-            "mean_accepted_tokens": 2.25,
-        }
-
-    def close(self):
-        self.closed = True
-
-
 class FakeNGramDraft:
     instances = []
 
@@ -160,39 +141,18 @@ class FakeNGramDraft:
         self.closed = True
 
 
-class FakeMTPDraft:
+class FakeSpeculativeType:
+    @classmethod
+    def from_str(cls, value):
+        return value
+
+
+class FakeSpecConfig:
     instances = []
 
     def __init__(self, **kwargs):
-        NATIVE_EVENTS.append("mtp")
         self.kwargs = kwargs
-        self.closed = False
-        self.stats_reads = 0
-        self.is_mtp = True
-        self.is_internal_mtp = kwargs["model_path"] is None
         type(self).instances.append(self)
-
-    @property
-    def stats(self):
-        if self.closed:
-            raise RuntimeError("stats accessed after close")
-        self.stats_reads += 1
-        if self.stats_reads == 1:
-            return {
-                "draft_calls": 5,
-                "accept_calls": 4,
-                "drafted_tokens": 20,
-                "accepted_tokens": 10,
-            }
-        return {
-            "draft_calls": 8,
-            "accept_calls": 7,
-            "drafted_tokens": 26,
-            "accepted_tokens": 14,
-        }
-
-    def close(self):
-        self.closed = True
 
 
 @pytest.fixture(autouse=True)
@@ -206,11 +166,17 @@ def reset_fakes():
     FakeLlama.generation_error = None
     FakeLlama.metadata = {}
     FakeLlama.nextn_layers = 0
+    FakeLlama.speculative_stats = {
+        "drafted": 20,
+        "accepted_draft_tokens": 9,
+        "draft_calls": 4,
+        "accept_calls": 3,
+        "draft_token_acceptance_rate": 0.45,
+    }
     FakeHandler.instances = []
     FakeJinjaFormatter.instances = []
-    FakeDraftModel.instances = []
     FakeNGramDraft.instances = []
-    FakeMTPDraft.instances = []
+    FakeSpecConfig.instances = []
 
 
 def make_bindings(
@@ -224,6 +190,13 @@ def make_bindings(
         handlers=handlers,
         jinja_formatter_class=jinja_formatter_class,
         chat_formatter_to_handler=chat_formatter_to_handler,
+    )
+
+
+def make_speculative_api():
+    return llama_cpp_backend.NativeSpeculativeBindings(
+        spec_config=FakeSpecConfig,
+        speculative_type=FakeSpeculativeType,
     )
 
 
@@ -254,13 +227,13 @@ def test_missing_experimental_speculative_api_has_actionable_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "llama_cpp.llama_speculative", None)
 
     with pytest.raises(BackendError) as error:
-        llama_cpp_backend._import_native_speculative_class()
+        llama_cpp_backend._import_native_speculative_bindings()
 
     message = str(error.value)
     assert "not installed in the Python environment that runs ComfyUI" in message
-    assert "LlamaNativeSpeculativeDecoding" in message
-    assert "v0.3.47-native-speculative.2" in message
-    assert "llama_cpp_python-0.3.47-cp313-cp313-win_amd64.whl" in message
+    assert "SpecConfig/SpeculativeType" in message
+    assert "https://github.com/JamePeng/llama-cpp-python/releases/" in message
+    assert "CUDA runtime, and native DLLs" in message
     assert "No model was loaded" in message
 
 
@@ -289,7 +262,7 @@ def test_target_only_path_does_not_import_or_pass_speculative_binding(
 
     monkeypatch.setattr(
         llama_cpp_backend,
-        "_import_native_speculative_class",
+        "_import_native_speculative_bindings",
         unexpected_import,
     )
     monkeypatch.setattr(
@@ -308,7 +281,6 @@ def test_target_only_path_does_not_import_or_pass_speculative_binding(
     )
 
     assert "draft_model" not in FakeLlama.instances[0].kwargs
-    assert FakeDraftModel.instances == []
     assert FakeNGramDraft.instances == []
 
 
@@ -547,16 +519,15 @@ def test_native_and_ngram_speculative_modes_cannot_be_combined(tmp_path):
                 "ngram_sync_check_tokens": 16,
             },
             bindings=make_bindings(),
-            speculative_class=FakeDraftModel,
+            speculative_api=make_speculative_api(),
             ngram_speculative_class=FakeNGramDraft,
         )
 
-    assert FakeDraftModel.instances == []
     assert FakeNGramDraft.instances == []
     assert FakeLlama.instances == []
 
 
-def test_native_speculative_draft_is_created_first_and_stats_are_copied(tmp_path):
+def test_native_speculative_uses_official_spec_config_and_stats(tmp_path):
     model, mmproj = gguf_files(tmp_path)
     draft = tmp_path / "dflash.gguf"
     draft.write_bytes(b"draft")
@@ -574,43 +545,48 @@ def test_native_speculative_draft_is_created_first_and_stats_are_copied(tmp_path
         spec_n_min=2,
         spec_p_min=0.25,
         bindings=make_bindings(),
-        speculative_class=FakeDraftModel,
+        speculative_api=make_speculative_api(),
     )
 
-    assert NATIVE_EVENTS == ["draft", "target"]
-    draft_instance = FakeDraftModel.instances[0]
-    assert draft_instance.kwargs == {
-        "model_path": str(draft.resolve()),
+    assert NATIVE_EVENTS == ["target"]
+    config = FakeSpecConfig.instances[0]
+    assert config.kwargs == {
         "spec_type": "draft-dflash",
-        "n_gpu_layers": "all",
-        "n_max": 15,
-        "n_min": 2,
-        "p_min": 0.25,
+        "draft_model_path": str(draft.resolve()),
+        "draft_n_max": 15,
+        "draft_n_min": 2,
+        "draft_p_min": 0.25,
+        "draft_n_gpu_layers": "all",
+        "draft_backend_sampling": True,
     }
-    assert FakeLlama.instances[0].kwargs["draft_model"] is draft_instance
-    assert "mmproj_path" not in FakeLlama.instances[0].kwargs
-    assert "chat_handler_kwargs" in FakeLlama.instances[0].kwargs
-    assert FakeLlama.instances[0].closed is True
-    assert draft_instance.closed is True
-    assert result.metrics["speculative"] == {
-        "enabled": True,
-        "implementation": "draft-dflash",
-        "draft_model": "dflash.gguf",
-        "n_max": 15,
-        "n_min": 2,
-        "p_min": 0.25,
-        "stats": {
-            "draft_calls": 4,
-            "accept_calls": 3,
-            "drafted_tokens": 20,
-            "accepted_tokens": 9,
-            "acceptance_rate": 0.45,
-            "mean_accepted_tokens": 2.25,
-        },
+    target = FakeLlama.instances[0]
+    assert target.kwargs["speculative"] is config
+    assert "draft_model" not in target.kwargs
+    assert "mmproj_path" not in target.kwargs
+    assert "chat_handler_kwargs" in target.kwargs
+    assert target.closed is True
+    assert result.metrics["speculative"]["stats"] == {
+        "drafted": 20,
+        "accepted_draft_tokens": 9,
+        "draft_calls": 4,
+        "accept_calls": 3,
+        "draft_token_acceptance_rate": 0.45,
+        "drafted_tokens": 20,
+        "accepted_tokens": 9,
+        "acceptance_rate": 0.45,
+        "mean_accepted_tokens": 2.25,
+        "mean_accepted_per_call": 2.25,
     }
+    assert result.metrics["speculative"]["implementation"] == "draft-dflash"
+    assert result.metrics["speculative"]["draft_model"] == "dflash.gguf"
+    assert result.metrics["speculative"]["n_max"] == 15
+    assert result.metrics["speculative"]["n_min"] == 2
+    assert result.metrics["speculative"]["p_min"] == 0.25
 
 
-def test_native_speculative_closes_draft_when_target_initialization_fails(tmp_path):
+def test_native_speculative_target_initialization_failure_is_not_silently_disabled(
+    tmp_path,
+):
     model, _ = gguf_files(tmp_path)
     draft = tmp_path / "dflash.gguf"
     draft.write_bytes(b"draft")
@@ -625,14 +601,14 @@ def test_native_speculative_closes_draft_when_target_initialization_fails(tmp_pa
             model_path=str(model),
             system="",
             prompt="hello",
-            media=normalize_images(None),
+            media=normalize_media(),
             draft_model_path=str(draft),
             bindings=LlamaCppBindings(llama_class=FailingLlama, handlers={}),
-            speculative_class=FakeDraftModel,
+            speculative_api=make_speculative_api(),
         )
 
-    assert NATIVE_EVENTS == ["draft", "target"]
-    assert FakeDraftModel.instances[0].closed is True
+    assert NATIVE_EVENTS == ["target"]
+    assert FakeSpecConfig.instances
 
 
 @pytest.mark.parametrize(
@@ -659,15 +635,34 @@ def test_native_speculative_parameters_are_validated_before_loading(
             media=normalize_images(None),
             draft_model_path=str(draft),
             bindings=make_bindings(),
-            speculative_class=FakeDraftModel,
+            speculative_api=make_speculative_api(),
             **overrides,
         )
 
-    assert FakeDraftModel.instances == []
+    assert FakeSpecConfig.instances == []
     assert FakeLlama.instances == []
 
 
-def test_gemma4_external_mtp_forwards_assistant_and_reports_request_delta(tmp_path):
+@pytest.mark.parametrize("spec_type", ["draft-dflash", "draft-dspark"])
+def test_native_speculative_requires_a_draft_gguf(tmp_path, spec_type):
+    model, _ = gguf_files(tmp_path)
+
+    with pytest.raises(InputNormalizationError, match="requires a compatible draft"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="hello",
+            media=normalize_media(),
+            spec_type=spec_type,
+            bindings=make_bindings(),
+            speculative_api=make_speculative_api(),
+        )
+
+    assert FakeSpecConfig.instances == []
+    assert FakeLlama.instances == []
+
+
+def test_gemma4_external_mtp_forwards_official_config_and_reports_stats(tmp_path):
     model, _ = gguf_files(tmp_path)
     assistant = tmp_path / "gemma4-assistant.gguf"
     assistant.write_bytes(b"assistant")
@@ -687,49 +682,33 @@ def test_gemma4_external_mtp_forwards_assistant_and_reports_request_delta(tmp_pa
         spec_p_min=0.2,
         verbose=True,
         bindings=make_bindings(),
-        speculative_class=FakeMTPDraft,
+        speculative_api=make_speculative_api(),
     )
 
-    assert NATIVE_EVENTS == ["mtp", "target"]
-    decoder = FakeMTPDraft.instances[0]
-    assert decoder.kwargs == {
-        "model_path": str(assistant.resolve()),
+    assert NATIVE_EVENTS == ["target"]
+    config = FakeSpecConfig.instances[0]
+    assert config.kwargs == {
         "spec_type": "draft-mtp",
-        "n_gpu_layers": "all",
-        "n_max": 2,
-        "n_min": 1,
-        "p_min": 0.2,
-        "verbose": True,
+        "draft_model_path": str(assistant.resolve()),
+        "draft_n_max": 2,
+        "draft_n_min": 1,
+        "draft_p_min": 0.2,
+        "draft_n_gpu_layers": "all",
+        "draft_backend_sampling": True,
     }
     target = FakeLlama.instances[0]
-    assert target.kwargs["draft_model"] is decoder
+    assert target.kwargs["speculative"] is config
     assert target.kwargs["n_seq_max"] == 1
-    assert target.kwargs["native_context_reprefill"] is False
-    assert decoder.stats_reads == 2
+    assert "native_context_reprefill" not in target.kwargs
     assert target.closed is True
-    assert decoder.closed is True
-    assert result.metrics["speculative"] == {
-        "enabled": True,
-        "implementation": "draft-mtp",
-        "draft_model": "gemma4-assistant.gguf",
-        "n_max": 2,
-        "n_min": 1,
-        "p_min": 0.2,
-        "stats": {
-            "draft_calls": 3,
-            "accept_calls": 3,
-            "drafted_tokens": 6,
-            "accepted_tokens": 4,
-            "acceptance_rate": 4 / 6,
-            "mean_accepted_per_call": 4 / 3,
-        },
-        "mtp_provider": "external",
-        "verbose": True,
-        "n_layer_nextn": None,
-        "completion_tokens": 2,
-        "tokens_per_second": result.metrics["speculative"]["tokens_per_second"],
-        "finish_reason": "stop",
-    }
+    stats = result.metrics["speculative"]["stats"]
+    assert stats["drafted_tokens"] == 20
+    assert stats["accepted_tokens"] == 9
+    assert result.metrics["speculative"]["mtp_provider"] == "external"
+    assert result.metrics["speculative"]["verbose"] is True
+    assert result.metrics["speculative"]["n_layer_nextn"] is None
+    assert result.metrics["speculative"]["completion_tokens"] == 2
+    assert result.metrics["speculative"]["finish_reason"] == "stop"
     assert result.metrics["speculative"]["tokens_per_second"] > 0
 
 
@@ -747,18 +726,17 @@ def test_qwen35_internal_mtp_passes_none_and_validates_embedded_nextn(tmp_path):
         mtp_provider="internal",
         spec_n_max=2,
         bindings=make_bindings(),
-        speculative_class=FakeMTPDraft,
+        speculative_api=make_speculative_api(),
     )
 
-    decoder = FakeMTPDraft.instances[0]
-    assert decoder.kwargs["model_path"] is None
-    assert decoder.kwargs["spec_type"] == "draft-mtp"
-    assert decoder.is_internal_mtp is True
+    config = FakeSpecConfig.instances[0]
+    assert config.kwargs["draft_model_path"] is None
+    assert config.kwargs["spec_type"] == "draft-mtp"
+    assert FakeLlama.instances[0].kwargs["speculative"] is config
     assert result.metrics["speculative"]["mtp_provider"] == "internal"
     assert result.metrics["speculative"]["draft_model"] is None
     assert result.metrics["speculative"]["n_layer_nextn"] == 2
     assert FakeLlama.instances[0].closed is True
-    assert decoder.closed is True
 
 
 def test_qwen35_internal_mtp_rejects_target_without_nextn_and_unloads(tmp_path):
@@ -774,11 +752,11 @@ def test_qwen35_internal_mtp_rejects_target_without_nextn_and_unloads(tmp_path):
             spec_type="draft-mtp",
             mtp_provider="internal",
             bindings=make_bindings(),
-            speculative_class=FakeMTPDraft,
+            speculative_api=make_speculative_api(),
         )
 
     assert FakeLlama.instances[0].closed is True
-    assert FakeMTPDraft.instances[0].closed is True
+    assert FakeSpecConfig.instances[0].kwargs["spec_type"] == "draft-mtp"
 
 
 @pytest.mark.parametrize(
@@ -843,13 +821,13 @@ def test_mtp_configuration_is_validated_before_loading(tmp_path, kwargs, message
         "gpu_layers": "all",
         "spec_type": "draft-mtp",
         "bindings": make_bindings(),
-        "speculative_class": FakeMTPDraft,
+        "speculative_api": make_speculative_api(),
         **resolved_kwargs,
     }
     with pytest.raises(InputNormalizationError, match=message):
         run_chat(**call_kwargs)
 
-    assert FakeMTPDraft.instances == []
+    assert FakeSpecConfig.instances == []
     assert FakeLlama.instances == []
 
 
@@ -867,15 +845,23 @@ def test_spec_type_none_runs_target_only_even_with_a_stale_draft_selection(tmp_p
         spec_type="none",
         mtp_provider="off",
         bindings=make_bindings(),
-        speculative_class=FakeDraftModel,
     )
 
-    assert FakeDraftModel.instances == []
     assert "draft_model" not in FakeLlama.instances[0].kwargs
     assert "speculative" not in result.metrics
 
 
-def test_mtp_rejects_media_before_native_loading(tmp_path):
+@pytest.mark.parametrize(
+    ("spec_type", "mtp_provider"),
+    [
+        ("draft-dflash", "off"),
+        ("draft-dspark", "off"),
+        ("draft-mtp", "internal"),
+    ],
+)
+def test_native_speculative_rejects_media_before_loading(
+    tmp_path, spec_type, mtp_provider
+):
     model, mmproj = gguf_files(tmp_path)
 
     with pytest.raises(InputNormalizationError, match="text-only"):
@@ -886,24 +872,24 @@ def test_mtp_rejects_media_before_native_loading(tmp_path):
             prompt="hello",
             media=normalize_images(solid_image(1, 2, 2, 3, 0.5)),
             gpu_layers="all",
-            spec_type="draft-mtp",
-            mtp_provider="internal",
+            spec_type=spec_type,
+            mtp_provider=mtp_provider,
             bindings=make_bindings(),
-            speculative_class=FakeMTPDraft,
+            speculative_api=make_speculative_api(),
         )
 
-    assert FakeMTPDraft.instances == []
+    assert FakeSpecConfig.instances == []
     assert FakeLlama.instances == []
 
 
 def test_mtp_initialization_failure_does_not_fallback_to_target_only(tmp_path):
     model, _ = gguf_files(tmp_path)
 
-    class FailingMTPDraft:
+    class FailingLlama:
         def __init__(self, **_kwargs):
             raise RuntimeError("ABI mismatch")
 
-    with pytest.raises(BackendError, match="speculative ABI v2"):
+    with pytest.raises(BackendError, match="Native MTP initialization failed"):
         run_chat(
             model_path=str(model),
             system="",
@@ -912,11 +898,11 @@ def test_mtp_initialization_failure_does_not_fallback_to_target_only(tmp_path):
             gpu_layers="all",
             spec_type="draft-mtp",
             mtp_provider="internal",
-            bindings=make_bindings(),
-            speculative_class=FailingMTPDraft,
+            bindings=LlamaCppBindings(llama_class=FailingLlama, handlers={}),
+            speculative_api=make_speculative_api(),
         )
 
-    assert FakeLlama.instances == []
+    assert FakeSpecConfig.instances[0].kwargs["draft_model_path"] is None
 
 
 def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):

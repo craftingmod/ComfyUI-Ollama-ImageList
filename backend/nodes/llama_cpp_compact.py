@@ -1057,7 +1057,7 @@ def _execute_compact(
     sequential: bool = False,
 ) -> io.NodeOutput:
     native_config = None
-    speculative_class = None
+    speculative_api = None
     speculative_config = {"kind": "off"}
     if speculative is not None:
         speculative_config = normalize_compact_speculative(
@@ -1071,7 +1071,7 @@ def _execute_compact(
     if speculative_config["kind"] == "native":
         native_config = speculative_config["config"]
         if native_config["spec_type"] != "none":
-            speculative_class = require_native_speculative()
+            speculative_api = require_native_speculative()
 
     reasoning_config = {
         "reasoning_mode": "auto",
@@ -1182,8 +1182,8 @@ def _execute_compact(
             spec_p_min=native_config["spec_p_min"],
             mtp_provider=native_config["mtp_provider"],
         )
-        if speculative_class is not None:
-            extra["speculative_class"] = speculative_class
+        if speculative_api is not None:
+            extra["speculative_api"] = speculative_api
 
     run_kwargs = dict(
         model_path=_resolve_gguf_selection(

@@ -34,12 +34,6 @@ _HANDLER_CLASSES = {
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
 _SPECULATIVE_TYPES = {"draft-dflash", "draft-dspark"}
 _MTP_PROVIDERS = {"off", "external", "internal"}
-_SPECULATIVE_STAT_KEYS = (
-    "draft_calls",
-    "accept_calls",
-    "drafted_tokens",
-    "accepted_tokens",
-)
 _DEFAULT_N_UBATCH = 512
 _NATIVE_EXECUTION_LOCK = RLock()
 _LOGGER = logging.getLogger(__name__)
@@ -48,14 +42,7 @@ _VISION_INSTALL_GUIDE_URL = (
     "https://github.com/goodguy1963/ComfyUI-ThinkingLLM/blob/main/docs/"
     "LLAMA_CPP_PYTHON_VISION_INSTALL.md"
 )
-_NATIVE_SPECULATIVE_RELEASE_URL = (
-    "https://github.com/craftingmod/llama-cpp-python/releases/latest"
-)
-_NATIVE_SPECULATIVE_WHEEL_URL = (
-    "https://github.com/craftingmod/llama-cpp-python/releases/download/"
-    "v0.3.47-native-speculative.2/"
-    "llama_cpp_python-0.3.47-cp313-cp313-win_amd64.whl"
-)
+_NATIVE_SPECULATIVE_RELEASE_URL = _JAMEPENG_RELEASES_URL
 
 
 def _fork_install_hint() -> str:
@@ -72,6 +59,12 @@ class LlamaCppBindings:
     handlers: dict[str, type]
     jinja_formatter_class: type | None = None
     chat_formatter_to_handler: Any | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeSpeculativeBindings:
+    spec_config: type
+    speculative_type: type
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,27 +102,6 @@ class _SequentialLlamaProxy:
 
     def create_chat_completion(self, **kwargs: Any) -> Any:
         llm = self._session.llm
-        # Fixed in https://github.com/JamePeng/llama-cpp-python/issues/168
-        # requires llama_cpp_python v0.3.47+
-
-        # if hasattr(llm, "_native_speculative"):
-        #     reset = getattr(llm, "reset", None)
-        #     if not callable(reset):
-        #         raise BackendError(
-        #             "The native-speculative llama-cpp-python fork must expose "
-        #             "Llama.reset() for independent sequential requests."
-        #         )
-        #     reset()
-        # else:
-        #     context = getattr(llm, "_ctx", None)
-        #     memory_clear = getattr(context, "memory_clear", None)
-        #     if not callable(memory_clear):
-        #         raise BackendError(
-        #             "Sequential generation requires either native-speculative "
-        #             "Llama.reset() support or llama._ctx.memory_clear(True)."
-        #         )
-        #     memory_clear(True)
-        #     llm.n_tokens = 0
         llm.reset()
         self._session.reset_count += 1
         return llm.create_chat_completion(**kwargs)
@@ -230,68 +202,81 @@ def _import_bindings() -> LlamaCppBindings:
     )
 
 
-def _import_native_speculative_class() -> type:
+def _import_native_speculative_bindings() -> NativeSpeculativeBindings:
     try:
         from llama_cpp import llama_speculative as speculative_module
     except (ImportError, OSError) as exc:
         raise BackendError(
             "Native speculative decoding is not installed in the Python environment "
-            "that runs ComfyUI. This experimental node requires "
-            "llama_cpp.llama_speculative.LlamaNativeSpeculativeDecoding. No model was "
+            "that runs ComfyUI. This experimental node requires the official "
+            "llama_cpp.llama_speculative.SpecConfig/SpeculativeType API. No model was "
             "loaded.\n"
             f"Release and installation notes: {_NATIVE_SPECULATIVE_RELEASE_URL}\n"
-            "CPython 3.13 / CUDA 13.2 / Windows x64 wheel: "
-            f"{_NATIVE_SPECULATIVE_WHEEL_URL}\n"
-            "Install a wheel compatible with ComfyUI's exact Python, platform, and CUDA "
-            "environment, then restart ComfyUI."
+            "Install a release wheel compatible with ComfyUI's exact Python, platform, "
+            "CUDA runtime, and native DLLs, then restart ComfyUI."
         ) from exc
 
-    speculative_class = getattr(
-        speculative_module,
-        "LlamaNativeSpeculativeDecoding",
-        None,
-    )
-    if speculative_class is None:
+    spec_config = getattr(speculative_module, "SpecConfig", None)
+    speculative_type = getattr(speculative_module, "SpeculativeType", None)
+    if spec_config is None or speculative_type is None:
         raise BackendError(
             "The installed experimental llama-cpp-python package does not expose "
-            "LlamaNativeSpeculativeDecoding. No model was loaded.\n"
+            "the official SpecConfig and SpeculativeType API. No model was loaded.\n"
             f"Release and installation notes: {_NATIVE_SPECULATIVE_RELEASE_URL}\n"
-            "CPython 3.13 / CUDA 13.2 / Windows x64 wheel: "
-            f"{_NATIVE_SPECULATIVE_WHEEL_URL}"
+            "Install a release wheel compatible with ComfyUI's exact Python, platform, "
+            "CUDA runtime, and native DLLs."
         )
-    return speculative_class
+    return NativeSpeculativeBindings(
+        spec_config=spec_config,
+        speculative_type=speculative_type,
+    )
 
 
-def require_native_speculative() -> type:
+def require_native_speculative() -> NativeSpeculativeBindings:
     """Fail the experimental node before request normalization or native model loading."""
-    return _import_native_speculative_class()
+    return _import_native_speculative_bindings()
 
 
-def _speculative_stats_snapshot(decoder: Any) -> dict[str, int]:
+def _speculative_stats_snapshot(llm: Any) -> dict[str, Any]:
     try:
-        stats = getattr(decoder, "stats", None)
-        return {
-            key: int((stats or {}).get(key, 0) or 0) for key in _SPECULATIVE_STAT_KEYS
-        }
+        return dict(getattr(llm, "last_speculative_stats", {}) or {})
     except Exception:
-        return {key: 0 for key in _SPECULATIVE_STAT_KEYS}
+        return {}
 
 
-def _mtp_stats_delta(
-    before: dict[str, int],
-    after: dict[str, int],
-) -> dict[str, int | float]:
-    delta = {
-        key: max(0, int(after.get(key, 0)) - int(before.get(key, 0)))
-        for key in _SPECULATIVE_STAT_KEYS
-    }
-    drafted = delta["drafted_tokens"]
-    accepted = delta["accepted_tokens"]
-    draft_calls = delta["draft_calls"]
+def _native_speculative_stats(llm: Any) -> dict[str, Any]:
+    """Expose the official Llama stats with the node's stable metric aliases."""
+    stats = _speculative_stats_snapshot(llm)
+    try:
+        drafted = int(stats.get("drafted", stats.get("drafted_tokens", 0)) or 0)
+        accepted = int(
+            stats.get(
+                "accepted_draft_tokens",
+                stats.get("accepted_tokens", stats.get("accepted", 0)),
+            )
+            or 0
+        )
+        draft_calls = int(stats.get("draft_calls", 0) or 0)
+    except (TypeError, ValueError):
+        drafted = 0
+        accepted = 0
+        draft_calls = 0
+
+    acceptance_rate = stats.get("draft_token_acceptance_rate")
+    try:
+        acceptance_rate = float(acceptance_rate)
+    except (TypeError, ValueError):
+        acceptance_rate = accepted / drafted if drafted else 0.0
+    mean_accepted = accepted / draft_calls if draft_calls else 0.0
     return {
-        **delta,
-        "acceptance_rate": accepted / drafted if drafted else 0.0,
-        "mean_accepted_per_call": accepted / draft_calls if draft_calls else 0.0,
+        **stats,
+        "draft_calls": draft_calls,
+        "accept_calls": int(stats.get("accept_calls", 0) or 0),
+        "drafted_tokens": drafted,
+        "accepted_tokens": accepted,
+        "acceptance_rate": acceptance_rate,
+        "mean_accepted_tokens": mean_accepted,
+        "mean_accepted_per_call": mean_accepted,
     }
 
 
@@ -321,6 +306,12 @@ def _normalize_native_speculative(
             )
         return None
 
+    if has_media:
+        raise InputNormalizationError(
+            "Native speculative decoding currently supports text-only generation; "
+            "disconnect IMAGE, AUDIO, and VIDEO inputs."
+        )
+
     if provider != "off":
         if spec_type != "draft-mtp":
             raise InputNormalizationError(
@@ -337,11 +328,6 @@ def _normalize_native_speculative(
             )
         if not 0.0 <= p_min <= 1.0:
             raise InputNormalizationError("spec_p_min must be between 0.0 and 1.0.")
-        if has_media:
-            raise InputNormalizationError(
-                "Native MTP currently supports text-only generation; disconnect IMAGE, "
-                "AUDIO, and VIDEO inputs."
-            )
         if gpu_layers != "all":
             raise InputNormalizationError(
                 "Native MTP requires gpu_layers=all for CUDA all-layer offload."
@@ -360,12 +346,12 @@ def _normalize_native_speculative(
                 "unselected."
             )
         return {
-            "implementation": "draft-mtp",
-            "provider": provider,
-            "model_path": resolved_draft if provider == "external" else None,
-            "n_max": n_max,
-            "n_min": n_min,
-            "p_min": p_min,
+            "spec_type": "draft-mtp",
+            "mtp_provider": provider,
+            "draft_model_path": resolved_draft if provider == "external" else None,
+            "draft_n_max": n_max,
+            "draft_n_min": n_min,
+            "draft_p_min": p_min,
             "verbose": bool(verbose),
         }
 
@@ -373,10 +359,12 @@ def _normalize_native_speculative(
         raise InputNormalizationError(
             "draft-mtp requires mtp_provider external or internal."
         )
-    if resolved_draft is None:
-        return None
     if spec_type not in _SPECULATIVE_TYPES:
         raise InputNormalizationError("spec_type must be draft-dflash or draft-dspark.")
+    if resolved_draft is None:
+        raise InputNormalizationError(
+            f"{spec_type} requires a compatible draft GGUF in draft_model."
+        )
     if int(spec_n_max) < 1:
         raise InputNormalizationError("spec_n_max must be at least 1.")
     if int(spec_n_min) < 0 or int(spec_n_min) > int(spec_n_max):
@@ -384,58 +372,41 @@ def _normalize_native_speculative(
     if not 0.0 <= float(spec_p_min) <= 1.0:
         raise InputNormalizationError("spec_p_min must be between 0.0 and 1.0.")
     return {
-        "implementation": spec_type,
-        "provider": "off",
-        "model_path": resolved_draft,
-        "n_max": int(spec_n_max),
-        "n_min": int(spec_n_min),
-        "p_min": float(spec_p_min),
+        "spec_type": spec_type,
+        "mtp_provider": "off",
+        "draft_model_path": resolved_draft,
+        "draft_n_max": int(spec_n_max),
+        "draft_n_min": int(spec_n_min),
+        "draft_p_min": float(spec_p_min),
         "verbose": False,
     }
 
 
-def _create_native_speculative_decoder(
-    speculative_class: type,
+def _create_native_speculative_config(
+    bindings: NativeSpeculativeBindings,
     configuration: dict[str, Any],
     *,
     n_gpu_layers: int | str,
 ) -> Any:
-    kwargs: dict[str, Any] = {
-        "model_path": configuration["model_path"],
-        "spec_type": configuration["implementation"],
-        "n_gpu_layers": n_gpu_layers,
-        "n_max": configuration["n_max"],
-        "n_min": configuration["n_min"],
-        "p_min": configuration["p_min"],
-    }
-    if configuration["provider"] != "off":
-        kwargs["verbose"] = configuration["verbose"]
     try:
-        decoder = speculative_class(**kwargs)
+        spec_type = bindings.speculative_type.from_str(configuration["spec_type"])
+        return bindings.spec_config(
+            spec_type=spec_type,
+            draft_model_path=configuration["draft_model_path"],
+            draft_n_max=configuration["draft_n_max"],
+            draft_n_min=configuration["draft_n_min"],
+            draft_p_min=configuration["draft_p_min"],
+            draft_n_gpu_layers=n_gpu_layers,
+            draft_backend_sampling=True,
+        )
     except Exception as exc:
-        if configuration["provider"] != "off":
+        if configuration["mtp_provider"] != "off":
             raise BackendError(
-                "Native MTP provider initialization failed. Install the experimental "
-                "llama-cpp-python fork wheel with draft-mtp and speculative ABI v2 "
-                f"support. Original error: {exc}"
+                "Native MTP configuration failed. Install the llama-cpp-python fork "
+                "with the official SpecConfig API and draft-mtp support. "
+                f"Original error: {exc}"
             ) from exc
         raise
-
-    if configuration["provider"] != "off":
-        is_mtp = getattr(decoder, "is_mtp", None)
-        is_internal = getattr(decoder, "is_internal_mtp", None)
-        expected_internal = configuration["provider"] == "internal"
-        if is_mtp is False or (
-            is_internal is not None and bool(is_internal) != expected_internal
-        ):
-            close_decoder = getattr(decoder, "close", None)
-            if callable(close_decoder):
-                close_decoder()
-            raise BackendError(
-                "The installed native speculative binding does not provide the requested "
-                "Gemma 4/Qwen 3.5+ MTP provider. Reinstall the matching experimental wheel."
-            )
-    return decoder
 
 
 def _import_ngram_speculative_class() -> type:
@@ -1059,14 +1030,14 @@ def run_chat(
     stop: str = "",
     verbose: bool = False,
     draft_model_path: str = "",
-    spec_type: str = "draft-dflash",
+    spec_type: str | None = None,
     spec_n_max: int = 2,
     spec_n_min: int = 0,
     spec_p_min: float = 0.0,
     mtp_provider: str = "off",
     ngram_speculative: dict[str, Any] | None = None,
     bindings: LlamaCppBindings | None = None,
-    speculative_class: type | None = None,
+    speculative_api: NativeSpeculativeBindings | None = None,
     ngram_speculative_class: type | None = None,
     custom_chat_template: str = "",
 ) -> LlamaCppResult:
@@ -1091,6 +1062,13 @@ def run_chat(
         label="draft_model_path",
         required=False,
     )
+    effective_spec_type = (
+        "draft-dflash"
+        if spec_type is None and resolved_draft is not None
+        else "none"
+        if spec_type is None
+        else str(spec_type)
+    )
     if flash_attention not in _FLASH_ATTN_TYPES:
         raise InputNormalizationError(
             "flash_attention must be auto, enabled, or disabled."
@@ -1099,7 +1077,7 @@ def run_chat(
         raise InputNormalizationError("gpu_layers must be auto, all, or cpu.")
     native_configuration = _normalize_native_speculative(
         resolved_draft=resolved_draft,
-        spec_type=spec_type,
+        spec_type=effective_spec_type,
         spec_n_max=spec_n_max,
         spec_n_min=spec_n_min,
         spec_p_min=spec_p_min,
@@ -1141,10 +1119,10 @@ def run_chat(
 
     messages = _build_messages(system, prompt, media)
     native = bindings or _import_bindings()
-    native_speculative_class = None
+    native_speculative_api = None
     if native_configuration is not None:
-        native_speculative_class = (
-            speculative_class or _import_native_speculative_class()
+        native_speculative_api = (
+            speculative_api or _import_native_speculative_bindings()
         )
     ngram_class = None
     if ngram_configuration["speculative_mode"] == "ngram":
@@ -1158,7 +1136,6 @@ def run_chat(
     raw: dict[str, Any] | None = None
     media_diagnostics: dict[str, Any] | None = None
     speculative_stats: dict[str, Any] | None = None
-    speculative_stats_before: dict[str, int] | None = None
     mtp_n_layer_nextn: int | None = None
     reasoning_budget_format: str | None = None
     execution_error: Exception | None = None
@@ -1239,16 +1216,14 @@ def run_chat(
                     )
 
             if native_configuration is not None:
-                draft_model = _create_native_speculative_decoder(
-                    native_speculative_class,
+                assert native_speculative_api is not None
+                model_kwargs["speculative"] = _create_native_speculative_config(
+                    native_speculative_api,
                     native_configuration,
                     n_gpu_layers=model_kwargs["n_gpu_layers"],
                 )
-                model_kwargs["draft_model"] = draft_model
-                if native_configuration["provider"] != "off":
+                if native_configuration["mtp_provider"] != "off":
                     model_kwargs["n_seq_max"] = 1
-                    model_kwargs["native_context_reprefill"] = False
-                    speculative_stats_before = _speculative_stats_snapshot(draft_model)
             elif ngram_configuration["speculative_mode"] == "ngram":
                 try:
                     draft_model = ngram_class(
@@ -1279,7 +1254,19 @@ def run_chat(
                     ngram_configuration["ngram_min_hits"],
                 )
 
-            llm = native.llama_class(**model_kwargs)
+            try:
+                llm = native.llama_class(**model_kwargs)
+            except Exception as exc:
+                if (
+                    native_configuration is not None
+                    and native_configuration["mtp_provider"] != "off"
+                ):
+                    raise BackendError(
+                        "Native MTP initialization failed. Install the llama-cpp-python "
+                        "fork with the official SpecConfig API and draft-mtp support. "
+                        f"Original error: {exc}"
+                    ) from exc
+                raise
             if resolved_mmproj is None:
                 _install_text_template_handler(
                     native,
@@ -1290,7 +1277,7 @@ def run_chat(
                 )
             if (
                 native_configuration is not None
-                and native_configuration["provider"] == "internal"
+                and native_configuration["mtp_provider"] == "internal"
             ):
                 n_layer_nextn = getattr(llm, "n_layer_nextn", None)
                 if not callable(n_layer_nextn):
@@ -1342,21 +1329,8 @@ def run_chat(
                     "llama-cpp-python returned a streaming or non-object response unexpectedly."
                 )
             raw = completion
-            if native_configuration is not None and draft_model is not None:
-                if native_configuration["provider"] != "off":
-                    speculative_stats = _mtp_stats_delta(
-                        speculative_stats_before
-                        or {key: 0 for key in _SPECULATIVE_STAT_KEYS},
-                        _speculative_stats_snapshot(draft_model),
-                    )
-                else:
-                    try:
-                        stats_value = getattr(draft_model, "stats", None)
-                        speculative_stats = dict(stats_value or {})
-                    except (
-                        Exception
-                    ):  # native stats are diagnostic and must not mask a valid response
-                        speculative_stats = {}
+            if native_configuration is not None:
+                speculative_stats = _native_speculative_stats(llm)
                 try:
                     drafted_tokens = int(
                         speculative_stats.get("drafted_tokens", 0) or 0
@@ -1383,7 +1357,7 @@ def run_chat(
                     _LOGGER.info(
                         "Native speculative decoding (%s): drafted tokens=%s, accepted "
                         "tokens=%s, acceptance rate=%s, mean accepted/call=%s.",
-                        native_configuration["implementation"],
+                        native_configuration["spec_type"],
                         drafted_tokens,
                         accepted_tokens,
                         acceptance_rate,
@@ -1484,18 +1458,18 @@ def run_chat(
     if native_configuration is not None:
         metrics["speculative"] = {
             "enabled": True,
-            "implementation": native_configuration["implementation"],
+            "implementation": native_configuration["spec_type"],
             "draft_model": (
-                Path(native_configuration["model_path"]).name
-                if native_configuration["model_path"] is not None
+                Path(native_configuration["draft_model_path"]).name
+                if native_configuration["draft_model_path"] is not None
                 else None
             ),
-            "n_max": native_configuration["n_max"],
-            "n_min": native_configuration["n_min"],
-            "p_min": native_configuration["p_min"],
+            "n_max": native_configuration["draft_n_max"],
+            "n_min": native_configuration["draft_n_min"],
+            "p_min": native_configuration["draft_p_min"],
             "stats": speculative_stats or {},
         }
-        if native_configuration["provider"] != "off":
+        if native_configuration["mtp_provider"] != "off":
             choices = raw.get("choices") if isinstance(raw.get("choices"), list) else []
             first_choice = (
                 choices[0] if choices and isinstance(choices[0], dict) else {}
@@ -1503,7 +1477,7 @@ def run_chat(
             completion_tokens = int(usage.get("completion_tokens", 0) or 0)
             metrics["speculative"].update(
                 {
-                    "mtp_provider": native_configuration["provider"],
+                    "mtp_provider": native_configuration["mtp_provider"],
                     "verbose": native_configuration["verbose"],
                     "n_layer_nextn": mtp_n_layer_nextn,
                     "completion_tokens": completion_tokens,
@@ -1613,6 +1587,7 @@ __all__ = [
     "HANDLER_NAMES",
     "REASONING_STRENGTHS",
     "LlamaCppBindings",
+    "NativeSpeculativeBindings",
     "LlamaCppResult",
     "normalize_ngram_speculative",
     "require_native_speculative",

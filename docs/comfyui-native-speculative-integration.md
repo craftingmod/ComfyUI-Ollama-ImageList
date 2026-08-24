@@ -21,15 +21,14 @@ ComfyUI 노드에 experimental native speculative decoding을 선택적으로 �
 - NVIDIA RTX 3090 Ti, SM 8.6
 - single request / single sequence
 - text 생성
-- 초기 single-shot mmproj image prefill
 - DFlash draft GGUF
 - 생성 후 모델 언로드
 
-현재 wheel의 experimental API는 최상위 `llama_cpp` namespace에 export되지 않는다.
+새 API는 최상위 `llama_cpp` namespace가 아니라 `llama_speculative` 모듈에서 가져온다.
 
 ```python
 from llama_cpp import Llama
-from llama_cpp.llama_speculative import LlamaNativeSpeculativeDecoding
+from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
 ```
 
 ## 권장 UI 입력
@@ -61,7 +60,6 @@ draft 모델 selector는 일반 target 모델과 분리하는 것이 좋다. 파
 ```python
 llm = Llama(
     model_path=target_model_path,
-    mmproj_path=mmproj_path,
     n_gpu_layers=n_gpu_layers,
     n_ctx=n_ctx,
     n_batch=n_batch,
@@ -69,92 +67,59 @@ llm = Llama(
 )
 ```
 
-speculative 모드에서는 먼저 draft 객체를 만들고 `draft_model` 인자로 전달한다.
+speculative 모드에서는 공식 `SpecConfig`를 만들고 `Llama(speculative=...)`에 전달한다.
 
 ```python
-draft = LlamaNativeSpeculativeDecoding(
-    model_path=draft_model_path,
-    spec_type=spec_type,
-    n_gpu_layers=n_gpu_layers,
-    n_max=spec_n_max,
-    n_min=spec_n_min,
-    p_min=spec_p_min,
-)
-
 llm = Llama(
     model_path=target_model_path,
-    mmproj_path=mmproj_path,
-    draft_model=draft,
     n_gpu_layers=n_gpu_layers,
     n_ctx=n_ctx,
     n_batch=n_batch,
     n_ubatch=n_ubatch,
+    speculative=SpecConfig(
+        spec_type=SpeculativeType.from_str(spec_type),
+        draft_model_path=draft_model_path,
+        draft_n_max=spec_n_max,
+        draft_n_min=spec_n_min,
+        draft_p_min=spec_p_min,
+        draft_n_gpu_layers=n_gpu_layers,
+        draft_backend_sampling=True,
+    ),
 )
 ```
 
-`mmproj_path`는 vision 요청에만 전달한다. text-only 요청에서는 기존 노드의 동작을
-그대로 유지한다.
+Native speculative 요청은 text-only이므로 이 경로에는 `mmproj_path`를 전달하지 않는다.
+비활성화된 target-only 경로는 기존 노드의 multimodal 동작을 그대로 유지한다.
 
 ## 권장 생성 및 정리 구조
 
-draft는 `Llama`보다 먼저 생성한다. 정상적으로 `Llama`가 생성된 뒤에는 `llm.close()`가
-연결된 native speculative 자원의 정리를 담당한다.
-
-그러나 `Llama(...)` 생성 자체가 실패하면 소유권 이전이 완료되지 않았을 수 있으므로
-draft를 직접 닫아야 한다.
+`SpecConfig`는 모델이나 draft context를 직접 만들지 않는다. `Llama`가 target context를
+먼저 초기화한 뒤 선택한 MTP/DFlash/DSpark 엔진과 외부 draft 리소스를 생성하고 소유한다.
+따라서 통합 계층은 native engine을 직접 생성하거나 `draft_model=`에 주입하지 않는다.
 
 ```python
-from typing import Any
-
 from llama_cpp import Llama
-from llama_cpp.llama_speculative import LlamaNativeSpeculativeDecoding
+from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
 
+speculative = SpecConfig(
+    spec_type=SpeculativeType.DRAFT_DFLASH,
+    draft_model_path=draft_model_path,
+    draft_n_max=spec_n_max,
+    draft_n_min=spec_n_min,
+    draft_p_min=spec_p_min,
+    draft_n_gpu_layers="all",
+    draft_backend_sampling=True,
+)
 
-def run_native_speculative(
-    *,
-    model_kwargs: dict[str, Any],
-    completion_kwargs: dict[str, Any],
-    draft_model_path: str,
-    spec_type: str = "draft-dflash",
-    spec_n_max: int = 8,
-    spec_n_min: int = 0,
-    spec_p_min: float = 0.0,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    draft = LlamaNativeSpeculativeDecoding(
-        model_path=draft_model_path,
-        spec_type=spec_type,
-        n_gpu_layers=model_kwargs.get("n_gpu_layers", "all"),
-        n_max=spec_n_max,
-        n_min=spec_n_min,
-        p_min=spec_p_min,
-    )
-
-    llm = None
-    ownership_transferred = False
-
-    try:
-        llm = Llama(**model_kwargs, draft_model=draft)
-        ownership_transferred = True
-
-        response = llm.create_chat_completion(**completion_kwargs)
-
-        # close 전에 복사한다. close 이후 native 객체 상태에 접근하지 않는다.
-        stats = dict(draft.stats)
-        return response, stats
-    finally:
-        if llm is not None:
-            llm.close()
-        elif not ownership_transferred:
-            draft.close()
-```
-
-실제 클래스에 `close()`가 제공되는 현재 experimental wheel을 전제로 한다. 노드가 여러
-wheel 버전을 허용한다면 `getattr(draft, "close", None)`로 방어적으로 처리할 수 있다.
-
-```python
-close_draft = getattr(draft, "close", None)
-if callable(close_draft):
-    close_draft()
+llm = Llama(
+    **model_kwargs,
+    speculative=speculative,
+)
+try:
+    response = llm.create_chat_completion(**completion_kwargs)
+    stats = dict(llm.last_speculative_stats)
+finally:
+    llm.close()
 ```
 
 ComfyUI 사용 목적이 load → one generation → unload라면 `Llama` 인스턴스를 전역 cache에
@@ -167,25 +132,21 @@ CUDA cache 정리를 수행한다. PyTorch CUDA cache 정리는 llama.cpp가 소
 speculative가 꺼져 있으면 기존 코드를 그대로 사용한다.
 
 ```python
-draft = None
-
+speculative = None
 if native_speculative:
     if not draft_model_path:
         raise ValueError("Native speculative decoding requires a draft GGUF")
-
-    draft = LlamaNativeSpeculativeDecoding(
-        model_path=draft_model_path,
-        spec_type=spec_type,
-        n_gpu_layers=n_gpu_layers,
-        n_max=spec_n_max,
-        n_min=spec_n_min,
-        p_min=spec_p_min,
+    speculative = SpecConfig(
+        spec_type=SpeculativeType.from_str(spec_type),
+        draft_model_path=draft_model_path,
+        draft_n_max=spec_n_max,
+        draft_n_min=spec_n_min,
+        draft_p_min=spec_p_min,
+        draft_n_gpu_layers=n_gpu_layers,
+        draft_backend_sampling=True,
     )
 
-llm = Llama(
-    **model_kwargs,
-    draft_model=draft,
-)
+llm = Llama(**model_kwargs, speculative=speculative)
 ```
 
 가능하면 `native_speculative=False`일 때 experimental 모듈을 import하거나 native DLL을
@@ -193,7 +154,7 @@ llm = Llama(
 
 ```python
 if native_speculative:
-    from llama_cpp.llama_speculative import LlamaNativeSpeculativeDecoding
+    from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
 ```
 
 ## 실행 통계
@@ -201,17 +162,19 @@ if native_speculative:
 응답 생성 직후, `llm.close()` 전에 다음 통계를 복사한다.
 
 ```python
-stats = dict(draft.stats)
+stats = dict(llm.last_speculative_stats)
 ```
 
-현재 주요 필드는 다음과 같다.
+공식 `Llama` 통계의 주요 필드는 다음과 같다. ComfyUI 노드는 여기에 안정적인
+`drafted_tokens`, `accepted_tokens`, `acceptance_rate`, `mean_accepted_tokens` 별칭을
+추가한다.
 
 - `draft_calls`
 - `accept_calls`
-- `drafted_tokens`
-- `accepted_tokens`
-- `acceptance_rate`
-- `mean_accepted_tokens`
+- `drafted`
+- `accepted_draft_tokens`
+- `draft_token_acceptance_rate`
+- `mean_accepted_length`
 
 ComfyUI 출력 또는 로그에는 최소한 다음 항목을 표시한다.
 
@@ -230,34 +193,19 @@ mean accepted/call: 1.27
 
 ## 초기 차단 조건
 
-다음 조합에서는 native speculative을 사용하지 않는다.
+다음 조합은 native speculative을 거부한다.
 
 - grammar 또는 JSON Schema가 지정됨
 - custom logits processor가 지정됨
 - multi-sequence 또는 continuous batching 요청
 - Python state cache 복원이 필요한 요청
-- 일반적인 multimodal context shifting이 필요한 요청
-- draft GGUF가 선택되지 않음
+- IMAGE, AUDIO, or VIDEO 입력
+- 외부 provider가 필요한데 draft GGUF가 선택되지 않음
 - experimental API import 실패
 
-구조화 출력 기능이 필요한 기존 노드라면 오류보다는 target-only fallback을 사용할 수 있다.
-
-```python
-unsupported_reason = None
-
-if grammar is not None or json_schema is not None:
-    unsupported_reason = "grammar/JSON schema"
-elif logits_processor is not None:
-    unsupported_reason = "custom logits processor"
-
-if native_speculative and unsupported_reason:
-    logger.warning(
-        "Native speculative decoding does not support %s; falling back to "
-        "target-only decoding",
-        unsupported_reason,
-    )
-    native_speculative = False
-```
+사용자가 native provider를 명시적으로 선택한 경우 지원되지 않는 입력이나 호환되지 않는
+GGUF를 target-only로 조용히 바꾸지 않는다. 입력 검증 또는 `Llama` 초기화 오류를 그대로
+표시해 speculative이 실제로 적용되지 않았다는 사실을 숨기지 않는다.
 
 token stopping criteria callback은 현재 native 경로와 회귀 테스트에서 지원한다. 기존 노드가
 이를 사용한다면 제거할 필요는 없다. 다만 callback 내부에서 외부 상태를 변경하거나 매 token
@@ -269,31 +217,10 @@ token stopping criteria callback은 현재 native 경로와 회귀 테스트에�
 
 ## Multimodal 주의사항
 
-vision 입력은 기존 노드가 만드는 multimodal message 형식을 그대로 사용한다.
-
-```python
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {"type": "image", "image": image_path},
-            {"type": "text", "text": prompt},
-        ],
-    }
-]
-```
-
-초기 image prefill은 지원하지만 context shifting은 지원하지 않는다. 이미지 token과 prompt가
-`n_ctx`를 초과하면 다음 중 하나를 사용한다.
-
-- `n_ctx` 증가
-- 이미지 또는 prompt 축소
-- target-only fallback
-
-현재 목적에서는 fresh context의 단일 image 요청만 허용하는 것이 가장 안전하다.
-
-짧은 vision 응답은 image encoding과 prefill 비중이 크고 draft acceptance가 낮을 수 있어
-실질적인 속도 향상이 없을 수 있다. speculative 활성화 자체와 성능 향상을 구분해서 표시한다.
+현재 공식 stateful MTP/DFlash/DSpark Python 엔진은 text-only이며 `seq_id=0` 한 개만
+지원한다. IMAGE, AUDIO, VIDEO 입력은 native speculative과 함께 전달하지 말고, 필요한
+경우 일반 target-only 경로를 선택한다. 짧은 텍스트 응답도 draft acceptance와 sidecar
+비용에 따라 target-only보다 느릴 수 있으므로 활성화와 성능 향상을 구분해서 표시한다.
 
 ## 사용자 경고 문구
 
@@ -305,28 +232,28 @@ Native Speculative Decoding (Experimental)
 
 권장 설명:
 
-> Experimental native speculative decoding for compatible DFlash or DSpark
-> draft GGUFs. Single-request and single-sequence use only. Unsupported
-> combinations may fail or fall back to target-only decoding. Target and draft
-> models may consume substantial additional VRAM, and speedup is not guaranteed.
+> Experimental native speculative decoding for compatible DFlash, DSpark, or MTP
+> configurations. Text-only and single-sequence use only. Unsupported combinations
+> fail explicitly. Target and draft models may consume substantial additional VRAM,
+> and speedup is not guaranteed.
 
 ## 최소 테스트 항목
 
 실제 30B 모델을 매번 테스트하지 않도록 Python unit test에서는 fake binding을 사용한다.
 
 1. speculative off 시 기존 `Llama` 인자가 변하지 않는지
-2. speculative on 시 draft가 먼저 생성되는지
-3. `draft_model`이 `Llama`에 전달되는지
-4. `spec_type`, `n_max`, `n_min`, `p_min`이 정확히 전달되는지
-5. `Llama` 생성 실패 시 draft가 정리되는지
-6. 생성 성공 시 stats를 close 전에 복사하는지
-7. grammar 등 미지원 조합에서 target-only fallback 또는 명시적 오류가 발생하는지
+2. speculative on 시 `SpecConfig`가 생성되는지
+3. `SpecConfig`가 `Llama(speculative=...)`에 전달되는지
+4. `spec_type`, `draft_n_max`, `draft_n_min`, `draft_p_min`이 정확히 전달되는지
+5. `Llama` 생성 실패가 target-only fallback으로 바뀌지 않는지
+6. 생성 성공 시 `llm.last_speculative_stats`를 close 전에 복사하는지
+7. grammar 등 미지원 조합에서 명시적 오류가 발생하는지
 8. 실행 후 `llm.close()`가 항상 호출되는지
 
 수동 smoke test는 다음 두 가지면 충분하다.
 
 - text: Muse-Glimmer target + DFlash draft, `draft_calls > 0`
-- vision: target + mmproj + DFlash draft, 정상 이미지 설명 및 `finish_reason=stop`
+- text: compatible MTP target/assistant or embedded NextN target, `draft_calls > 0`
 
 ## 현재 검증된 예시 파일
 
@@ -336,9 +263,6 @@ D:\ComfyUI\models\LLM\Muse-Glimmer\Muse-Glimmer-30B-UD-Q4_K_XL.gguf
 
 Draft:
 D:\ComfyUI\models\LLM\Muse-Glimmer\dflash-kquant.gguf
-
-mmproj:
-D:\ComfyUI\models\LLM\Muse-Glimmer\mmproj-Muse-Glimmer-30B-Q8_0.gguf
 ```
 
 이 경로는 검증 환경의 예시이며 노드에 하드코딩하지 않는다. 기존 ComfyUI model selector와

@@ -1335,7 +1335,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     )
     assert captured_speculative_call["spec_type"] == "draft-dflash"
     assert captured_speculative_call["spec_n_max"] == 16
-    assert captured_speculative_call["speculative_class"] is speculative_binding
+    assert captured_speculative_call["speculative_api"] is speculative_binding
     assert captured_speculative_call["override_n_ubatch"] is True
     assert captured_speculative_call["n_ubatch"] == 1024
     assert captured_speculative_call["override_image_min_tokens"] is True
@@ -1391,7 +1391,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["spec_type"] == "none"
     assert captured_speculative_call["reasoning_strength"] == "auto"
     assert captured_speculative_call["reasoning_budget"] == 0
-    assert "speculative_class" not in captured_speculative_call
+    assert "speculative_api" not in captured_speculative_call
 
     monkeypatch.setattr(
         speculative_module,
@@ -1418,7 +1418,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert "mtp_n_min" not in captured_speculative_call
     assert "mtp_p_min" not in captured_speculative_call
     assert "mtp_verbose" not in captured_speculative_call
-    assert captured_speculative_call["speculative_class"] is speculative_binding
+    assert captured_speculative_call["speculative_api"] is speculative_binding
     assert "ngram_speculative" not in captured_speculative_call
 
     captured_speculative_call.clear()

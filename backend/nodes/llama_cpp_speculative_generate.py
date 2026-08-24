@@ -40,7 +40,7 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
 
     @classmethod
     def _prepare_backend_execution(cls) -> dict[str, object]:
-        return {"speculative_class": require_native_speculative()}
+        return {"speculative_api": require_native_speculative()}
 
     @classmethod
     def define_schema(cls) -> io.Schema:
