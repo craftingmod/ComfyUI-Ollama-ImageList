@@ -77,6 +77,21 @@ class LlamaCppResult:
     media_diagnostics: dict[str, Any]
 
 
+def _close_resources(resources: tuple[Any, ...]) -> list[Exception]:
+    errors: list[Exception] = []
+    for resource in resources:
+        if resource is None:
+            continue
+        close_resource = getattr(resource, "close", None)
+        if not callable(close_resource):
+            continue
+        try:
+            close_resource()
+        except Exception as exc:  # pragma: no cover - resource-specific failure
+            errors.append(exc)
+    return errors
+
+
 class _SequentialLlamaProxy:
     def __init__(
         self,
@@ -1467,18 +1482,9 @@ def run_chat(
                     Exception
                 ) as exc:  # pragma: no cover - platform-specific native failure
                     cleanup_errors.append(exc)
+                    cleanup_errors.extend(_close_resources((draft_model, chat_handler)))
             else:
-                for resource in (draft_model, chat_handler):
-                    if resource is None:
-                        continue
-                    try:
-                        close_resource = getattr(resource, "close", None)
-                        if callable(close_resource):
-                            close_resource()
-                    except (
-                        Exception
-                    ) as exc:  # pragma: no cover - platform-specific native failure
-                        cleanup_errors.append(exc)
+                cleanup_errors.extend(_close_resources((draft_model, chat_handler)))
             if cleanup_errors:
                 cleanup_error = cleanup_errors[0]
             llm = None

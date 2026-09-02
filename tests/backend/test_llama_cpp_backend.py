@@ -45,6 +45,7 @@ class FakeLlama:
         "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
     }
     generation_error = None
+    close_error = None
     nextn_layers = 0
     speculative_stats = {
         "drafted": 20,
@@ -91,6 +92,8 @@ class FakeLlama:
 
     def close(self):
         self.close_count += 1
+        if type(self).close_error is not None:
+            raise type(self).close_error
         self.closed = True
         draft_model = self.kwargs.get("draft_model")
         if draft_model is not None:
@@ -169,6 +172,7 @@ def reset_fakes():
         "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
     }
     FakeLlama.generation_error = None
+    FakeLlama.close_error = None
     FakeLlama.metadata = {}
     FakeLlama.nextn_layers = 0
     FakeLlama.speculative_stats = {
@@ -1663,6 +1667,24 @@ def test_generation_failure_still_closes_model(tmp_path):
         )
 
     assert FakeLlama.instances[0].closed is True
+
+
+def test_llm_close_failure_still_closes_caller_owned_handler(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    FakeLlama.close_error = RuntimeError("target close failed")
+
+    with pytest.raises(BackendError, match="could not be fully unloaded"):
+        run_chat(
+            model_path=str(model),
+            mmproj_path=str(mmproj),
+            handler="gemma4",
+            system="",
+            prompt="describe",
+            media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
+            bindings=make_bindings(gemma4=FakeHandler),
+        )
+
+    assert FakeHandler.instances[0].closed is True
 
 
 def test_images_require_mmproj_before_native_import(tmp_path):
