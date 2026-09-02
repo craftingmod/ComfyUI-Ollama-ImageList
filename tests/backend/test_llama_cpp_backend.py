@@ -116,6 +116,9 @@ class FakeHandler(FakeMTMDHandler):
 class FakeVideoHandler(FakeHandler):
     is_support_video = True
 
+    def __init__(self, *, chat_format, **kwargs):
+        super().__init__(chat_format=chat_format, **kwargs)
+
 
 class FakeJinjaFormatter:
     instances = []
@@ -1225,6 +1228,25 @@ def test_run_chat_sends_comfy_video_as_internal_video_data_uri(tmp_path):
     assert result.media_diagnostics["requested"]["video_count"] == 1
     assert result.media_diagnostics["evaluated"]["video_count"] == 1
     assert result.media_diagnostics["mtmd"]["all_media_evaluated"] is True
+    assert FakeVideoHandler.instances[0].kwargs["chat_format"] is None
+
+
+def test_generic_handler_receives_custom_chat_template(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    custom_template = "CUSTOM_TEMPLATE_JINJA"
+
+    run_chat(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="generic",
+        system="",
+        prompt="describe the video",
+        media=normalize_video(VideoInputStub(b"fake-video-stream")),
+        custom_chat_template=custom_template,
+        bindings=make_bindings(generic=FakeVideoHandler),
+    )
+
+    assert FakeVideoHandler.instances[0].kwargs["chat_format"] == custom_template
 
 
 def test_specific_handler_is_created_and_owned_by_llama(tmp_path):

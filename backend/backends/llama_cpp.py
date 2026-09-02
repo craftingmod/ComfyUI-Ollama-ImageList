@@ -708,8 +708,8 @@ def _create_handler(
             handler_kwargs["extra_template_arguments"]["reasoning_strength"] = (
                 reasoning_strength
             )
-    if handler == "generic" and custom_chat_template:
-        handler_kwargs["chat_format"] = custom_chat_template
+    if handler == "generic":
+        handler_kwargs["chat_format"] = custom_chat_template or None
     return handler_class(**handler_kwargs)
 
 
