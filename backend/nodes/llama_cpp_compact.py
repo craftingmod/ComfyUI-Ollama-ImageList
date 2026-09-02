@@ -140,50 +140,26 @@ NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
     "Off": {
         "spec_type": "none",
         "mtp_provider": "off",
-        "spec_n_max": 2,
-        "spec_n_min": 0,
-        "spec_p_min": 0.0,
-        "uses_draft_model": False,
     },
-    "Muse Glimmer DFlash": {
-        "spec_type": "draft-dflash",
-        "mtp_provider": "off",
-        "spec_n_max": 16,
-        "spec_n_min": 0,
-        "spec_p_min": 0.0,
-        "uses_draft_model": True,
-    },
-    "Generic DFlash": {
-        "spec_type": "draft-dflash",
-        "mtp_provider": "off",
-        "spec_n_max": 2,
-        "spec_n_min": 0,
-        "spec_p_min": 0.0,
-        "uses_draft_model": True,
-    },
-    "Generic DSpark": {
-        "spec_type": "draft-dspark",
-        "mtp_provider": "off",
-        "spec_n_max": 2,
-        "spec_n_min": 0,
-        "spec_p_min": 0.0,
-        "uses_draft_model": True,
-    },
-    "Gemma 4 External MTP": {
+    "External MTP": {
         "spec_type": "draft-mtp",
         "mtp_provider": "external",
-        "spec_n_max": 2,
-        "spec_n_min": 0,
-        "spec_p_min": 0.0,
-        "uses_draft_model": True,
     },
-    "Qwen 3.5+ Internal MTP": {
+    "Internal MTP": {
         "spec_type": "draft-mtp",
         "mtp_provider": "internal",
-        "spec_n_max": 2,
-        "spec_n_min": 0,
-        "spec_p_min": 0.0,
-        "uses_draft_model": False,
+    },
+    "DFlash": {
+        "spec_type": "draft-dflash",
+        "mtp_provider": "off",
+    },
+    "DFlash2": {
+        "spec_type": "draft-dflash2",
+        "mtp_provider": "off",
+    },
+    "DSpark": {
+        "spec_type": "draft-dspark",
+        "mtp_provider": "off",
     },
 }
 
@@ -341,32 +317,56 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
             "native_speculative must be a Llama.cpp Native Speculative Config object."
         )
     spec_type = value.get("spec_type")
-    if spec_type not in {"none", "draft-dflash", "draft-dspark", "draft-mtp"}:
+    if spec_type not in {
+        "none",
+        "draft-dflash",
+        "draft-dflash2",
+        "draft-dspark",
+        "draft-mtp",
+    }:
         raise InputNormalizationError(
-            "native_speculative.spec_type must be none, draft-dflash, draft-dspark, or draft-mtp."
+            "native_speculative.spec_type must be none, draft-dflash, draft-dflash2, "
+            "draft-dspark, or draft-mtp."
         )
     provider = value.get("mtp_provider")
     if provider not in {"off", "external", "internal"}:
         raise InputNormalizationError(
             "native_speculative.mtp_provider must be off, external, or internal."
         )
-    n_max = value.get("spec_n_max")
-    n_min = value.get("spec_n_min")
-    p_min = value.get("spec_p_min")
+    n_max = value.get("draft_n_max")
+    p_min = value.get("draft_p_min")
     if isinstance(n_max, bool) or not isinstance(n_max, int) or not 1 <= n_max <= 64:
         raise InputNormalizationError(
-            "native_speculative.spec_n_max must be an integer between 1 and 64."
-        )
-    if isinstance(n_min, bool) or not isinstance(n_min, int) or not 0 <= n_min <= n_max:
-        raise InputNormalizationError(
-            "native_speculative.spec_n_min must be between 0 and spec_n_max."
+            "native_speculative.draft_n_max must be an integer between 1 and 64."
         )
     if isinstance(p_min, bool) or not isinstance(p_min, (int, float)):
-        raise InputNormalizationError("native_speculative.spec_p_min must be a number.")
+        raise InputNormalizationError(
+            "native_speculative.draft_p_min must be a number."
+        )
     p_min = float(p_min)
     if not math.isfinite(p_min) or not 0.0 <= p_min <= 1.0:
         raise InputNormalizationError(
-            "native_speculative.spec_p_min must be between 0.0 and 1.0."
+            "native_speculative.draft_p_min must be between 0.0 and 1.0."
+        )
+    draft_n_gpu_layers = value.get("draft_n_gpu_layers")
+    if (
+        isinstance(draft_n_gpu_layers, bool)
+        or not (
+            (
+                isinstance(draft_n_gpu_layers, str)
+                and draft_n_gpu_layers in {"all", "auto"}
+            )
+            or isinstance(draft_n_gpu_layers, int)
+        )
+        or (isinstance(draft_n_gpu_layers, int) and draft_n_gpu_layers < -2)
+    ):
+        raise InputNormalizationError(
+            "native_speculative.draft_n_gpu_layers must be all, auto, or an integer >= -2."
+        )
+    draft_backend_sampling = value.get("draft_backend_sampling")
+    if not isinstance(draft_backend_sampling, bool):
+        raise InputNormalizationError(
+            "native_speculative.draft_backend_sampling must be a boolean."
         )
     draft_model = value.get("draft_model", NO_DRAFT_OPTION)
     if not isinstance(draft_model, str):
@@ -385,15 +385,16 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
             draft_model = NO_DRAFT_OPTION
     elif provider != "off":
         raise InputNormalizationError(
-            "native_speculative.mtp_provider must be off for DFlash and DSpark."
+            "native_speculative.mtp_provider must be off for DFlash, DFlash2, and DSpark."
         )
     return {
         "spec_type": spec_type,
         "mtp_provider": provider,
         "draft_model": draft_model,
-        "spec_n_max": n_max,
-        "spec_n_min": n_min,
-        "spec_p_min": p_min,
+        "draft_n_max": n_max,
+        "draft_p_min": p_min,
+        "draft_n_gpu_layers": draft_n_gpu_layers,
+        "draft_backend_sampling": draft_backend_sampling,
     }
 
 
@@ -781,7 +782,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
             display_name="Llama.cpp Native Speculative Config (Compat)",
             category=EXPERIMENTAL_CATEGORY,
             description=(
-                "Bundles DFlash, DSpark, or Native MTP configuration and its optional "
+                "Bundles DFlash, DFlash2, DSpark, or Native MTP configuration and its optional "
                 "draft GGUF into one typed connection."
             ),
             inputs=[
@@ -795,13 +796,20 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                     options=draft_options,
                     default=draft_options[0],
                     tooltip=(
-                        "Required by DFlash, DSpark, and external MTP; ignored by "
-                        "Off and Qwen 3.5+ internal MTP."
+                        "Used by External MTP, DFlash, DFlash2, and DSpark. Internal MTP "
+                        "does not use a draft GGUF."
                     ),
                 ),
+                io.Int.Input("draft_n_max", default=2, min=1, max=64, step=1),
                 io.Combo.Input(
                     "custom_spec_type",
-                    options=["none", "draft-dflash", "draft-dspark", "draft-mtp"],
+                    options=[
+                        "none",
+                        "draft-dflash",
+                        "draft-dflash2",
+                        "draft-dspark",
+                        "draft-mtp",
+                    ],
                     default="draft-dflash",
                     advanced=True,
                 ),
@@ -811,18 +819,23 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                     default="off",
                     advanced=True,
                 ),
-                io.Int.Input(
-                    "spec_n_max", default=2, min=1, max=64, step=1, advanced=True
-                ),
-                io.Int.Input(
-                    "spec_n_min", default=0, min=0, max=64, step=1, advanced=True
-                ),
                 io.Float.Input(
-                    "spec_p_min",
+                    "draft_p_min",
                     default=0.0,
                     min=0.0,
                     max=1.0,
                     step=0.01,
+                    advanced=True,
+                ),
+                io.Combo.Input(
+                    "draft_n_gpu_layers",
+                    options=["auto", "all"],
+                    default="all",
+                    advanced=True,
+                ),
+                io.Boolean.Input(
+                    "draft_backend_sampling",
+                    default=True,
                     advanced=True,
                 ),
             ],
@@ -839,19 +852,19 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
         cls,
         preset: str,
         draft_model: str,
+        draft_n_max: int,
         custom_spec_type: str,
         custom_mtp_provider: str,
-        spec_n_max: int,
-        spec_n_min: int,
-        spec_p_min: float,
+        draft_p_min: float,
+        draft_n_gpu_layers: str | int,
+        draft_backend_sampling: bool,
     ) -> io.NodeOutput:
+        if preset == "Off":
+            return io.NodeOutput({"kind": "off"})
         if preset == "Custom":
             value = {
                 "spec_type": custom_spec_type,
                 "mtp_provider": custom_mtp_provider,
-                "spec_n_max": spec_n_max,
-                "spec_n_min": spec_n_min,
-                "spec_p_min": spec_p_min,
             }
         else:
             try:
@@ -860,8 +873,13 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                 raise InputNormalizationError(
                     f"Unknown Llama.cpp Native Speculative preset: {preset}"
                 ) from exc
-            value.pop("uses_draft_model", None)
-        value["draft_model"] = draft_model
+        value.update(
+            draft_model=draft_model,
+            draft_n_max=draft_n_max,
+            draft_p_min=draft_p_min,
+            draft_n_gpu_layers=draft_n_gpu_layers,
+            draft_backend_sampling=draft_backend_sampling,
+        )
         config = normalize_native_draft_config(value)
         if config["spec_type"] == "none":
             return io.NodeOutput({"kind": "off"})
@@ -1163,9 +1181,11 @@ def _execute_compact(
         extra["ngram_speculative"] = speculative_config["config"]
     if native_config is not None:
         spec_type = native_config["spec_type"]
-        draft_required = spec_type in {"draft-dflash", "draft-dspark"} or (
-            spec_type == "draft-mtp" and native_config["mtp_provider"] == "external"
-        )
+        draft_required = spec_type in {
+            "draft-dflash",
+            "draft-dflash2",
+            "draft-dspark",
+        } or (spec_type == "draft-mtp" and native_config["mtp_provider"] == "external")
         extra.update(
             draft_model_path=(
                 _resolve_gguf_selection(
@@ -1177,10 +1197,12 @@ def _execute_compact(
                 else ""
             ),
             spec_type=spec_type,
-            spec_n_max=native_config["spec_n_max"],
-            spec_n_min=native_config["spec_n_min"],
-            spec_p_min=native_config["spec_p_min"],
+            spec_n_max=native_config["draft_n_max"],
+            spec_n_min=0,
+            spec_p_min=native_config["draft_p_min"],
             mtp_provider=native_config["mtp_provider"],
+            draft_n_gpu_layers=native_config["draft_n_gpu_layers"],
+            draft_backend_sampling=native_config["draft_backend_sampling"],
         )
         if speculative_api is not None:
             extra["speculative_api"] = speculative_api

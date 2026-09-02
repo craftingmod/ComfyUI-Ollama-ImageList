@@ -52,14 +52,20 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
                 options=draft_options,
                 default=draft_options[0],
                 tooltip=(
-                    "Experimental DFlash/DSpark draft or Gemma 4 MTP assistant GGUF from "
+                    "Experimental DFlash/DFlash2/DSpark draft or Gemma 4 MTP assistant GGUF from "
                     "ComfyUI's registered LLM paths. Qwen 3.5+ internal MTP must leave this "
                     "unselected. Compatibility is validated by the native runtime."
                 ),
             ),
             io.Combo.Input(
                 "spec_type",
-                options=["none", "draft-dflash", "draft-dspark", "draft-mtp"],
+                options=[
+                    "none",
+                    "draft-dflash",
+                    "draft-dflash2",
+                    "draft-dspark",
+                    "draft-mtp",
+                ],
                 default="none",
                 tooltip=(
                     "Native speculative implementation. Select draft-mtp together with "
@@ -127,7 +133,7 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
             display_name="Llama.cpp Speculative Generate (Experimental)",
             category="Ollama/llama_cpp/experimental",
             description=(
-                "Experimental native speculative decoding for DFlash/DSpark drafts, Gemma 4 "
+                "Experimental native speculative decoding for DFlash/DFlash2/DSpark drafts, Gemma 4 "
                 "external MTP assistants, and Qwen 3.5+ embedded MTP. MTP is text-only and "
                 "requires all-layer GPU offload. Reports request-local draft acceptance "
                 "statistics, then unloads all native resources."

@@ -842,57 +842,121 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     native_inputs = {field.name: field for field in native_config_schema.inputs}
     assert native_inputs["preset"].options["options"] == [
         "Off",
-        "Muse Glimmer DFlash",
-        "Generic DFlash",
-        "Generic DSpark",
-        "Gemma 4 External MTP",
-        "Qwen 3.5+ Internal MTP",
+        "External MTP",
+        "Internal MTP",
+        "DFlash",
+        "DFlash2",
+        "DSpark",
         "Custom",
     ]
+    assert [field.name for field in native_config_schema.inputs] == [
+        "preset",
+        "draft_model",
+        "draft_n_max",
+        "custom_spec_type",
+        "custom_mtp_provider",
+        "draft_p_min",
+        "draft_n_gpu_layers",
+        "draft_backend_sampling",
+    ]
+    assert "advanced" not in native_inputs["draft_n_max"].options
+    assert native_inputs["custom_mtp_provider"].options["advanced"] is True
+    assert native_inputs["draft_p_min"].options["advanced"] is True
+    assert native_inputs["draft_n_gpu_layers"].options["options"] == ["auto", "all"]
+    assert native_inputs["draft_n_gpu_layers"].options["advanced"] is True
+    assert native_inputs["draft_backend_sampling"].options["advanced"] is True
+    assert "spec_n_min" not in native_inputs
+    assert "spec_n_max" not in native_inputs
+    assert "spec_p_min" not in native_inputs
     assert native_config_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
     )
     off_draft_config = native_config_class.execute(
         "Off",
         "stale/draft.gguf",
+        2,
         "draft-dspark",
         "off",
-        2,
-        0,
         0.0,
+        "all",
+        True,
     )[0]
     assert off_draft_config == {"kind": "off"}
-    muse_draft_config = native_config_class.execute(
-        "Muse Glimmer DFlash",
+    external_mtp_config = native_config_class.execute(
+        "External MTP",
         "external/mtp-model-a.gguf",
+        8,
         "draft-dspark",
         "off",
-        2,
-        0,
-        0.0,
+        0.25,
+        "auto",
+        False,
     )[0]
-    assert muse_draft_config == {
+    assert external_mtp_config == {
         "kind": "native",
         "config": {
-            "spec_type": "draft-dflash",
-            "mtp_provider": "off",
+            "spec_type": "draft-mtp",
+            "mtp_provider": "external",
             "draft_model": "external/mtp-model-a.gguf",
-            "spec_n_max": 16,
-            "spec_n_min": 0,
-            "spec_p_min": 0.0,
+            "draft_n_max": 8,
+            "draft_p_min": 0.25,
+            "draft_n_gpu_layers": "auto",
+            "draft_backend_sampling": False,
+        },
+    }
+    dflash2_config = native_config_class.execute(
+        "DFlash2",
+        "external/dflash2-model.gguf",
+        7,
+        "draft-dspark",
+        "off",
+        0.0,
+        "all",
+        True,
+    )[0]
+    assert dflash2_config == {
+        "kind": "native",
+        "config": {
+            "spec_type": "draft-dflash2",
+            "mtp_provider": "off",
+            "draft_model": "external/dflash2-model.gguf",
+            "draft_n_max": 7,
+            "draft_p_min": 0.0,
+            "draft_n_gpu_layers": "all",
+            "draft_backend_sampling": True,
         },
     }
     internal_mtp_config = native_config_class.execute(
-        "Qwen 3.5+ Internal MTP",
+        "Internal MTP",
         "stale/draft.gguf",
+        2,
         "draft-dflash",
         "off",
-        2,
-        0,
         0.0,
+        "all",
+        True,
     )[0]
     assert internal_mtp_config["kind"] == "native"
     assert internal_mtp_config["config"]["draft_model"] == "[none]"
+    custom_config = native_config_class.execute(
+        "Custom",
+        "external/custom-model.gguf",
+        9,
+        "draft-mtp",
+        "external",
+        0.4,
+        "auto",
+        False,
+    )[0]
+    assert custom_config["config"] == {
+        "spec_type": "draft-mtp",
+        "mtp_provider": "external",
+        "draft_model": "external/custom-model.gguf",
+        "draft_n_max": 9,
+        "draft_p_min": 0.4,
+        "draft_n_gpu_layers": "auto",
+        "draft_backend_sampling": False,
+    }
 
     compact_class, compact_schema = registered[
         "OllamaImageList_LlamaCppProfiledGenerate"
@@ -1084,6 +1148,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert speculative_inputs["spec_type"].options["options"] == [
         "none",
         "draft-dflash",
+        "draft-dflash2",
         "draft-dspark",
         "draft-mtp",
     ]
@@ -1321,7 +1386,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         hardware_profile=[custom_hardware_profile],
         image_min_tokens=[768],
         image_max_tokens=[768],
-        speculative=[muse_draft_config],
+        speculative=[dflash2_config],
     )
     monkeypatch.setattr(
         compact_module,
@@ -1331,10 +1396,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     compact_native_output = compact_class.execute(**compact_native_values)
     assert compact_native_output[0] == "done"
     assert captured_speculative_call["draft_model_path"] == (
-        "D:/SharedModels/LLM/external/mtp-model-a.gguf"
+        "D:/SharedModels/LLM/external/dflash2-model.gguf"
     )
-    assert captured_speculative_call["spec_type"] == "draft-dflash"
-    assert captured_speculative_call["spec_n_max"] == 16
+    assert captured_speculative_call["spec_type"] == "draft-dflash2"
+    assert captured_speculative_call["spec_n_max"] == 7
+    assert captured_speculative_call["spec_n_min"] == 0
+    assert captured_speculative_call["spec_p_min"] == 0.0
+    assert captured_speculative_call["draft_n_gpu_layers"] == "all"
+    assert captured_speculative_call["draft_backend_sampling"] is True
     assert captured_speculative_call["speculative_api"] is speculative_binding
     assert captured_speculative_call["override_n_ubatch"] is True
     assert captured_speculative_call["n_ubatch"] == 1024

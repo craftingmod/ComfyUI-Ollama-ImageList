@@ -1,6 +1,6 @@
 import base64
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -53,6 +53,7 @@ class FakeLlama:
         "accept_calls": 3,
         "draft_token_acceptance_rate": 0.45,
     }
+    speculative_engine = None
 
     def __init__(self, **kwargs):
         NATIVE_EVENTS.append("target")
@@ -61,6 +62,7 @@ class FakeLlama:
         self.completion_kwargs_history = []
         self.reset_count = 0
         self._native_speculative = None
+        self.speculative = type(self).speculative_engine
         self.metadata = dict(type(self).metadata)
         self.last_speculative_stats = dict(type(self).speculative_stats)
         self.closed = False
@@ -173,6 +175,7 @@ def reset_fakes():
         "accept_calls": 3,
         "draft_token_acceptance_rate": 0.45,
     }
+    FakeLlama.speculative_engine = None
     FakeHandler.instances = []
     FakeJinjaFormatter.instances = []
     FakeNGramDraft.instances = []
@@ -250,6 +253,24 @@ def test_missing_ngram_speculative_api_fails_only_when_requested(monkeypatch):
     assert "N-gram speculative decoding is unavailable" in message
     assert "speculative_mode set to off" in message
     assert "DFlash/DSpark support is not required" in message
+
+
+def test_implicit_draft_model_path_api_is_rejected(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    draft = tmp_path / "draft.gguf"
+    draft.write_bytes(b"draft")
+
+    with pytest.raises(InputNormalizationError, match="official JamePeng SpecConfig"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="hello",
+            media=normalize_images(None),
+            draft_model_path=str(draft),
+            bindings=make_bindings(),
+        )
+
+    assert FakeLlama.instances == []
 
 
 def test_target_only_path_does_not_import_or_pass_speculative_binding(
@@ -509,6 +530,7 @@ def test_native_and_ngram_speculative_modes_cannot_be_combined(tmp_path):
             prompt="hello",
             media=normalize_images(None),
             draft_model_path=str(draft),
+            spec_type="draft-dflash",
             ngram_speculative={
                 "speculative_mode": "ngram",
                 "ngram_size": 3,
@@ -544,6 +566,8 @@ def test_native_speculative_uses_official_spec_config_and_stats(tmp_path):
         spec_n_max=15,
         spec_n_min=2,
         spec_p_min=0.25,
+        draft_n_gpu_layers=0,
+        draft_backend_sampling=False,
         bindings=make_bindings(),
         speculative_api=make_speculative_api(),
     )
@@ -556,8 +580,8 @@ def test_native_speculative_uses_official_spec_config_and_stats(tmp_path):
         "draft_n_max": 15,
         "draft_n_min": 2,
         "draft_p_min": 0.25,
-        "draft_n_gpu_layers": "all",
-        "draft_backend_sampling": True,
+        "draft_n_gpu_layers": 0,
+        "draft_backend_sampling": False,
     }
     target = FakeLlama.instances[0]
     assert target.kwargs["speculative"] is config
@@ -584,6 +608,60 @@ def test_native_speculative_uses_official_spec_config_and_stats(tmp_path):
     assert result.metrics["speculative"]["p_min"] == 0.25
 
 
+def test_dflash2_alias_maps_to_official_dflash_and_reports_selector_metadata(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    draft = tmp_path / "dflash2.gguf"
+    draft.write_bytes(b"draft")
+    FakeLlama.speculative_engine = SimpleNamespace(
+        is_dflash2=True,
+        selector_top_k=16,
+    )
+
+    result = run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        gpu_layers="all",
+        draft_model_path=str(draft),
+        spec_type="draft-dflash2",
+        spec_n_max=7,
+        bindings=make_bindings(),
+        speculative_api=make_speculative_api(),
+    )
+
+    config = FakeSpecConfig.instances[0]
+    assert config.kwargs["spec_type"] == "draft-dflash"
+    assert config.kwargs["draft_n_max"] == 7
+    assert result.metrics["speculative"]["implementation"] == "draft-dflash"
+    assert result.metrics["speculative"]["variant"] == "dflash2"
+    assert result.metrics["speculative"]["selector_top_k"] == 16
+
+
+def test_dflash2_alias_rejects_a_non_selector_dflash_draft(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    draft = tmp_path / "dflash.gguf"
+    draft.write_bytes(b"draft")
+    FakeLlama.speculative_engine = SimpleNamespace(
+        is_dflash2=False,
+        selector_top_k=0,
+    )
+
+    with pytest.raises(BackendError, match="no positive dflash.selector_top_k"):
+        run_chat(
+            model_path=str(model),
+            system="",
+            prompt="hello",
+            media=normalize_media(),
+            draft_model_path=str(draft),
+            spec_type="draft-dflash2",
+            bindings=make_bindings(),
+            speculative_api=make_speculative_api(),
+        )
+
+    assert FakeLlama.instances[0].closed is True
+
+
 def test_native_speculative_target_initialization_failure_is_not_silently_disabled(
     tmp_path,
 ):
@@ -603,6 +681,7 @@ def test_native_speculative_target_initialization_failure_is_not_silently_disabl
             prompt="hello",
             media=normalize_media(),
             draft_model_path=str(draft),
+            spec_type="draft-dflash",
             bindings=LlamaCppBindings(llama_class=FailingLlama, handlers={}),
             speculative_api=make_speculative_api(),
         )
@@ -627,6 +706,7 @@ def test_native_speculative_parameters_are_validated_before_loading(
     draft = tmp_path / "draft.gguf"
     draft.write_bytes(b"draft")
 
+    native_values = {"spec_type": "draft-dflash", **overrides}
     with pytest.raises(InputNormalizationError, match=message):
         run_chat(
             model_path=str(model),
@@ -636,14 +716,14 @@ def test_native_speculative_parameters_are_validated_before_loading(
             draft_model_path=str(draft),
             bindings=make_bindings(),
             speculative_api=make_speculative_api(),
-            **overrides,
+            **native_values,
         )
 
     assert FakeSpecConfig.instances == []
     assert FakeLlama.instances == []
 
 
-@pytest.mark.parametrize("spec_type", ["draft-dflash", "draft-dspark"])
+@pytest.mark.parametrize("spec_type", ["draft-dflash", "draft-dflash2", "draft-dspark"])
 def test_native_speculative_requires_a_draft_gguf(tmp_path, spec_type):
     model, _ = gguf_files(tmp_path)
 

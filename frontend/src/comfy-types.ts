@@ -16,6 +16,7 @@ export type ComfyNodeLike = {
   widgets?: ComfyWidget[]
   inputs?: ComfyInput[]
   onConnectionsChange?: (this: ComfyNodeLike, ...args: unknown[]) => unknown
+  updateComputedDisabled?: () => void
   setDirtyCanvas(foreground?: boolean, background?: boolean): void
   addWidget(type: string, name: string, value: unknown, callback: () => void): ComfyWidget
 }

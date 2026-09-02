@@ -32,7 +32,8 @@ _HANDLER_CLASSES = {
     "qwen35": "Qwen35ChatHandler",
 }
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
-_SPECULATIVE_TYPES = {"draft-dflash", "draft-dspark"}
+_SPECULATIVE_TYPES = {"draft-dflash", "draft-dflash2", "draft-dspark"}
+_CANONICAL_SPECULATIVE_TYPES = {"draft-dflash2": "draft-dflash"}
 _MTP_PROVIDERS = {"off", "external", "internal"}
 _DEFAULT_N_UBATCH = 512
 _NATIVE_EXECUTION_LOCK = RLock()
@@ -208,7 +209,7 @@ def _import_native_speculative_bindings() -> NativeSpeculativeBindings:
     except (ImportError, OSError) as exc:
         raise BackendError(
             "Native speculative decoding is not installed in the Python environment "
-            "that runs ComfyUI. This experimental node requires the official "
+            "that runs ComfyUI. The JamePeng backend requires the official "
             "llama_cpp.llama_speculative.SpecConfig/SpeculativeType API. No model was "
             "loaded.\n"
             f"Release and installation notes: {_NATIVE_SPECULATIVE_RELEASE_URL}\n"
@@ -220,7 +221,7 @@ def _import_native_speculative_bindings() -> NativeSpeculativeBindings:
     speculative_type = getattr(speculative_module, "SpeculativeType", None)
     if spec_config is None or speculative_type is None:
         raise BackendError(
-            "The installed experimental llama-cpp-python package does not expose "
+            "The installed JamePeng llama-cpp-python fork does not expose "
             "the official SpecConfig and SpeculativeType API. No model was loaded.\n"
             f"Release and installation notes: {_NATIVE_SPECULATIVE_RELEASE_URL}\n"
             "Install a release wheel compatible with ComfyUI's exact Python, platform, "
@@ -233,7 +234,7 @@ def _import_native_speculative_bindings() -> NativeSpeculativeBindings:
 
 
 def require_native_speculative() -> NativeSpeculativeBindings:
-    """Fail the experimental node before request normalization or native model loading."""
+    """Require the JamePeng SpecConfig API before native model loading."""
     return _import_native_speculative_bindings()
 
 
@@ -280,6 +281,43 @@ def _native_speculative_stats(llm: Any) -> dict[str, Any]:
     }
 
 
+def _native_speculative_variant(
+    llm: Any, configuration: dict[str, Any]
+) -> dict[str, Any]:
+    """Resolve the fork's metadata-selected DFlash variant for diagnostics."""
+    if configuration["spec_type"] != "draft-dflash":
+        return {}
+
+    engine = getattr(llm, "speculative", None)
+    selector_top_k = getattr(engine, "selector_top_k", None)
+    is_dflash2 = getattr(engine, "is_dflash2", None)
+    if selector_top_k is not None:
+        try:
+            selector_top_k = int(selector_top_k)
+        except (TypeError, ValueError):
+            selector_top_k = None
+    if is_dflash2 is None and selector_top_k is not None:
+        is_dflash2 = selector_top_k > 0
+    if is_dflash2 is None:
+        if configuration.get("requested_spec_type") == "draft-dflash2":
+            raise BackendError(
+                "The installed JamePeng fork did not expose the resolved DFlash2 "
+                "selector metadata. Upgrade to a DFlash2-capable release."
+            )
+        return {}
+
+    is_dflash2 = bool(is_dflash2)
+    if configuration.get("requested_spec_type") == "draft-dflash2" and not is_dflash2:
+        raise BackendError(
+            "DFlash2 was selected, but the draft GGUF has no positive "
+            "dflash.selector_top_k selector metadata."
+        )
+    return {
+        "variant": "dflash2" if is_dflash2 else "dflash",
+        "selector_top_k": selector_top_k or 0,
+    }
+
+
 def _normalize_native_speculative(
     *,
     resolved_draft: str | None,
@@ -288,6 +326,8 @@ def _normalize_native_speculative(
     spec_n_min: int,
     spec_p_min: float,
     mtp_provider: str,
+    draft_n_gpu_layers: str | int,
+    draft_backend_sampling: bool,
     verbose: bool,
     has_media: bool,
     gpu_layers: str,
@@ -298,6 +338,22 @@ def _normalize_native_speculative(
         raise InputNormalizationError(
             "mtp_provider must be off, external, or internal."
         )
+    if (
+        isinstance(draft_n_gpu_layers, bool)
+        or not (
+            (
+                isinstance(draft_n_gpu_layers, str)
+                and draft_n_gpu_layers in {"all", "auto"}
+            )
+            or isinstance(draft_n_gpu_layers, int)
+        )
+        or (isinstance(draft_n_gpu_layers, int) and draft_n_gpu_layers < -2)
+    ):
+        raise InputNormalizationError(
+            "draft_n_gpu_layers must be all, auto, or an integer >= -2."
+        )
+    if not isinstance(draft_backend_sampling, bool):
+        raise InputNormalizationError("draft_backend_sampling must be a boolean.")
 
     if spec_type == "none":
         if provider != "off":
@@ -352,6 +408,8 @@ def _normalize_native_speculative(
             "draft_n_max": n_max,
             "draft_n_min": n_min,
             "draft_p_min": p_min,
+            "draft_n_gpu_layers": draft_n_gpu_layers,
+            "draft_backend_sampling": draft_backend_sampling,
             "verbose": bool(verbose),
         }
 
@@ -360,7 +418,9 @@ def _normalize_native_speculative(
             "draft-mtp requires mtp_provider external or internal."
         )
     if spec_type not in _SPECULATIVE_TYPES:
-        raise InputNormalizationError("spec_type must be draft-dflash or draft-dspark.")
+        raise InputNormalizationError(
+            "spec_type must be draft-dflash, draft-dflash2, or draft-dspark."
+        )
     if resolved_draft is None:
         raise InputNormalizationError(
             f"{spec_type} requires a compatible draft GGUF in draft_model."
@@ -372,12 +432,15 @@ def _normalize_native_speculative(
     if not 0.0 <= float(spec_p_min) <= 1.0:
         raise InputNormalizationError("spec_p_min must be between 0.0 and 1.0.")
     return {
-        "spec_type": spec_type,
+        "spec_type": _CANONICAL_SPECULATIVE_TYPES.get(spec_type, spec_type),
+        "requested_spec_type": spec_type,
         "mtp_provider": "off",
         "draft_model_path": resolved_draft,
         "draft_n_max": int(spec_n_max),
         "draft_n_min": int(spec_n_min),
         "draft_p_min": float(spec_p_min),
+        "draft_n_gpu_layers": draft_n_gpu_layers,
+        "draft_backend_sampling": draft_backend_sampling,
         "verbose": False,
     }
 
@@ -396,8 +459,8 @@ def _create_native_speculative_config(
             draft_n_max=configuration["draft_n_max"],
             draft_n_min=configuration["draft_n_min"],
             draft_p_min=configuration["draft_p_min"],
-            draft_n_gpu_layers=n_gpu_layers,
-            draft_backend_sampling=True,
+            draft_n_gpu_layers=configuration["draft_n_gpu_layers"],
+            draft_backend_sampling=configuration["draft_backend_sampling"],
         )
     except Exception as exc:
         if configuration["mtp_provider"] != "off":
@@ -1035,6 +1098,8 @@ def run_chat(
     spec_n_min: int = 0,
     spec_p_min: float = 0.0,
     mtp_provider: str = "off",
+    draft_n_gpu_layers: str | int = "all",
+    draft_backend_sampling: bool = True,
     ngram_speculative: dict[str, Any] | None = None,
     bindings: LlamaCppBindings | None = None,
     speculative_api: NativeSpeculativeBindings | None = None,
@@ -1062,13 +1127,12 @@ def run_chat(
         label="draft_model_path",
         required=False,
     )
-    effective_spec_type = (
-        "draft-dflash"
-        if spec_type is None and resolved_draft is not None
-        else "none"
-        if spec_type is None
-        else str(spec_type)
-    )
+    if spec_type is None and resolved_draft is not None:
+        raise InputNormalizationError(
+            "draft_model_path requires an explicit spec_type; use the official "
+            "JamePeng SpecConfig path instead of the removed implicit Experimental API."
+        )
+    effective_spec_type = "none" if spec_type is None else str(spec_type)
     if flash_attention not in _FLASH_ATTN_TYPES:
         raise InputNormalizationError(
             "flash_attention must be auto, enabled, or disabled."
@@ -1082,6 +1146,8 @@ def run_chat(
         spec_n_min=spec_n_min,
         spec_p_min=spec_p_min,
         mtp_provider=mtp_provider,
+        draft_n_gpu_layers=draft_n_gpu_layers,
+        draft_backend_sampling=draft_backend_sampling,
         verbose=verbose,
         has_media=has_media,
         gpu_layers=gpu_layers,
@@ -1136,6 +1202,7 @@ def run_chat(
     raw: dict[str, Any] | None = None
     media_diagnostics: dict[str, Any] | None = None
     speculative_stats: dict[str, Any] | None = None
+    speculative_variant: dict[str, Any] = {}
     mtp_n_layer_nextn: int | None = None
     reasoning_budget_format: str | None = None
     execution_error: Exception | None = None
@@ -1291,6 +1358,10 @@ def run_chat(
                         "Selected Qwen 3.5+ target GGUF has no usable embedded NextN/MTP "
                         "layers."
                     )
+            if native_configuration is not None:
+                speculative_variant = _native_speculative_variant(
+                    llm, native_configuration
+                )
             load_seconds = time.perf_counter() - load_started
             generation_started = time.perf_counter()
             completion_messages = _adapt_messages_for_model_template(
@@ -1469,6 +1540,7 @@ def run_chat(
             "p_min": native_configuration["draft_p_min"],
             "stats": speculative_stats or {},
         }
+        metrics["speculative"].update(speculative_variant)
         if native_configuration["mtp_provider"] != "off":
             choices = raw.get("choices") if isinstance(raw.get("choices"), list) else []
             first_choice = (

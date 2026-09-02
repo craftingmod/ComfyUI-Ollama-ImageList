@@ -203,15 +203,16 @@ For Qwen-VL grounding tasks, set `image_min_tokens=1024`. Explicit image-token l
 fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
 and output length remain user-selected even when a Qwen 3.5+ profile supplies its mode.
 
-Native Speculative Config choices are `Off`, `Muse Glimmer DFlash`, `Generic DFlash`,
-`Generic DSpark`, `Gemma 4 External MTP`, `Qwen 3.5+ Internal MTP`, and `Custom`.
-The Muse preset uses a 16-token DFlash proposal block. Qwen internal MTP ignores the
-draft selector; DFlash, DSpark, and Gemma external MTP resolve the selected draft GGUF
-only when Compact Generate receives that Native config. The Compact N-gram and Native
-config nodes intentionally emit the same typed `speculative` output, so one Generate node
-dispatches either strategy and the graph cannot connect both simultaneously. The same
-backend validation, dependency checks, statistics, and cleanup paths used by the detailed
-nodes remain active.
+Native Speculative Config choices are `Off`, `External MTP`, `Internal MTP`, `DFlash`,
+`DFlash2`, `DSpark`, and `Custom`. The `draft_model` selector is enabled for External MTP,
+DFlash, DFlash2, DSpark, and Custom, while Internal MTP uses embedded NextN layers and does
+not use a draft GGUF. `draft_n_max` and `draft_p_min` are shared proposal controls; the former
+is visible and the latter remains advanced. The advanced draft-engine controls are
+`draft_n_gpu_layers` (`auto` or `all`) and `draft_backend_sampling`. The Compact N-gram and
+Native config nodes intentionally
+emit the same typed `speculative` output, so one Generate node dispatches either strategy and
+the graph cannot connect both simultaneously. The same backend validation, dependency checks,
+statistics, and cleanup paths used by the detailed nodes remain active.
 
 Compact node IDs are new and do not replace or reorder the inputs of existing saved
 workflows.
@@ -251,7 +252,7 @@ These profiles are named for Gemma 4 because the image-token and physical-batch 
 
 ## N-gram speculative preset
 
-Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `Ollama / llama_cpp`; the Experimental native DFlash/DSpark node does not expose or consume this type.
+Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `Ollama / llama_cpp`; the Experimental native DFlash/DFlash2/DSpark node does not expose or consume this type.
 
 `off` preserves the normal target-only path: no draft object is constructed, no speculative module is imported, and the `Llama` constructor receives exactly the same arguments as before. The detail widgets are disabled in this mode without resetting their values, so switching back to `ngram` restores the previous configuration. `ngram` lazily imports `LlamaNGramMapDecoding` and passes one request-local instance as `Llama(draft_model=...)`. It predicts candidates from repeated patterns already present in the verified prompt and generated history, requires no additional GGUF, and uses little additional VRAM. The target model still verifies every proposed token, so this is not a reduced-accuracy generation mode.
 
@@ -286,30 +287,32 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 `Llama.cpp Native Speculative Config (Compat)` is registered under `Ollama / llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
-This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and requires `draft_model` to remain unselected. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
+This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DFlash2, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
 The node requires a fork wheel that provides `llama_cpp.llama_speculative.SpecConfig` and `SpeculativeType`, plus the corresponding native engines. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. New code must pass `speculative=SpecConfig(...)` to `Llama`; the deprecated `draft_model=` callback path is not used. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
-Choose `spec_type=none` for target-only generation; the three `spec_n_*` widgets are disabled in this mode and no native speculative dependency is imported. The `draft_model` selector uses `[none]` when no file is needed. For DFlash or DSpark, choose a compatible GGUF in `draft_model`, then select `draft-dflash` or `draft-dspark`. The shared defaults are `spec_n_max=2`, `spec_n_min=0`, and `spec_p_min=0.0`. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
+Choose `preset=Off` for target-only generation; all Native Speculative Config fields are disabled and the output is an off config. For External MTP, DFlash, DFlash2, or DSpark, choose a compatible GGUF in `draft_model`. Internal MTP uses no separate draft GGUF. `Custom` exposes `custom_spec_type` and `custom_mtp_provider`; the latter is enabled only for Custom. `draft_n_max` and `draft_p_min` are accepted for every non-Off preset. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
 
 For Native MTP, choose one explicit `mtp_provider`:
 
 | Provider | Target | `draft_model` | Native decoder path |
 | --- | --- | --- | --- |
-| `off` | Existing DFlash/DSpark behavior | Required | Selected draft GGUF |
+| `off` | Existing DFlash/DFlash2/DSpark behavior | Required | Selected draft GGUF |
 | `external` | Target GGUF | Selected draft GGUF required | Selected draft GGUF |
 | `internal` | Target GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
 
-Select `spec_type=draft-mtp` together with an external or internal MTP provider. The `mtp_provider` widget is disabled for every other `spec_type`, and any preserved inactive value is treated as `off` during node execution. MTP uses the same `spec_n_max`, `spec_n_min`, and `spec_p_min` values as DFlash/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
+Select `spec_type=draft-mtp` together with an external or internal MTP provider. MTP uses the same `draft_n_max` and `draft_p_min` values as DFlash/DFlash2/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
 
 All current stateful native speculative engines are text-only and single-sequence. Native MTP additionally requires `gpu_layers=all`; IMAGE, AUDIO, VIDEO, context shifting, grammar/JSON-schema constraints, custom logits processors, prefix/state-cache reuse, and multi-sequence batching are unsupported.
 
-The backend builds a `SpecConfig` before target-model construction and passes it as `Llama(speculative=...)`. `Llama` then creates and owns the stateful MTP/DFlash/DSpark engine and any external draft resources; `Llama.close()` releases them. Draft statistics are copied from `llm.last_speculative_stats` before cleanup and exposed under `metrics_json.speculative`:
+The backend builds a `SpecConfig` before target-model construction and passes it as `Llama(speculative=...)`. `Llama` then creates and owns the stateful MTP/DFlash/DFlash2/DSpark engine and any external draft resources; `Llama.close()` releases them. Draft statistics are copied from `llm.last_speculative_stats` before cleanup and exposed under `metrics_json.speculative`. For a DFlash draft, the response also reports the resolved `variant` (`dflash` or `dflash2`) and `selector_top_k` when the fork exposes the native engine diagnostics:
 
 ```json
 {
   "enabled": true,
   "implementation": "draft-dflash",
+  "variant": "dflash2",
+  "selector_top_k": 16,
   "draft_model": "dflash-kquant.gguf",
   "n_max": 8,
   "n_min": 0,

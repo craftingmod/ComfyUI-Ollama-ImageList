@@ -21,7 +21,7 @@ ComfyUI 노드에 experimental native speculative decoding을 선택적으로 �
 - NVIDIA RTX 3090 Ti, SM 8.6
 - single request / single sequence
 - text 생성
-- DFlash draft GGUF
+- DFlash, DFlash2, or DSpark draft GGUF
 - 생성 후 모델 언로드
 
 새 API는 최상위 `llama_cpp` namespace가 아니라 `llama_speculative` 모듈에서 가져온다.
@@ -38,8 +38,8 @@ from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
 | 입력 | 형식 | 기본값 | 설명 |
 |---|---|---:|---|
 | `native_speculative` | boolean | `False` | experimental 경로 활성화 |
-| `draft_model` | GGUF selector | 없음 | DFlash 또는 DSpark draft GGUF |
-| `spec_type` | combo | `draft-dflash` | `draft-dflash`, `draft-dspark` |
+| `draft_model` | GGUF selector | 없음 | DFlash, DFlash2, 또는 DSpark draft GGUF |
+| `spec_type` | combo | `draft-dflash` | `draft-dflash`, `draft-dflash2`, `draft-dspark` |
 | `spec_n_max` | integer | `8` | 한 speculative cycle의 최대 draft token 수 |
 | `spec_n_min` | integer | `0` | 최소 draft token 수 |
 | `spec_p_min` | float | `0.0` | draft confidence threshold |
@@ -77,7 +77,10 @@ llm = Llama(
     n_batch=n_batch,
     n_ubatch=n_ubatch,
     speculative=SpecConfig(
-        spec_type=SpeculativeType.from_str(spec_type),
+        # DFlash2 is translated to DRAFT_DFLASH and detected from selector metadata.
+        spec_type=SpeculativeType.from_str(
+            "draft-dflash" if spec_type == "draft-dflash2" else spec_type
+        ),
         draft_model_path=draft_model_path,
         draft_n_max=spec_n_max,
         draft_n_min=spec_n_min,
@@ -94,7 +97,7 @@ Native speculative 요청은 text-only이므로 이 경로에는 `mmproj_path`�
 ## 권장 생성 및 정리 구조
 
 `SpecConfig`는 모델이나 draft context를 직접 만들지 않는다. `Llama`가 target context를
-먼저 초기화한 뒤 선택한 MTP/DFlash/DSpark 엔진과 외부 draft 리소스를 생성하고 소유한다.
+먼저 초기화한 뒤 선택한 MTP/DFlash/DFlash2/DSpark 엔진과 외부 draft 리소스를 생성하고 소유한다.
 따라서 통합 계층은 native engine을 직접 생성하거나 `draft_model=`에 주입하지 않는다.
 
 ```python
@@ -217,7 +220,7 @@ token stopping criteria callback은 현재 native 경로와 회귀 테스트에�
 
 ## Multimodal 주의사항
 
-현재 공식 stateful MTP/DFlash/DSpark Python 엔진은 text-only이며 `seq_id=0` 한 개만
+현재 공식 stateful MTP/DFlash/DFlash2/DSpark Python 엔진은 text-only이며 `seq_id=0` 한 개만
 지원한다. IMAGE, AUDIO, VIDEO 입력은 native speculative과 함께 전달하지 말고, 필요한
 경우 일반 target-only 경로를 선택한다. 짧은 텍스트 응답도 draft acceptance와 sidecar
 비용에 따라 target-only보다 느릴 수 있으므로 활성화와 성능 향상을 구분해서 표시한다.
@@ -232,7 +235,7 @@ Native Speculative Decoding (Experimental)
 
 권장 설명:
 
-> Experimental native speculative decoding for compatible DFlash, DSpark, or MTP
+> Experimental native speculative decoding for compatible DFlash, DFlash2, DSpark, or MTP
 > configurations. Text-only and single-sequence use only. Unsupported combinations
 > fail explicitly. Target and draft models may consume substantial additional VRAM,
 > and speedup is not guaranteed.
@@ -252,7 +255,7 @@ Native Speculative Decoding (Experimental)
 
 수동 smoke test는 다음 두 가지면 충분하다.
 
-- text: Muse-Glimmer target + DFlash draft, `draft_calls > 0`
+- text: Muse-Glimmer target + DFlash/DFlash2 draft, `draft_calls > 0`
 - text: compatible MTP target/assistant or embedded NextN target, `draft_calls > 0`
 
 ## 현재 검증된 예시 파일

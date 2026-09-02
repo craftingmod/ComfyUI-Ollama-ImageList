@@ -19,12 +19,12 @@ export const RUNTIME_WIDGETS = [
 ]
 export const SPECULATIVE_DETAIL_WIDGETS = ["spec_n_max", "spec_n_min", "spec_p_min"]
 export const THINKING_DETAIL_WIDGETS = ["reasoning_strength", "reasoning_budget"]
-export const NATIVE_DRAFT_CUSTOM_WIDGETS = [
-  "custom_spec_type",
-  "custom_mtp_provider",
-  "spec_n_max",
-  "spec_n_min",
-  "spec_p_min",
+export const NATIVE_DRAFT_MODEL_PRESETS = ["External MTP", "DFlash", "DFlash2", "DSpark", "Custom"]
+export const NATIVE_DRAFT_GENERAL_WIDGETS = [
+  "draft_n_max",
+  "draft_p_min",
+  "draft_n_gpu_layers",
+  "draft_backend_sampling",
 ]
 export const COMPACT_HARDWARE_CUSTOM_WIDGETS = [
   "n_batch",
@@ -62,7 +62,10 @@ export function setWidgetsDisabled(
       changed = true
     }
   }
-  if (changed) node.setDirtyCanvas(true, true)
+  if (changed) {
+    node.updateComputedDisabled?.()
+    node.setDirtyCanvas(true, true)
+  }
 }
 
 export function updateNgramPresetWidgets(node: ComfyNodeLike): void {
@@ -74,9 +77,15 @@ export function updateNgramPresetWidgets(node: ComfyNodeLike): void {
 }
 
 export function updateNativeSpeculativeConfigWidgets(node: ComfyNodeLike): void {
-  const preset = getWidget(node, "preset")?.value
-  setWidgetsDisabled(node, NATIVE_DRAFT_CUSTOM_WIDGETS, preset !== "Custom")
-  setWidgetsDisabled(node, ["draft_model"], preset === "Off" || preset === "Qwen 3.5+ Internal MTP")
+  const preset = String(getWidget(node, "preset")?.value ?? "Off")
+  const isOff = preset === "Off"
+  setWidgetsDisabled(node, ["draft_model"], isOff || !NATIVE_DRAFT_MODEL_PRESETS.includes(preset))
+  setWidgetsDisabled(
+    node,
+    ["custom_spec_type", "custom_mtp_provider"],
+    isOff || preset !== "Custom",
+  )
+  setWidgetsDisabled(node, NATIVE_DRAFT_GENERAL_WIDGETS, isOff)
 }
 
 export function updateCompactModelProfileWidgets(node: ComfyNodeLike): void {
