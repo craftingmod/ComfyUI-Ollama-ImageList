@@ -9,6 +9,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from backend.core import BackendError, InputNormalizationError
+from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 
 
 @dataclass(frozen=True)
@@ -593,7 +594,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "ngram_mode",
         "ngram_min_hits",
         "ngram_max_entries_per_key",
-        "ngram_sync_check_tokens",
     ]
     ngram_inputs = {field.name: field for field in ngram_schema.inputs}
     assert ngram_inputs["speculative_mode"].options == {
@@ -609,21 +609,19 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert ngram_inputs["ngram_mode"].options["options"] == ["k", "k4v"]
     assert ngram_inputs["ngram_min_hits"].options["default"] == 2
     assert ngram_inputs["ngram_max_entries_per_key"].options["default"] == 8
-    assert ngram_inputs["ngram_sync_check_tokens"].options["default"] == 16
     assert ngram_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_NGRAM_SPECULATIVE"
     )
-    assert ngram_class.execute("off", 0, 0, "invalid", 0, 0, 0) == (
+    assert ngram_class.execute("off", 0, 0, "invalid", 0, 0) == (
         {"speculative_mode": "off"},
     )
-    ngram_configuration = ngram_class.execute("ngram", 3, 10, "k", 2, 0, 16)[0]
+    ngram_configuration = ngram_class.execute("ngram", 3, 10, "k", 2, 0)[0]
     assert ngram_configuration == {
         "speculative_mode": "ngram",
         "ngram_size": 3,
         "num_pred_tokens": 10,
         "ngram_min_hits": 2,
         "ngram_max_entries_per_key": None,
-        "ngram_sync_check_tokens": 16,
         "ngram_mode": "k",
     }
     ngram_module = importlib.import_module("backend.nodes.llama_cpp_ngram_speculative")
@@ -821,15 +819,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "ngram_mode",
         "ngram_min_hits",
         "ngram_max_entries_per_key",
-        "ngram_sync_check_tokens",
     ]
     assert compact_ngram_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
     )
-    assert compact_ngram_class.execute("off", 3, 10, "k", 2, 8, 16) == (
-        {"kind": "off"},
-    )
-    compact_ngram_config = compact_ngram_class.execute("ngram", 3, 10, "k", 2, 0, 16)[0]
+    assert compact_ngram_class.execute("off", 3, 10, "k", 2, 8) == ({"kind": "off"},)
+    compact_ngram_config = compact_ngram_class.execute("ngram", 3, 10, "k", 2, 0)[0]
     assert compact_ngram_config == {
         "kind": "ngram",
         "config": ngram_configuration,
@@ -845,7 +840,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "External MTP",
         "Internal MTP",
         "DFlash",
-        "DFlash2",
         "DSpark",
         "Custom",
     ]
@@ -904,9 +898,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
             "draft_backend_sampling": False,
         },
     }
-    dflash2_config = native_config_class.execute(
-        "DFlash2",
-        "external/dflash2-model.gguf",
+    dflash_config = native_config_class.execute(
+        "DFlash",
+        "external/dflash-model.gguf",
         7,
         "draft-dspark",
         "off",
@@ -914,12 +908,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "all",
         True,
     )[0]
-    assert dflash2_config == {
+    assert dflash_config == {
         "kind": "native",
         "config": {
-            "spec_type": "draft-dflash2",
+            "spec_type": "draft-dflash",
             "mtp_provider": "off",
-            "draft_model": "external/dflash2-model.gguf",
+            "draft_model": "external/dflash-model.gguf",
             "draft_n_max": 7,
             "draft_p_min": 0.0,
             "draft_n_gpu_layers": "all",
@@ -1014,9 +1008,18 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert [field.name for field in sequential_schema.inputs] == [
         field.name for field in compact_schema.inputs
     ]
+    sequential_inputs = {field.name: field for field in sequential_schema.inputs}
+    assert sequential_inputs["video_with_audio"].data_type == "boolean"
+    assert sequential_inputs["video_with_audio"].options["default"] is False
     assert [field.name for field in sequential_schema.outputs] == [
-        field.name for field in compact_schema.outputs
+        "response",
+        "response_seq",
+        "thinking",
+        "raw_json",
+        "metrics_json",
+        "media_diagnostics",
     ]
+    assert sequential_schema.outputs[1].data_type == "LLAMA_SEQUENTIAL_RESPONSE"
     assert all(
         field.options["is_output_list"] is True for field in sequential_schema.outputs
     )
@@ -1148,7 +1151,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert speculative_inputs["spec_type"].options["options"] == [
         "none",
         "draft-dflash",
-        "draft-dflash2",
         "draft-dspark",
         "draft-mtp",
     ]
@@ -1254,7 +1256,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     )
     sequential_output = sequential_class.execute(**sequential_values)
     assert sequential_output[0] == ["done"]
-    assert sequential_output[1] == [""]
+    assert sequential_output[1] == [
+        {
+            "request_index": 0,
+            "kind": "text",
+            "modality_index": 0,
+            "response": "done",
+        }
+    ]
+    assert sequential_output[2] == [""]
     assert all(isinstance(value, list) for value in sequential_output)
     assert captured_speculative_call["model_path"] == (
         "D:/SharedModels/LLM/external/model-a.gguf"
@@ -1386,7 +1396,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         hardware_profile=[custom_hardware_profile],
         image_min_tokens=[768],
         image_max_tokens=[768],
-        speculative=[dflash2_config],
+        speculative=[dflash_config],
     )
     monkeypatch.setattr(
         compact_module,
@@ -1396,9 +1406,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     compact_native_output = compact_class.execute(**compact_native_values)
     assert compact_native_output[0] == "done"
     assert captured_speculative_call["draft_model_path"] == (
-        "D:/SharedModels/LLM/external/dflash2-model.gguf"
+        "D:/SharedModels/LLM/external/dflash-model.gguf"
     )
-    assert captured_speculative_call["spec_type"] == "draft-dflash2"
+    assert captured_speculative_call["spec_type"] == "draft-dflash"
     assert captured_speculative_call["spec_n_max"] == 7
     assert captured_speculative_call["spec_n_min"] == 0
     assert captured_speculative_call["spec_p_min"] == 0.0
@@ -1668,3 +1678,110 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         ],
         {".gguf"},
     )
+
+
+def test_compact_sequential_media_bundles_are_atomic_and_modality_ordered(monkeypatch):
+    install_comfy_api_stub(monkeypatch)
+    compact_module = importlib.import_module("backend.nodes.llama_cpp_compact")
+
+    bundles = compact_module._sequential_media_bundles(
+        images=[
+            solid_image(1, 1, 1, 3, 0.25),
+            solid_image(1, 1, 1, 3, 0.75),
+        ],
+        audio=[
+            {"waveform": silent_audio(1, 1, 8), "sample_rate": 16_000},
+            {"waveform": silent_audio(1, 1, 16), "sample_rate": 16_000},
+        ],
+        video=[VideoInputStub(b"video-0"), VideoInputStub(b"video-1")],
+    )
+
+    assert [[item.kind for item in bundle.items] for bundle in bundles] == [
+        ["image"],
+        ["image"],
+        ["audio"],
+        ["audio"],
+        ["video"],
+        ["video"],
+    ]
+    assert all(len(bundle.items) == 1 for bundle in bundles)
+
+
+def test_compact_sequential_video_with_audio_pairs_extracted_audio(monkeypatch):
+    install_comfy_api_stub(monkeypatch)
+    compact_module = importlib.import_module("backend.nodes.llama_cpp_compact")
+    video_item = SimpleNamespace(kind="video")
+    embedded_audio_item = SimpleNamespace(kind="audio")
+
+    def fake_normalize_media(*, video, video_with_audio, **_kwargs):
+        assert video_with_audio is True
+        return SimpleNamespace(items=(embedded_audio_item, video_item))
+
+    monkeypatch.setattr(compact_module, "normalize_media", fake_normalize_media)
+
+    bundles = compact_module._sequential_media_bundles(
+        video=[VideoInputStub(b"video-with-audio")],
+        video_with_audio=True,
+    )
+
+    assert [[item.kind for item in bundle.items] for bundle in bundles] == [
+        ["audio", "video"]
+    ]
+
+
+def test_compact_sequential_outputs_include_typed_sequence(monkeypatch):
+    install_comfy_api_stub(monkeypatch)
+    compact_module = importlib.import_module("backend.nodes.llama_cpp_compact")
+    kinds = ["image", "image", "audio", "video", "video"]
+    results = [
+        SimpleNamespace(
+            response=f"{kind}-{index}",
+            thinking="",
+            raw={},
+            metrics={},
+            media_diagnostics={},
+        )
+        for index, kind in enumerate(kinds)
+    ]
+
+    output = compact_module._compact_sequential_outputs(results, kinds)
+
+    assert output[0] == [
+        "image-0",
+        "image-1",
+        "audio-2",
+        "video-3",
+        "video-4",
+    ]
+    assert output[1] == [
+        {
+            "request_index": 0,
+            "kind": "image",
+            "modality_index": 0,
+            "response": "image-0",
+        },
+        {
+            "request_index": 1,
+            "kind": "image",
+            "modality_index": 1,
+            "response": "image-1",
+        },
+        {
+            "request_index": 2,
+            "kind": "audio",
+            "modality_index": 0,
+            "response": "audio-2",
+        },
+        {
+            "request_index": 3,
+            "kind": "video",
+            "modality_index": 0,
+            "response": "video-3",
+        },
+        {
+            "request_index": 4,
+            "kind": "video",
+            "modality_index": 1,
+            "response": "video-4",
+        },
+    ]

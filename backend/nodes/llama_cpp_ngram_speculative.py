@@ -81,17 +81,6 @@ class LlamaCppNGramSpeculativePresetNode(io.ComfyNode):
                         "a cap is recommended for k4v."
                     ),
                 ),
-                io.Int.Input(
-                    "ngram_sync_check_tokens",
-                    default=16,
-                    min=1,
-                    max=256,
-                    step=1,
-                    tooltip=(
-                        "Trailing tokens checked when synchronizing the incremental history "
-                        "index."
-                    ),
-                ),
             ],
             outputs=[
                 LlamaCppNGramSpeculativeType.Output(
@@ -110,7 +99,6 @@ class LlamaCppNGramSpeculativePresetNode(io.ComfyNode):
         ngram_mode: str,
         ngram_min_hits: int,
         ngram_max_entries_per_key: int,
-        ngram_sync_check_tokens: int,
     ) -> io.NodeOutput:
         return io.NodeOutput(
             normalize_ngram_speculative(
@@ -121,7 +109,6 @@ class LlamaCppNGramSpeculativePresetNode(io.ComfyNode):
                     "ngram_mode": ngram_mode,
                     "ngram_min_hits": ngram_min_hits,
                     "ngram_max_entries_per_key": ngram_max_entries_per_key,
-                    "ngram_sync_check_tokens": ngram_sync_check_tokens,
                 }
             )
         )

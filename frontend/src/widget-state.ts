@@ -7,7 +7,6 @@ export const NGRAM_DETAIL_WIDGETS = [
   "ngram_mode",
   "ngram_min_hits",
   "ngram_max_entries_per_key",
-  "ngram_sync_check_tokens",
 ]
 export const SAMPLING_WIDGETS = ["temperature", "top_p", "top_k", "min_p", "repeat_penalty"]
 export const RUNTIME_WIDGETS = [
@@ -19,7 +18,7 @@ export const RUNTIME_WIDGETS = [
 ]
 export const SPECULATIVE_DETAIL_WIDGETS = ["spec_n_max", "spec_n_min", "spec_p_min"]
 export const THINKING_DETAIL_WIDGETS = ["reasoning_strength", "reasoning_budget"]
-export const NATIVE_DRAFT_MODEL_PRESETS = ["External MTP", "DFlash", "DFlash2", "DSpark", "Custom"]
+export const NATIVE_DRAFT_MODEL_PRESETS = ["External MTP", "DFlash", "DSpark", "Custom"]
 export const NATIVE_DRAFT_GENERAL_WIDGETS = [
   "draft_n_max",
   "draft_p_min",

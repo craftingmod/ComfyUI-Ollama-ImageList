@@ -1,10 +1,10 @@
-# 작업: 기존 llama.cpp 생성 노드에 LlamaNGramMapDecoding 지원 추가
+# 작업: 기존 llama.cpp 생성 노드에 SpecConfig 기반 N-gram 지원 추가
 
 현재 프로젝트에는 `llama-cpp-python`의 `Llama`를 이용하는 일반 text/multimodal
 생성 노드가 이미 구현되어 있다.
 
-기존 생성 동작과 UI 호환성을 유지하면서, 공식 `llama-cpp-python`에 포함된
-`LlamaNGramMapDecoding`을 선택적으로 사용할 수 있도록 구현한다.
+기존 생성 동작과 UI 호환성을 유지하면서, JamePeng fork의 공식 `SpecConfig`와
+`SpeculativeType.NGRAM_MAP_K`/`NGRAM_MAP_K4V`를 선택적으로 사용한다.
 
 ## 목표
 
@@ -14,38 +14,41 @@
 - `ngram`
 
 `ngram` 모드는 별도의 draft GGUF를 사용하지 않는다. 현재 prompt 및 생성된 token
-history의 반복 패턴을 이용하는 `LlamaNGramMapDecoding`을 `Llama(draft_model=...)`에
+history의 반복 패턴을 사용하는 N-gram stateful engine을 `Llama(speculative=...)`에
 전달한다.
 
 Native DFlash/DSpark는 이 작업 범위에 포함하지 않는다. 별도의 Experimental 노드로
 유지한다.
+
+N-gram도 deprecated callback surface를 사용하지 않는다. Native DFlash/DSpark/MTP와
+같이 `SpecConfig`를 `Llama(speculative=...)`에 전달한다.
 
 ## API
 
 다음 공식 API를 사용한다.
 
 ```python
-from llama_cpp.llama_speculative import LlamaNGramMapDecoding
+from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
 ```
 
 기본 연결 예시:
 
 ```python
-draft_model = None
-
-if speculative_mode == "ngram":
-    draft_model = LlamaNGramMapDecoding(
-        ngram_size=ngram_size,
-        num_pred_tokens=num_pred_tokens,
-        mode=ngram_mode,
-        min_hits=ngram_min_hits,
-        max_entries_per_key=max_entries_per_key,
-        sync_check_tokens=sync_check_tokens,
-    )
+spec_type = (
+    SpeculativeType.NGRAM_MAP_K
+    if ngram_mode == "k"
+    else SpeculativeType.NGRAM_MAP_K4V
+)
 
 llm = Llama(
     **model_kwargs,
-    draft_model=draft_model,
+    speculative=SpecConfig(
+        spec_type=spec_type,
+        ngram_size_n=ngram_size,
+        ngram_size_m=num_pred_tokens,
+        ngram_min_hits=ngram_min_hits,
+        ngram_max_entries_per_key=max_entries_per_key,
+    ),
 )
 ```
 
@@ -61,7 +64,6 @@ llm = Llama(
 | `ngram_mode` | combo | `k` | `k`, `k4v` |
 | `ngram_min_hits` | integer | `2` | 1–16 |
 | `ngram_max_entries_per_key` | integer | `8` | 0–1024 |
-| `ngram_sync_check_tokens` | integer | `16` | 1–256 |
 
 `ngram_max_entries_per_key=0`은 Python API의 `None`으로 변환한다.
 
@@ -79,29 +81,30 @@ backend에서는 mode가 `off`일 때 해당 값을 무시한다.
 
 `speculative_mode="off"`일 때는 기존 코드와 완전히 동일하게 동작해야 한다.
 
-- draft 객체를 만들지 않는다.
-- `draft_model=None`을 전달하거나 기존 코드가 인자를 생략했다면 그대로 생략한다.
+- speculative config를 만들지 않는다.
+- `speculative` 인자를 전달하거나 기존 코드가 인자를 생략했다면 그대로 생략한다.
 - 기존 text, image, audio/video 입력 처리에 변화를 주지 않는다.
 - 기존 sampling 기본값과 결과 처리 방식을 변경하지 않는다.
 - Native DFlash/DSpark 관련 fork wheel을 요구하지 않는다.
 
 ## Import 및 버전 호환성
 
-노드 모듈 전체가 import 실패하지 않도록 `LlamaNGramMapDecoding`은 필요할 때 lazy
-import한다.
+노드 모듈 전체가 import 실패하지 않도록 `SpecConfig`와 `SpeculativeType`은 N-gram을
+실제로 선택했을 때 lazy import한다. Native DFlash/DSpark/MTP와 동일한 dependency
+check를 재사용한다.
 
 ```python
-def create_ngram_draft(...):
+def create_ngram_spec_config(...):
     try:
-        from llama_cpp.llama_speculative import LlamaNGramMapDecoding
-    except (ImportError, AttributeError) as exc:
+        from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
+    except (ImportError, OSError) as exc:
         raise RuntimeError(
-            "N-gram speculative decoding is unavailable in the installed "
-            "llama-cpp-python package. Upgrade llama-cpp-python or set "
+            "N-gram SpecConfig speculative decoding is unavailable in the installed "
+            "llama-cpp-python package. Upgrade the JamePeng fork or set "
             "speculative_mode to 'off'."
         ) from exc
 
-    return LlamaNGramMapDecoding(...)
+    return SpecConfig(...)
 ```
 
 일반 노드 등록 자체는 이 import 실패 때문에 중단되면 안 된다. `ngram`을 실제로
@@ -109,11 +112,11 @@ def create_ngram_draft(...):
 
 ## 객체 수명
 
-현재 노드가 요청마다 `Llama`를 생성하고 종료한다면 draft 객체도 요청 지역 객체로
+현재 노드가 요청마다 `Llama`를 생성하고 종료한다면 `SpecConfig`도 요청 지역 객체로
 생성한다.
 
 ```python
-llm = Llama(..., draft_model=draft_model)
+llm = Llama(..., speculative=spec_config)
 
 try:
     response = llm.create_chat_completion(...)
@@ -121,18 +124,9 @@ finally:
     llm.close()
 ```
 
-동일한 `LlamaNGramMapDecoding` 인스턴스를 서로 무관한 요청이나 여러 `Llama` 인스턴스에
-무기한 공유하지 않는다.
-
-기존 노드가 같은 `Llama` 및 draft 인스턴스를 재사용한다면 완전히 새로운 대화나
-unrelated prompt를 시작하기 전에 다음을 호출한다.
-
-```python
-draft_model.clear()
-```
-
-단순한 동일 context 연속 생성에서는 내부 index 재사용이 목적에 맞을 수 있으므로 무조건
-매 호출마다 clear하지 말고, 기존 노드의 context reset 정책과 맞춘다.
+`SpecConfig`를 서로 무관한 요청이나 여러 `Llama` 인스턴스에 무기한 공유하지 않는다.
+stateful N-gram engine은 `Llama`가 소유하며, 정상/예외 경로 모두 `llm.close()`로
+정리한다.
 
 ## 입력 검증
 
@@ -151,8 +145,6 @@ if ngram_mode not in {"k", "k4v"}:
 if ngram_min_hits < 1:
     raise ValueError("ngram_min_hits must be at least 1")
 
-if ngram_sync_check_tokens < 1:
-    raise ValueError("ngram_sync_check_tokens must be at least 1")
 ```
 
 지원하는 실제 constructor signature를 현재 설치된 `llama-cpp-python` 소스에서 확인한다.
@@ -173,10 +165,8 @@ UI tooltip 또는 노드 문서에 다음 취지의 설명을 추가한다.
 
 ## 통계 및 로그
 
-`LlamaNGramMapDecoding`에 native DFlash와 같은 `draft.stats`가 있다고 가정하지 않는다.
-
-현재 공개 API에서 안정적으로 제공되는 통계가 없다면 임의로 내부 필드를 읽지 않는다. 대신
-다음 정도만 로그에 남긴다.
+공개 `Llama.last_speculative_stats`를 생성 완료 전에 복사한다. 임의의 native engine
+내부 필드를 읽지 않는다. 대신 다음 정도를 로그에 남긴다.
 
 ```text
 speculative mode: ngram
@@ -195,18 +185,18 @@ minimum hits: 2
 
 최소 테스트:
 
-1. `speculative_mode="off"`일 때 draft 객체를 생성하지 않는다.
+1. `speculative_mode="off"`일 때 speculative config를 생성하지 않는다.
 2. `off`일 때 기존 `Llama` 인자가 변하지 않는다.
-3. `ngram`일 때 `LlamaNGramMapDecoding`이 한 번 생성된다.
+3. `ngram`일 때 `SpecConfig`가 한 번 생성된다.
 4. 모든 n-gram 파라미터가 올바르게 전달된다.
 5. `max_entries_per_key=0`이 `None`으로 변환된다.
-6. 생성된 draft 객체가 `Llama(draft_model=...)`에 전달된다.
-7. import 실패 시 노드 등록은 유지되고, `ngram` 실행에서만 명확한 오류가 발생한다.
+6. 생성된 config가 `Llama(speculative=...)`에 전달된다.
+7. SpecConfig import/API 실패 시 노드 등록은 유지되고, `ngram` 실행에서만 명확한 오류가 발생한다.
 8. 생성 성공과 예외 상황 모두에서 기존 `llm.close()`가 호출된다.
 9. `speculative_mode="off"`인 기존 workflow 입력이 계속 실행된다.
-10. multimodal 요청에서도 기존 message와 `mmproj_path` 구성이 변하지 않는다.
+10. multimodal 요청에서 N-gram이 text-only 제약으로 명확히 거부된다.
 
-fake 또는 monkeypatch된 `Llama`와 `LlamaNGramMapDecoding`을 사용한다. 단위 테스트에서
+fake 또는 monkeypatch된 `Llama`와 `SpecConfig`를 사용한다. 단위 테스트에서
 CUDA나 실제 GGUF를 요구하지 않는다.
 
 ## 수동 스모크 테스트
@@ -248,7 +238,7 @@ token-exact 일치를 필수 조건으로 두지 않는다. 다만 출력이 손
 
 - 기존 일반 노드에 `off/ngram` 선택이 추가됨
 - `off` 경로의 기존 동작이 보존됨
-- `ngram`이 공식 `LlamaNGramMapDecoding`을 통해 `draft_model`에 연결됨
+- `ngram`이 공식 `SpecConfig`를 통해 `Llama(speculative=...)`에 연결됨
 - 실제 모델 없이 수행하는 단위 테스트가 통과함
 - 반복 prompt를 이용한 수동 smoke test 절차가 문서화됨
 - 변경사항은 아직 commit 또는 stage하지 않음

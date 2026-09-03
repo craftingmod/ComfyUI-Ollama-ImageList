@@ -81,16 +81,11 @@ describe("llama.cpp widget state", () => {
     expect(widgets[4].disabled).toBeTrue()
     expect(widgets[5].disabled).toBeFalse()
 
-    for (const value of ["External MTP", "DFlash", "DFlash2", "DSpark", "Custom"]) {
+    for (const value of ["External MTP", "DFlash", "DSpark", "Custom"]) {
       preset.value = value
       updateNativeSpeculativeConfigWidgets(node)
       expect(widgets[1].disabled).toBeFalse()
     }
-
-    preset.value = "DFlash2"
-    updateNativeSpeculativeConfigWidgets(node)
-    expect(widgets[1].disabled).toBeFalse()
-    expect(widgets[2].disabled).toBeFalse()
 
     preset.value = "Custom"
     updateNativeSpeculativeConfigWidgets(node)

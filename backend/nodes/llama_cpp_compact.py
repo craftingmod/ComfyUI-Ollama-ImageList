@@ -20,6 +20,9 @@ from ..backends.llama_cpp import (
 )
 from ..core import (
     InputNormalizationError,
+    MediaBundle,
+    normalize_audio,
+    normalize_images,
     normalize_media,
     unwrap_optional_scalar,
     unwrap_required_scalar,
@@ -42,6 +45,7 @@ LlamaCppReasoningConfigType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_C
 LlamaCppSpeculativeConfigType = io.Custom(
     "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
 )
+LlamaCppSequentialResponseType = io.Custom("LLAMA_SEQUENTIAL_RESPONSE")
 
 BASE_CATEGORY = "Ollama/llama_cpp"
 COMPACT_CATEGORY = f"{BASE_CATEGORY}/compact"
@@ -151,10 +155,6 @@ NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
     },
     "DFlash": {
         "spec_type": "draft-dflash",
-        "mtp_provider": "off",
-    },
-    "DFlash2": {
-        "spec_type": "draft-dflash2",
         "mtp_provider": "off",
     },
     "DSpark": {
@@ -320,13 +320,12 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
     if spec_type not in {
         "none",
         "draft-dflash",
-        "draft-dflash2",
         "draft-dspark",
         "draft-mtp",
     }:
         raise InputNormalizationError(
-            "native_speculative.spec_type must be none, draft-dflash, draft-dflash2, "
-            "draft-dspark, or draft-mtp."
+            "native_speculative.spec_type must be none, draft-dflash, draft-dspark, "
+            "or draft-mtp."
         )
     provider = value.get("mtp_provider")
     if provider not in {"off", "external", "internal"}:
@@ -385,7 +384,7 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
             draft_model = NO_DRAFT_OPTION
     elif provider != "off":
         raise InputNormalizationError(
-            "native_speculative.mtp_provider must be off for DFlash, DFlash2, and DSpark."
+            "native_speculative.mtp_provider must be off for DFlash and DSpark."
         )
     return {
         "spec_type": spec_type,
@@ -731,13 +730,6 @@ class LlamaCppNGramSpeculativeConfigNode(io.ComfyNode):
                     max=1024,
                     step=1,
                 ),
-                io.Int.Input(
-                    "ngram_sync_check_tokens",
-                    default=16,
-                    min=1,
-                    max=256,
-                    step=1,
-                ),
             ],
             outputs=[
                 LlamaCppSpeculativeConfigType.Output(
@@ -755,7 +747,6 @@ class LlamaCppNGramSpeculativeConfigNode(io.ComfyNode):
         ngram_mode: str,
         ngram_min_hits: int,
         ngram_max_entries_per_key: int,
-        ngram_sync_check_tokens: int,
     ) -> io.NodeOutput:
         config = normalize_ngram_speculative(
             {
@@ -765,7 +756,6 @@ class LlamaCppNGramSpeculativeConfigNode(io.ComfyNode):
                 "ngram_mode": ngram_mode,
                 "ngram_min_hits": ngram_min_hits,
                 "ngram_max_entries_per_key": ngram_max_entries_per_key,
-                "ngram_sync_check_tokens": ngram_sync_check_tokens,
             }
         )
         if config["speculative_mode"] == "off":
@@ -782,7 +772,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
             display_name="Llama.cpp Native Speculative Config (Compat)",
             category=EXPERIMENTAL_CATEGORY,
             description=(
-                "Bundles DFlash, DFlash2, DSpark, or Native MTP configuration and its optional "
+                "Bundles DFlash, DSpark, or Native MTP configuration and its optional "
                 "draft GGUF into one typed connection."
             ),
             inputs=[
@@ -796,7 +786,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                     options=draft_options,
                     default=draft_options[0],
                     tooltip=(
-                        "Used by External MTP, DFlash, DFlash2, and DSpark. Internal MTP "
+                        "Used by External MTP, DFlash, and DSpark. Internal MTP "
                         "does not use a draft GGUF."
                     ),
                 ),
@@ -806,7 +796,6 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
                     options=[
                         "none",
                         "draft-dflash",
-                        "draft-dflash2",
                         "draft-dspark",
                         "draft-mtp",
                     ],
@@ -899,9 +888,33 @@ def _compact_outputs(result: Any, *, as_lists: bool = False) -> io.NodeOutput:
     return io.NodeOutput(*values)
 
 
-def _compact_sequential_outputs(results: list[Any]) -> io.NodeOutput:
+def _compact_sequential_outputs(
+    results: list[Any], task_kinds: list[str | None]
+) -> io.NodeOutput:
+    if len(results) != len(task_kinds):
+        raise InputNormalizationError(
+            "Sequential output requires one media kind per result."
+        )
+    modality_indices = {"image": 0, "audio": 0, "video": 0, "text": 0}
+    response_seq = []
+    for request_index, (result, kind) in enumerate(
+        zip(results, task_kinds, strict=True)
+    ):
+        response_kind = kind or "text"
+        modality_index = modality_indices[response_kind]
+        modality_indices[response_kind] += 1
+        response_seq.append(
+            {
+                "request_index": request_index,
+                "kind": response_kind,
+                "modality_index": modality_index,
+                "response": result.response,
+            }
+        )
+
     return io.NodeOutput(
         [result.response for result in results],
+        response_seq,
         [result.thinking for result in results],
         [json.dumps(result.raw, ensure_ascii=False, indent=2) for result in results],
         [
@@ -918,37 +931,33 @@ def _sequential_media_bundles(
     audio: Any = None,
     video: Any = None,
     video_with_audio: bool = False,
-) -> list[Any]:
-    def values(value: Any) -> list[Any]:
-        if value is None:
-            return []
-        if isinstance(value, (list, tuple)):
-            return list(value)
-        return [value]
+) -> list[MediaBundle]:
+    image_items = normalize_images(images).items
+    audio_items = normalize_audio(
+        audio,
+        target_sample_rate=16_000,
+        target_channels=1,
+    ).items
+    video_bundle = normalize_media(
+        video=video,
+        video_with_audio=video_with_audio,
+        audio_sample_rate=16_000,
+        audio_channels=1,
+    )
+    video_items = tuple(item for item in video_bundle.items if item.kind == "video")
+    embedded_audio_items = tuple(
+        item for item in video_bundle.items if item.kind == "audio"
+    )
+    if not image_items and not audio_items and not video_items:
+        return [MediaBundle()]
 
-    media_values = {
-        "images": values(images),
-        "audio": values(audio),
-        "video": values(video),
-    }
-    item_count = max(1, *(len(items) for items in media_values.values()))
-
-    def item(items: list[Any], index: int) -> Any:
-        if not items:
-            return None
-        return items[min(index, len(items) - 1)]
-
-    return [
-        normalize_media(
-            images=item(media_values["images"], index),
-            audio=item(media_values["audio"], index),
-            video=item(media_values["video"], index),
-            video_with_audio=video_with_audio,
-            audio_sample_rate=16_000,
-            audio_channels=1,
-        )
-        for index in range(item_count)
-    ]
+    bundles: list[MediaBundle] = []
+    bundles.extend(MediaBundle((item,)) for item in image_items)
+    bundles.extend(MediaBundle((item,)) for item in audio_items)
+    for index, video_item in enumerate(video_items):
+        video_bundle_items = (embedded_audio_items[index],) if video_with_audio else ()
+        bundles.append(MediaBundle(video_bundle_items + (video_item,)))
+    return bundles
 
 
 def _sequential_prompts(prompt: Any, item_count: int) -> list[str]:
@@ -960,8 +969,8 @@ def _sequential_prompts(prompt: Any, item_count: int) -> list[str]:
         )
     if item_count > 1 and len(prompts) not in (1, item_count):
         raise InputNormalizationError(
-            "When vision media is connected, prompt must contain exactly one "
-            "prompt or one prompt for each media item "
+            "When sequential media is connected, prompt must contain exactly one "
+            "prompt or one prompt for each execution item "
             f"(received {len(prompts)}, expected 1 or {item_count})."
         )
     if len(prompts) == 1:
@@ -970,7 +979,7 @@ def _sequential_prompts(prompt: Any, item_count: int) -> list[str]:
 
 
 def _compact_output_fields(*, is_output_list: bool = False) -> list[Any]:
-    return [
+    outputs = [
         io.String.Output(
             "response", display_name="response", is_output_list=is_output_list
         ),
@@ -989,11 +998,21 @@ def _compact_output_fields(*, is_output_list: bool = False) -> list[Any]:
             is_output_list=is_output_list,
         ),
     ]
+    if is_output_list:
+        outputs[0:1] = [
+            outputs[0],
+            LlamaCppSequentialResponseType.Output(
+                "response_seq",
+                display_name="response sequence",
+                is_output_list=True,
+            ),
+        ]
+    return outputs
 
 
-def _compact_common_inputs() -> list[Any]:
+def _compact_common_inputs(*, include_video_with_audio: bool = True) -> list[Any]:
     model_options, mmproj_options = _gguf_options()
-    return [
+    inputs = [
         io.Combo.Input("model_path", options=model_options, default=model_options[0]),
         io.Combo.Input("mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION),
         LlamaCppModelProfileType.Input(
@@ -1026,15 +1045,15 @@ def _compact_common_inputs() -> list[Any]:
         io.Int.Input("seed", default=-1, min=-1, max=0xFFFFFFFF, step=1),
         io.String.Input("stop", default="", advanced=True),
         io.Image.Input("images", optional=True),
-        io.Audio.Input("audio", optional=True),
-        io.Video.Input("video", optional=True),
-        io.Boolean.Input(
-            "video_with_audio",
-            default=False,
-            tooltip=(
-                "When enabled, extract the first embedded video audio track with "
-                "PyAV and pass it through the AUDIO input path."
-            ),
+        io.Audio.Input(
+            "audio",
+            optional=True,
+            tooltip="Standalone AUDIO items. Audio belonging to VIDEO stays in VIDEO.",
+        ),
+        io.Video.Input(
+            "video",
+            optional=True,
+            tooltip="VIDEO items may contain their own AUDIO components.",
         ),
         io.Boolean.Input("verbose", default=False, advanced=True),
         io.Int.Input(
@@ -1048,6 +1067,19 @@ def _compact_common_inputs() -> list[Any]:
             ),
         ),
     ]
+    if include_video_with_audio:
+        inputs.insert(
+            14,
+            io.Boolean.Input(
+                "video_with_audio",
+                default=False,
+                tooltip=(
+                    "When enabled, extract the first embedded video audio track with "
+                    "PyAV and pass it through the AUDIO input path."
+                ),
+            ),
+        )
+    return inputs
 
 
 def _execute_compact(
@@ -1138,14 +1170,15 @@ def _execute_compact(
     if reasoning_mode == "auto" and profile_reasoning_mode != "auto":
         reasoning_mode = profile_reasoning_mode
     thinking_value = None if reasoning_mode == "auto" else reasoning_mode == "on"
+    video_with_audio_value = bool(
+        unwrap_optional_scalar("video_with_audio", video_with_audio, False)
+    )
     bundles = (
         _sequential_media_bundles(
             images=images,
             audio=audio,
             video=video,
-            video_with_audio=bool(
-                unwrap_optional_scalar("video_with_audio", video_with_audio, False)
-            ),
+            video_with_audio=video_with_audio_value,
         )
         if sequential
         else [
@@ -1153,9 +1186,7 @@ def _execute_compact(
                 images=images,
                 audio=audio,
                 video=video,
-                video_with_audio=bool(
-                    unwrap_optional_scalar("video_with_audio", video_with_audio, False)
-                ),
+                video_with_audio=video_with_audio_value,
                 audio_sample_rate=16_000,
                 audio_channels=1,
             )
@@ -1183,7 +1214,6 @@ def _execute_compact(
         spec_type = native_config["spec_type"]
         draft_required = spec_type in {
             "draft-dflash",
-            "draft-dflash2",
             "draft-dspark",
         } or (spec_type == "draft-mtp" and native_config["mtp_provider"] == "external")
         extra.update(
@@ -1240,17 +1270,25 @@ def _execute_compact(
         **extra,
     )
     if sequential:
+        task_kinds = [
+            next((item.kind for item in bundle.items if item.kind == "video"), None)
+            or (bundle.items[0].kind if bundle.items else None)
+            for bundle in bundles
+        ]
         return _compact_sequential_outputs(
             run_chat_sequential(
                 media_items=bundles, prompt_items=prompt_items, **run_kwargs
-            )
+            ),
+            task_kinds,
         )
     result = run_chat(media=bundles[0], **run_kwargs)
     return _compact_outputs(result, as_lists=outputs_as_lists)
 
 
-def _compact_profiled_generate_inputs() -> list[Any]:
-    inputs = _compact_common_inputs()
+def _compact_profiled_generate_inputs(
+    *, include_video_with_audio: bool = True
+) -> list[Any]:
+    inputs = _compact_common_inputs(include_video_with_audio=include_video_with_audio)
     inputs.insert(
         4,
         LlamaCppReasoningConfigType.Input(
@@ -1379,6 +1417,7 @@ __all__ = [
     "LlamaCppNGramSpeculativeConfigNode",
     "LlamaCppProfiledGenerateNode",
     "LlamaCppSequentialGenerateNode",
+    "LlamaCppSequentialResponseType",
     "LlamaCppReasoningConfigNode",
     "LlamaCppReasoningConfigType",
     "LlamaCppNativeSpeculativeConfigNode",

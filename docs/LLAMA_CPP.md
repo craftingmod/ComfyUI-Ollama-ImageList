@@ -68,7 +68,7 @@ Generate declares ComfyUI V3 `is_input_list=True`. IMAGE batches, ComfyUI data l
 system + prompt + IMAGE items + AUDIO items + VIDEO items -> one completion
 ```
 
-Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each group is preserved. A list does not cause one completion per item, and scalar fields such as model, handler, system, prompt, and runtime settings must resolve to one value.
+Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each group is preserved. For Generate, a list becomes one multimodal request; Sequential Generate instead creates one independent request per IMAGE, AUDIO, or VIDEO item. Scalar fields such as model, handler, system, prompt, and runtime settings must resolve to one value.
 
 ## Media transport
 
@@ -78,7 +78,7 @@ Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each gro
 | AUDIO | Lossless PCM16 WAV data URI in an `input_audio` part | Requires an audio-capable model/projector/template. |
 | VIDEO | Original encoded ComfyUI stream in an internal `video` part | Native `libmtmd` decoding requires `MTMD_VIDEO` in the wheel build. `video_with_audio` optionally extracts the first embedded audio track with PyAV and adds it as an `input_audio` part. |
 
-The compact Generate and Sequential Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. The extracted audio is passed separately from the video, so the selected model/projector/template must support both modalities.
+The compact Generate and Sequential Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. In Sequential Generate, the extracted audio is paired with its VIDEO item in the same independent request; explicitly connected AUDIO items remain separate execution items.
 
 ## Generate inputs
 
@@ -161,8 +161,13 @@ remains under the `experimental` subcategory because its providers require exper
 backend support.
 
 Its `prompt` input is also a list: with media, it must contain either one shared prompt
-or exactly one prompt per media item; any other length is rejected. Without media, multiple
-prompts run as independent text-only items.
+or exactly one prompt per execution item; any other length is rejected. Sequential execution
+is modality-major (`images[]`, then `audio[]`, then `video[]`), with one media item per
+request. The `response` output preserves that flat execution order. `response_seq`
+provides a typed list of `{ request_index, kind, modality_index, response }` records
+using the `LLAMA_SEQUENTIAL_RESPONSE` type; `kind` is `image`, `audio`, `video`, or
+`text`, and `modality_index` is zero-based within that kind.
+Without media, multiple prompts run as independent text-only items.
 
 Model Profile choices are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5+ Thinking`,
 `Qwen 3.5+ Non-thinking`, `Qwen 3 VL`, and `Custom`. Selecting `Custom` enables the Advanced
@@ -204,8 +209,8 @@ fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, c
 and output length remain user-selected even when a Qwen 3.5+ profile supplies its mode.
 
 Native Speculative Config choices are `Off`, `External MTP`, `Internal MTP`, `DFlash`,
-`DFlash2`, `DSpark`, and `Custom`. The `draft_model` selector is enabled for External MTP,
-DFlash, DFlash2, DSpark, and Custom, while Internal MTP uses embedded NextN layers and does
+`DSpark`, and `Custom`. The `draft_model` selector is enabled for External MTP,
+DFlash, DSpark, and Custom, while Internal MTP uses embedded NextN layers and does
 not use a draft GGUF. `draft_n_max` and `draft_p_min` are shared proposal controls; the former
 is visible and the latter remains advanced. The advanced draft-engine controls are
 `draft_n_gpu_layers` (`auto` or `all`) and `draft_backend_sampling`. The Compact N-gram and
@@ -252,9 +257,9 @@ These profiles are named for Gemma 4 because the image-token and physical-batch 
 
 ## N-gram speculative preset
 
-Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `Ollama / llama_cpp`; the Experimental native DFlash/DFlash2/DSpark node does not expose or consume this type.
+Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `Ollama / llama_cpp`; the Experimental native DFlash/DSpark node does not expose or consume this type.
 
-`off` preserves the normal target-only path: no draft object is constructed, no speculative module is imported, and the `Llama` constructor receives exactly the same arguments as before. The detail widgets are disabled in this mode without resetting their values, so switching back to `ngram` restores the previous configuration. `ngram` lazily imports `LlamaNGramMapDecoding` and passes one request-local instance as `Llama(draft_model=...)`. It predicts candidates from repeated patterns already present in the verified prompt and generated history, requires no additional GGUF, and uses little additional VRAM. The target model still verifies every proposed token, so this is not a reduced-accuracy generation mode.
+`off` preserves the normal target-only path: no speculative module is imported and the `Llama` constructor receives exactly the same arguments as before. The detail widgets are disabled in this mode without resetting their values, so switching back to `ngram` restores the previous configuration. `ngram` uses JamePeng's official stateful `SpecConfig` path with `SpeculativeType.NGRAM_MAP_K` or `NGRAM_MAP_K4V`, passed to `Llama(speculative=...)`. It does not use the deprecated `Llama(draft_model=...)` callback or construct `LlamaNGramMapDecoding` directly. N-gram predicts candidates from repeated patterns already present in the verified prompt and generated history, requires no additional GGUF, and uses little additional VRAM. The stateful native speculative path is currently text-only, and the target model still verifies every proposed token, so this is not a reduced-accuracy generation mode.
 
 | Preset input | Default | Allowed values | Constructor argument |
 | --- | ---: | --- | --- |
@@ -264,11 +269,10 @@ Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's op
 | `ngram_mode` | `k` | `k`, `k4v` | `mode` |
 | `ngram_min_hits` | `2` | 1–16 | `min_hits` |
 | `ngram_max_entries_per_key` | `8` | 0–1024 | `max_entries_per_key`; 0 becomes `None` |
-| `ngram_sync_check_tokens` | `16` | 1–256 | `sync_check_tokens` |
 
-`k` stores historical positions and normally uses less memory. `k4v` caches continuation values for cheaper lookup and should generally keep a finite entries-per-key cap. The installed package is imported only when `ngram` is selected; if the class is unavailable, that Generate Job fails with an upgrade-or-disable message while node registration and `off` workflows remain available. The constructor signature is based on the current [JamePeng `LlamaNGramMapDecoding` source](https://github.com/JamePeng/llama-cpp-python/blob/main/llama_cpp/llama_speculative.py).
+`k` stores historical positions and normally uses less memory. `k4v` caches continuation values for cheaper lookup and should generally keep a finite entries-per-key cap. The installed package's public `SpecConfig` and `SpeculativeType` are imported only when `ngram` is selected; if they are unavailable or do not support the N-gram fields, that Generate Job fails with an upgrade-or-disable message while node registration and `off` workflows remain available. `ngram_size` maps to `SpecConfig.ngram_size_n`, `num_pred_tokens` maps to `ngram_size_m`, and `ngram_mode` selects the public `NGRAM_MAP_K`/`NGRAM_MAP_K4V` enum.
 
-No stable acceptance statistics are assumed for this Python draft class. `metrics_json` retains the existing load/generation/cleanup timings and records the effective configuration under `ngram_speculative`; it does not inspect private draft fields. Speedup depends on repeated context and accepted proposals, and may be negligible for short or non-repetitive responses.
+`metrics_json` retains the existing load/generation/cleanup timings and records the effective configuration and public `Llama.last_speculative_stats` under `ngram_speculative`; it does not inspect private engine fields. Speedup depends on repeated context and accepted proposals, and may be negligible for short or non-repetitive responses.
 
 ## Outputs and diagnostics
 
@@ -287,32 +291,30 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 `Llama.cpp Native Speculative Config (Compat)` is registered under `Ollama / llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
-This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DFlash2, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
+This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
 The node requires a fork wheel that provides `llama_cpp.llama_speculative.SpecConfig` and `SpeculativeType`, plus the corresponding native engines. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. New code must pass `speculative=SpecConfig(...)` to `Llama`; the deprecated `draft_model=` callback path is not used. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
-Choose `preset=Off` for target-only generation; all Native Speculative Config fields are disabled and the output is an off config. For External MTP, DFlash, DFlash2, or DSpark, choose a compatible GGUF in `draft_model`. Internal MTP uses no separate draft GGUF. `Custom` exposes `custom_spec_type` and `custom_mtp_provider`; the latter is enabled only for Custom. `draft_n_max` and `draft_p_min` are accepted for every non-Off preset. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
+Choose `preset=Off` for target-only generation; all Native Speculative Config fields are disabled and the output is an off config. For External MTP, DFlash, or DSpark, choose a compatible GGUF in `draft_model`. Internal MTP uses no separate draft GGUF. `Custom` exposes `custom_spec_type` and `custom_mtp_provider`; the latter is enabled only for Custom. `draft_n_max` and `draft_p_min` are accepted for every non-Off preset. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
 
 For Native MTP, choose one explicit `mtp_provider`:
 
 | Provider | Target | `draft_model` | Native decoder path |
 | --- | --- | --- | --- |
-| `off` | Existing DFlash/DFlash2/DSpark behavior | Required | Selected draft GGUF |
+| `off` | Existing DFlash/DSpark behavior | Required | Selected draft GGUF |
 | `external` | Target GGUF | Selected draft GGUF required | Selected draft GGUF |
 | `internal` | Target GGUF containing embedded NextN/MTP layers | Must be unselected | `None` |
 
-Select `spec_type=draft-mtp` together with an external or internal MTP provider. MTP uses the same `draft_n_max` and `draft_p_min` values as DFlash/DFlash2/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
+Select `spec_type=draft-mtp` together with an external or internal MTP provider. MTP uses the same `draft_n_max` and `draft_p_min` values as DFlash/DSpark. Native MTP diagnostics automatically follow the node's existing `verbose` switch; there is no separate MTP verbose input. `draft-mtp` with `mtp_provider=off` is rejected before model loading. Provider choice is never inferred from filenames, and an explicitly selected provider never silently falls back to target-only generation. The native bridge remains responsible for architecture, hidden-width, vocabulary, assistant, and embedded-layer compatibility checks.
 
 All current stateful native speculative engines are text-only and single-sequence. Native MTP additionally requires `gpu_layers=all`; IMAGE, AUDIO, VIDEO, context shifting, grammar/JSON-schema constraints, custom logits processors, prefix/state-cache reuse, and multi-sequence batching are unsupported.
 
-The backend builds a `SpecConfig` before target-model construction and passes it as `Llama(speculative=...)`. `Llama` then creates and owns the stateful MTP/DFlash/DFlash2/DSpark engine and any external draft resources; `Llama.close()` releases them. Draft statistics are copied from `llm.last_speculative_stats` before cleanup and exposed under `metrics_json.speculative`. For a DFlash draft, the response also reports the resolved `variant` (`dflash` or `dflash2`) and `selector_top_k` when the fork exposes the native engine diagnostics:
+The backend builds a `SpecConfig` before target-model construction and passes it as `Llama(speculative=...)`. `Llama` then creates and owns the stateful N-gram/MTP/DFlash/DSpark engine and any external draft resources; `Llama.close()` releases them. Draft statistics are copied from the public `llm.last_speculative_stats` property before cleanup and exposed under the corresponding speculative metrics. The backend does not inspect native engine internals or non-public engine metadata, create/close an engine directly, or use the deprecated `draft_model=` callback:
 
 ```json
 {
   "enabled": true,
   "implementation": "draft-dflash",
-  "variant": "dflash2",
-  "selector_top_k": 16,
   "draft_model": "dflash-kquant.gguf",
   "n_max": 8,
   "n_min": 0,
@@ -341,6 +343,14 @@ normalize -> load model/projector -> one completion -> close -> garbage collecti
 
 Cleanup is in `finally`, so generation errors still close any constructed model or handler. The node does not expose a model output and does not maintain a cache. The operating system may retain file-system pages used by `mmap`, and native CUDA libraries may retain a small process-level baseline, but the model context and GPU buffers owned by the node are not intentionally kept for later workflow runs.
 
+The caller's llama.cpp surface is limited to public `Llama` methods and properties:
+`create_chat_completion()`, `detokenize()`, token-id helpers, `last_speculative_stats`,
+`n_layer_nextn()`, and `close()`. Handler capability flags and `close()` are also read only
+through their public contract. Native engine internals and non-public metadata are not
+observed. If `Llama.close()` fails, the fallback closes only the
+caller-created handler and preserves the original inference
+exception when one already exists.
+
 ## Troubleshooting
 
 ### Optional dependency unavailable
@@ -365,7 +375,7 @@ Use a Gemma 4 Runtime Preset or ensure that explicit `image_min_tokens` and `ima
 
 ### VIDEO fails before generation
 
-Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. When `video_with_audio` is disabled, connect AUDIO separately for the soundtrack; when enabled, PyAV extracts it automatically.
+Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. Both Llama.cpp Generate nodes can use `video_with_audio`; in Sequential Generate, enable it to include each VIDEO item's embedded soundtrack in that item's request.
 
 ### Console output is unexpectedly long
 

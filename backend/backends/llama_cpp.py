@@ -32,8 +32,7 @@ _HANDLER_CLASSES = {
     "qwen35": "Qwen35ChatHandler",
 }
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
-_SPECULATIVE_TYPES = {"draft-dflash", "draft-dflash2", "draft-dspark"}
-_CANONICAL_SPECULATIVE_TYPES = {"draft-dflash2": "draft-dflash"}
+_SPECULATIVE_TYPES = {"draft-dflash", "draft-dspark"}
 _MTP_PROVIDERS = {"off", "external", "internal"}
 _DEFAULT_N_UBATCH = 512
 _NATIVE_EXECUTION_LOCK = RLock()
@@ -78,6 +77,7 @@ class LlamaCppResult:
 
 
 def _close_resources(resources: tuple[Any, ...]) -> list[Exception]:
+    """Close only explicitly caller-owned resources through public close()."""
     errors: list[Exception] = []
     for resource in resources:
         if resource is None:
@@ -92,41 +92,100 @@ def _close_resources(resources: tuple[Any, ...]) -> list[Exception]:
     return errors
 
 
-class _SequentialLlamaProxy:
+@dataclass(frozen=True, slots=True)
+class _HandlerCapabilities:
+    vision: bool
+    audio: bool
+    video: bool
+    callable: bool
+
+
+class _LlamaPublicAdapter:
+    """Expose the small public Llama surface used by this backend."""
+
     def __init__(
         self,
-        session: "_SequentialLlamaSession",
-        transient_resources: tuple[Any, ...],
+        llama: Any,
+        *,
+        before_completion: Any | None = None,
+        close_callback: Any | None = None,
     ):
-        object.__setattr__(self, "_session", session)
-        object.__setattr__(self, "_transient_resources", transient_resources)
+        self._llama = llama
+        self._before_completion = before_completion
+        self._close_callback = close_callback
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._session.llm, name)
+    @property
+    def metadata(self) -> Any:
+        return self._llama.metadata
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name in {"_session", "_transient_resources"}:
-            object.__setattr__(self, name, value)
-            return
-        if name == "chat_handler":
-            old_value = getattr(self._session.llm, name, None)
-            if old_value is not None and old_value is not value:
-                close_resource = getattr(old_value, "close", None)
-                if callable(close_resource):
-                    close_resource()
-        setattr(self._session.llm, name, value)
+    @property
+    def chat_handler(self) -> Any:
+        return self._llama.chat_handler
+
+    @chat_handler.setter
+    def chat_handler(self, value: Any) -> None:
+        old_value = self._llama.chat_handler
+        if old_value is not None and old_value is not value:
+            _close_resources((old_value,))
+        self._llama.chat_handler = value
+
+    @property
+    def last_speculative_stats(self) -> dict[str, Any]:
+        return dict(self._llama.last_speculative_stats or {})
+
+    def n_layer_nextn(self) -> int:
+        return int(self._llama.n_layer_nextn())
+
+    def token_ids(self) -> dict[str, int]:
+        def token_id(method: Any) -> int:
+            try:
+                return int(method())
+            except Exception:
+                return -1
+
+        return {
+            "eos_token": token_id(self._llama.token_eos),
+            "bos_token": token_id(self._llama.token_bos),
+            "eot_token": token_id(self._llama.token_eot),
+            "sep_token": token_id(self._llama.token_sep),
+            "nl_token": token_id(self._llama.token_nl),
+            "pad_token": token_id(self._llama.token_pad),
+            "mask_token": token_id(self._llama.token_mask),
+        }
+
+    def token_text(self, token_id: int) -> str:
+        if token_id == -1:
+            return ""
+        try:
+            value = self._llama.detokenize([token_id], special=True)
+        except Exception:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    @staticmethod
+    def handler_capabilities(handler: Any) -> _HandlerCapabilities:
+        """Read documented MTMD capability flags from a handler instance."""
+        if handler is None:
+            return _HandlerCapabilities(False, False, False, False)
+        return _HandlerCapabilities(
+            vision=bool(handler.is_support_vision),
+            audio=bool(handler.is_support_audio),
+            video=bool(handler.is_support_video),
+            callable=callable(handler),
+        )
 
     def create_chat_completion(self, **kwargs: Any) -> Any:
-        llm = self._session.llm
-        llm.reset()
-        self._session.reset_count += 1
-        return llm.create_chat_completion(**kwargs)
+        if self._before_completion is not None:
+            self._before_completion()
+        return self._llama.create_chat_completion(**kwargs)
 
     def close(self) -> None:
-        for resource in self._transient_resources:
-            close_resource = getattr(resource, "close", None)
-            if callable(close_resource):
-                close_resource()
+        if self._close_callback is not None:
+            self._close_callback()
+            return
+        self._llama.close()
 
 
 class _SequentialLlamaSession:
@@ -135,24 +194,33 @@ class _SequentialLlamaSession:
         self.llm: Any | None = None
         self.reset_count = 0
 
-    def create(self, **kwargs: Any) -> _SequentialLlamaProxy:
+    def create(self, **kwargs: Any) -> _LlamaPublicAdapter:
         if self.llm is None:
             self.llm = self._llama_class(**kwargs)
             transient_resources: tuple[Any, ...] = ()
         else:
             new_handler = kwargs.get("chat_handler")
-            old_handler = getattr(self.llm, "chat_handler", None)
+            old_handler = self.llm.chat_handler
             if new_handler is not None and new_handler is not old_handler:
-                close_handler = getattr(old_handler, "close", None)
-                if callable(close_handler):
-                    close_handler()
+                _close_resources((old_handler,))
                 self.llm.chat_handler = new_handler
-            transient_resources = tuple(
-                resource
-                for name in ("draft_model",)
-                if (resource := kwargs.get(name)) is not None
-            )
-        return _SequentialLlamaProxy(self, transient_resources)
+            transient_resources = ()
+
+        def reset() -> None:
+            assert self.llm is not None
+            self.llm.reset()
+            self.reset_count += 1
+
+        def close_transient_resources() -> None:
+            errors = _close_resources(transient_resources)
+            if errors:
+                raise errors[0]
+
+        return _LlamaPublicAdapter(
+            self.llm,
+            before_completion=reset,
+            close_callback=close_transient_resources,
+        )
 
     def close(self) -> None:
         if self.llm is None:
@@ -204,12 +272,13 @@ def _import_bindings() -> LlamaCppBindings:
         else None
     )
 
-    llama_class = getattr(llama_cpp, "Llama", None)
-    if llama_class is None:
+    try:
+        from llama_cpp import Llama as llama_class
+    except (ImportError, OSError) as exc:
         raise BackendError(
             "The installed llama-cpp-python package does not expose Llama. "
             + _fork_install_hint()
-        )
+        ) from exc
     return LlamaCppBindings(
         llama_class=llama_class,
         handlers=handlers,
@@ -220,7 +289,7 @@ def _import_bindings() -> LlamaCppBindings:
 
 def _import_native_speculative_bindings() -> NativeSpeculativeBindings:
     try:
-        from llama_cpp import llama_speculative as speculative_module
+        from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
     except (ImportError, OSError) as exc:
         raise BackendError(
             "Native speculative decoding is not installed in the Python environment "
@@ -232,19 +301,9 @@ def _import_native_speculative_bindings() -> NativeSpeculativeBindings:
             "CUDA runtime, and native DLLs, then restart ComfyUI."
         ) from exc
 
-    spec_config = getattr(speculative_module, "SpecConfig", None)
-    speculative_type = getattr(speculative_module, "SpeculativeType", None)
-    if spec_config is None or speculative_type is None:
-        raise BackendError(
-            "The installed JamePeng llama-cpp-python fork does not expose "
-            "the official SpecConfig and SpeculativeType API. No model was loaded.\n"
-            f"Release and installation notes: {_NATIVE_SPECULATIVE_RELEASE_URL}\n"
-            "Install a release wheel compatible with ComfyUI's exact Python, platform, "
-            "CUDA runtime, and native DLLs."
-        )
     return NativeSpeculativeBindings(
-        spec_config=spec_config,
-        speculative_type=speculative_type,
+        spec_config=SpecConfig,
+        speculative_type=SpeculativeType,
     )
 
 
@@ -253,16 +312,9 @@ def require_native_speculative() -> NativeSpeculativeBindings:
     return _import_native_speculative_bindings()
 
 
-def _speculative_stats_snapshot(llm: Any) -> dict[str, Any]:
-    try:
-        return dict(getattr(llm, "last_speculative_stats", {}) or {})
-    except Exception:
-        return {}
-
-
-def _native_speculative_stats(llm: Any) -> dict[str, Any]:
+def _native_speculative_stats(llm: _LlamaPublicAdapter) -> dict[str, Any]:
     """Expose the official Llama stats with the node's stable metric aliases."""
-    stats = _speculative_stats_snapshot(llm)
+    stats = llm.last_speculative_stats
     try:
         drafted = int(stats.get("drafted", stats.get("drafted_tokens", 0)) or 0)
         accepted = int(
@@ -293,43 +345,6 @@ def _native_speculative_stats(llm: Any) -> dict[str, Any]:
         "acceptance_rate": acceptance_rate,
         "mean_accepted_tokens": mean_accepted,
         "mean_accepted_per_call": mean_accepted,
-    }
-
-
-def _native_speculative_variant(
-    llm: Any, configuration: dict[str, Any]
-) -> dict[str, Any]:
-    """Resolve the fork's metadata-selected DFlash variant for diagnostics."""
-    if configuration["spec_type"] != "draft-dflash":
-        return {}
-
-    engine = getattr(llm, "speculative", None)
-    selector_top_k = getattr(engine, "selector_top_k", None)
-    is_dflash2 = getattr(engine, "is_dflash2", None)
-    if selector_top_k is not None:
-        try:
-            selector_top_k = int(selector_top_k)
-        except (TypeError, ValueError):
-            selector_top_k = None
-    if is_dflash2 is None and selector_top_k is not None:
-        is_dflash2 = selector_top_k > 0
-    if is_dflash2 is None:
-        if configuration.get("requested_spec_type") == "draft-dflash2":
-            raise BackendError(
-                "The installed JamePeng fork did not expose the resolved DFlash2 "
-                "selector metadata. Upgrade to a DFlash2-capable release."
-            )
-        return {}
-
-    is_dflash2 = bool(is_dflash2)
-    if configuration.get("requested_spec_type") == "draft-dflash2" and not is_dflash2:
-        raise BackendError(
-            "DFlash2 was selected, but the draft GGUF has no positive "
-            "dflash.selector_top_k selector metadata."
-        )
-    return {
-        "variant": "dflash2" if is_dflash2 else "dflash",
-        "selector_top_k": selector_top_k or 0,
     }
 
 
@@ -434,7 +449,7 @@ def _normalize_native_speculative(
         )
     if spec_type not in _SPECULATIVE_TYPES:
         raise InputNormalizationError(
-            "spec_type must be draft-dflash, draft-dflash2, or draft-dspark."
+            "spec_type must be draft-dflash or draft-dspark."
         )
     if resolved_draft is None:
         raise InputNormalizationError(
@@ -447,8 +462,7 @@ def _normalize_native_speculative(
     if not 0.0 <= float(spec_p_min) <= 1.0:
         raise InputNormalizationError("spec_p_min must be between 0.0 and 1.0.")
     return {
-        "spec_type": _CANONICAL_SPECULATIVE_TYPES.get(spec_type, spec_type),
-        "requested_spec_type": spec_type,
+        "spec_type": spec_type,
         "mtp_provider": "off",
         "draft_model_path": resolved_draft,
         "draft_n_max": int(spec_n_max),
@@ -463,8 +477,6 @@ def _normalize_native_speculative(
 def _create_native_speculative_config(
     bindings: NativeSpeculativeBindings,
     configuration: dict[str, Any],
-    *,
-    n_gpu_layers: int | str,
 ) -> Any:
     try:
         spec_type = bindings.speculative_type.from_str(configuration["spec_type"])
@@ -487,24 +499,25 @@ def _create_native_speculative_config(
         raise
 
 
-def _import_ngram_speculative_class() -> type:
+def _create_ngram_speculative_config(
+    bindings: NativeSpeculativeBindings,
+    configuration: dict[str, Any],
+) -> Any:
+    spec_type_name = f"ngram-map-{configuration['ngram_mode']}"
     try:
-        from llama_cpp import llama_speculative as speculative_module
-    except (ImportError, OSError) as exc:
-        raise BackendError(
-            "N-gram speculative decoding is unavailable in the installed "
-            "llama-cpp-python package. Upgrade the package or use an N-gram Speculative "
-            "Preset with speculative_mode set to off. Native DFlash/DSpark support is not "
-            "required for this mode."
-        ) from exc
-
-    ngram_class = getattr(speculative_module, "LlamaNGramMapDecoding", None)
-    if ngram_class is None:
-        raise BackendError(
-            "The installed llama-cpp-python package does not expose "
-            "LlamaNGramMapDecoding. Upgrade the package or set speculative_mode to off."
+        spec_type = bindings.speculative_type.from_str(spec_type_name)
+        return bindings.spec_config(
+            spec_type=spec_type,
+            ngram_size_n=configuration["ngram_size"],
+            ngram_size_m=configuration["num_pred_tokens"],
+            ngram_min_hits=configuration["ngram_min_hits"],
+            ngram_max_entries_per_key=configuration["ngram_max_entries_per_key"],
         )
-    return ngram_class
+    except Exception as exc:
+        raise BackendError(
+            "N-gram speculative decoding requires the official JamePeng "
+            "SpecConfig NGRAM_MAP_K/NGRAM_MAP_K4V API."
+        ) from exc
 
 
 def normalize_ngram_speculative(value: Any | None) -> dict[str, Any]:
@@ -528,7 +541,6 @@ def normalize_ngram_speculative(value: Any | None) -> dict[str, Any]:
         "num_pred_tokens": (1, 32),
         "ngram_min_hits": (1, 16),
         "ngram_max_entries_per_key": (0, 1024),
-        "ngram_sync_check_tokens": (1, 256),
     }
     normalized: dict[str, Any] = {"speculative_mode": "ngram"}
     for name, (minimum, maximum) in integer_ranges.items():
@@ -730,7 +742,7 @@ def _create_handler(
 
 def _install_text_template_handler(
     bindings: LlamaCppBindings,
-    llm: Any,
+    llm: _LlamaPublicAdapter,
     *,
     thinking: bool | None,
     reasoning_strength: str | None,
@@ -740,7 +752,7 @@ def _install_text_template_handler(
         return False
     formatter_class = bindings.jinja_formatter_class
     to_handler = bindings.chat_formatter_to_handler
-    metadata = getattr(llm, "metadata", None)
+    metadata = llm.metadata
     template = (
         custom_chat_template
         if custom_chat_template
@@ -766,39 +778,11 @@ def _install_text_template_handler(
             )
         return False
 
-    def token_id(method_name: str) -> int:
-        method = getattr(llm, method_name, None)
-        if not callable(method):
-            return -1
-        try:
-            return int(method())
-        except Exception:
-            return -1
-
-    model = getattr(llm, "_model", None)
-    token_get_text = getattr(model, "token_get_text", None)
-
-    def token_text(value: int) -> str:
-        if value == -1 or not callable(token_get_text):
-            return ""
-        try:
-            return str(token_get_text(value))
-        except Exception:
-            return ""
-
-    token_ids = {
-        "eos_token": token_id("token_eos"),
-        "bos_token": token_id("token_bos"),
-        "eot_token": token_id("token_eot"),
-        "sep_token": token_id("token_sep"),
-        "nl_token": token_id("token_nl"),
-        "pad_token": token_id("token_pad"),
-        "mask_token": token_id("token_mask"),
-    }
+    token_ids = llm.token_ids()
     special_tokens_map = {
         name: text
         for name, value in token_ids.items()
-        if value != -1 and (text := token_text(value))
+        if value != -1 and (text := llm.token_text(value))
     }
     stop_token_ids = [
         value
@@ -992,28 +976,26 @@ def _extract_response(raw: dict[str, Any]) -> tuple[str, str]:
 
 def _capture_media_diagnostics(
     *,
-    llm: Any,
+    llm: _LlamaPublicAdapter,
     fallback_handler: Any,
     media: MediaBundle,
     model_path: str,
     mmproj_path: str | None,
 ) -> dict[str, Any]:
-    """Copy fork MTMD state while the native handler is still alive."""
-    active_handler = getattr(llm, "chat_handler", None) or fallback_handler
+    """Copy public MTMD capability state while the handler is still alive."""
+    active_handler = llm.chat_handler or fallback_handler
     handler_name = (
         type(active_handler).__name__ if active_handler is not None else "none"
     )
-    vision_available = bool(getattr(active_handler, "is_support_vision", False))
-    audio_available = bool(getattr(active_handler, "is_support_audio", False))
-    video_available = bool(getattr(active_handler, "is_support_video", False))
-    strict_mtmd_pipeline = active_handler is not None and all(
-        callable(getattr(active_handler, method_name, None))
-        for method_name in (
-            "_get_media_items",
-            "_mtmd_tokenize",
-            "_process_mtmd_prompt",
-        )
+    capabilities = (
+        _LlamaPublicAdapter.handler_capabilities(active_handler)
+        if media.items and active_handler is not None
+        else _HandlerCapabilities(False, False, False, False)
     )
+    vision_available = capabilities.vision
+    audio_available = capabilities.audio
+    video_available = capabilities.video
+    strict_mtmd_pipeline = capabilities.callable
 
     manifest = media.manifest()
     requested_image_count = int(manifest["image_count"])
@@ -1118,7 +1100,6 @@ def run_chat(
     ngram_speculative: dict[str, Any] | None = None,
     bindings: LlamaCppBindings | None = None,
     speculative_api: NativeSpeculativeBindings | None = None,
-    ngram_speculative_class: type | None = None,
     custom_chat_template: str = "",
 ) -> LlamaCppResult:
     effective_reasoning_strength = _effective_reasoning_strength(
@@ -1179,6 +1160,11 @@ def run_chat(
         raise InputNormalizationError(
             "Native draft GGUF and N-gram speculative decoding cannot be enabled together."
         )
+    if has_media and ngram_configuration["speculative_mode"] == "ngram":
+        raise InputNormalizationError(
+            "N-gram speculative decoding currently supports text-only generation; "
+            "disconnect IMAGE, AUDIO, and VIDEO inputs."
+        )
 
     n_ubatch_override = _optional_positive_override(
         "n_ubatch", override_n_ubatch, n_ubatch
@@ -1201,23 +1187,21 @@ def run_chat(
     messages = _build_messages(system, prompt, media)
     native = bindings or _import_bindings()
     native_speculative_api = None
-    if native_configuration is not None:
+    if (
+        native_configuration is not None
+        or ngram_configuration["speculative_mode"] == "ngram"
+    ):
         native_speculative_api = (
             speculative_api or _import_native_speculative_bindings()
         )
-    ngram_class = None
-    if ngram_configuration["speculative_mode"] == "ngram":
-        ngram_class = ngram_speculative_class or _import_ngram_speculative_class()
     load_seconds = 0.0
     generation_seconds = 0.0
     cleanup_seconds = 0.0
     llm = None
     chat_handler = None
-    draft_model = None
     raw: dict[str, Any] | None = None
     media_diagnostics: dict[str, Any] | None = None
     speculative_stats: dict[str, Any] | None = None
-    speculative_variant: dict[str, Any] = {}
     mtp_n_layer_nextn: int | None = None
     reasoning_budget_format: str | None = None
     execution_error: Exception | None = None
@@ -1302,31 +1286,15 @@ def run_chat(
                 model_kwargs["speculative"] = _create_native_speculative_config(
                     native_speculative_api,
                     native_configuration,
-                    n_gpu_layers=model_kwargs["n_gpu_layers"],
                 )
                 if native_configuration["mtp_provider"] != "off":
                     model_kwargs["n_seq_max"] = 1
             elif ngram_configuration["speculative_mode"] == "ngram":
-                try:
-                    draft_model = ngram_class(
-                        ngram_size=ngram_configuration["ngram_size"],
-                        num_pred_tokens=ngram_configuration["num_pred_tokens"],
-                        mode=ngram_configuration["ngram_mode"],
-                        min_hits=ngram_configuration["ngram_min_hits"],
-                        max_entries_per_key=ngram_configuration[
-                            "ngram_max_entries_per_key"
-                        ],
-                        sync_check_tokens=ngram_configuration[
-                            "ngram_sync_check_tokens"
-                        ],
-                    )
-                except TypeError as exc:
-                    raise BackendError(
-                        "The installed LlamaNGramMapDecoding API is incompatible with "
-                        "the required n-gram parameters. Upgrade llama-cpp-python or set "
-                        "speculative_mode to off."
-                    ) from exc
-                model_kwargs["draft_model"] = draft_model
+                assert native_speculative_api is not None
+                model_kwargs["speculative"] = _create_ngram_speculative_config(
+                    native_speculative_api,
+                    ngram_configuration,
+                )
                 _LOGGER.info(
                     "N-gram speculative decoding: ngram size=%s, max predicted tokens=%s, "
                     "mode=%s, minimum hits=%s.",
@@ -1337,7 +1305,12 @@ def run_chat(
                 )
 
             try:
-                llm = native.llama_class(**model_kwargs)
+                raw_llm = native.llama_class(**model_kwargs)
+                llm = (
+                    raw_llm
+                    if isinstance(raw_llm, _LlamaPublicAdapter)
+                    else _LlamaPublicAdapter(raw_llm)
+                )
             except Exception as exc:
                 if (
                     native_configuration is not None
@@ -1361,28 +1334,24 @@ def run_chat(
                 native_configuration is not None
                 and native_configuration["mtp_provider"] == "internal"
             ):
-                n_layer_nextn = getattr(llm, "n_layer_nextn", None)
-                if not callable(n_layer_nextn):
+                try:
+                    mtp_n_layer_nextn = llm.n_layer_nextn()
+                except (AttributeError, TypeError) as exc:
                     raise BackendError(
                         "The installed llama-cpp-python fork does not expose "
                         "Llama.n_layer_nextn(); reinstall the matching Native MTP wheel."
-                    )
-                mtp_n_layer_nextn = int(n_layer_nextn())
+                    ) from exc
                 if mtp_n_layer_nextn <= 0:
                     raise BackendError(
                         "Selected Qwen 3.5+ target GGUF has no usable embedded NextN/MTP "
                         "layers."
                     )
-            if native_configuration is not None:
-                speculative_variant = _native_speculative_variant(
-                    llm, native_configuration
-                )
             load_seconds = time.perf_counter() - load_started
             generation_started = time.perf_counter()
             completion_messages = _adapt_messages_for_model_template(
                 messages,
                 handler=handler,
-                metadata=getattr(llm, "metadata", None),
+                metadata=llm.metadata,
             )
             completion_kwargs: dict[str, Any] = {
                 "messages": completion_messages,
@@ -1402,7 +1371,7 @@ def run_chat(
             if stop:
                 completion_kwargs["stop"] = [stop]
             budget_arguments, reasoning_budget_format = _reasoning_budget_arguments(
-                metadata=getattr(llm, "metadata", None),
+                metadata=llm.metadata,
                 handler=handler,
                 reasoning_budget=effective_reasoning_budget,
                 custom_chat_template=custom_chat_template,
@@ -1415,7 +1384,10 @@ def run_chat(
                     "llama-cpp-python returned a streaming or non-object response unexpectedly."
                 )
             raw = completion
-            if native_configuration is not None:
+            if (
+                native_configuration is not None
+                or ngram_configuration["speculative_mode"] == "ngram"
+            ):
                 speculative_stats = _native_speculative_stats(llm)
                 try:
                     drafted_tokens = int(
@@ -1434,16 +1406,20 @@ def run_chat(
                 )
                 if draft_calls <= 0 or drafted_tokens <= 0:
                     _LOGGER.warning(
-                        "Native speculative decoding completed without draft activity; "
+                        "Stateful speculative decoding completed without draft activity; "
                         "draft_calls=%s, drafted_tokens=%s.",
                         draft_calls,
                         drafted_tokens,
                     )
                 else:
                     _LOGGER.info(
-                        "Native speculative decoding (%s): drafted tokens=%s, accepted "
+                        "Stateful speculative decoding (%s): drafted tokens=%s, accepted "
                         "tokens=%s, acceptance rate=%s, mean accepted/call=%s.",
-                        native_configuration["spec_type"],
+                        (
+                            native_configuration["spec_type"]
+                            if native_configuration is not None
+                            else f"ngram-map-{ngram_configuration['ngram_mode']}"
+                        ),
                         drafted_tokens,
                         accepted_tokens,
                         acceptance_rate,
@@ -1454,7 +1430,7 @@ def run_chat(
                     )
                     if drafted_tokens >= 100 and acceptance_rate < 0.05:
                         _LOGGER.warning(
-                            "Native speculative acceptance is below 5%%; the target "
+                            "Speculative acceptance is below 5%%; the target "
                             "and draft/provider may be incompatible, and target-only "
                             "generation may be faster. drafted_tokens=%s, "
                             "acceptance_rate=%.2f%%.",
@@ -1482,14 +1458,13 @@ def run_chat(
                     Exception
                 ) as exc:  # pragma: no cover - platform-specific native failure
                     cleanup_errors.append(exc)
-                    cleanup_errors.extend(_close_resources((draft_model, chat_handler)))
+                    cleanup_errors.extend(_close_resources((chat_handler,)))
             else:
-                cleanup_errors.extend(_close_resources((draft_model, chat_handler)))
+                cleanup_errors.extend(_close_resources((chat_handler,)))
             if cleanup_errors:
                 cleanup_error = cleanup_errors[0]
             llm = None
             chat_handler = None
-            draft_model = None
             gc.collect()
             cleanup_seconds = time.perf_counter() - cleanup_started
 
@@ -1546,7 +1521,6 @@ def run_chat(
             "p_min": native_configuration["draft_p_min"],
             "stats": speculative_stats or {},
         }
-        metrics["speculative"].update(speculative_variant)
         if native_configuration["mtp_provider"] != "off":
             choices = raw.get("choices") if isinstance(raw.get("choices"), list) else []
             first_choice = (
@@ -1568,7 +1542,11 @@ def run_chat(
                 }
             )
     if ngram_configuration["speculative_mode"] == "ngram":
-        metrics["ngram_speculative"] = dict(ngram_configuration)
+        metrics["ngram_speculative"] = {
+            **dict(ngram_configuration),
+            "implementation": f"ngram-map-{ngram_configuration['ngram_mode']}",
+            "stats": speculative_stats or {},
+        }
     media_diagnostics["model_unloaded_after_response"] = True
     return LlamaCppResult(
         response=response,
@@ -1595,11 +1573,6 @@ def run_chat_sequential(
         raise InputNormalizationError(
             "Sequential generation requires exactly one prompt per input item."
         )
-    # if kwargs.get("draft_model_path") or kwargs.get("mtp_provider", "off") != "off":
-    #     raise InputNormalizationError(
-    #         "Sequential generation does not support native draft models because their "
-    #         "cross-request state cannot yet be guaranteed independent."
-    #     )
     if (
         normalize_ngram_speculative(kwargs.get("ngram_speculative"))["speculative_mode"]
         != "off"
@@ -1619,6 +1592,8 @@ def run_chat_sequential(
     )
     results: list[LlamaCppResult] = []
     cleanup_seconds = 0.0
+    execution_error: Exception | None = None
+    cleanup_error: Exception | None = None
     try:
         with _NATIVE_EXECUTION_LOCK:
             for index, media in enumerate(media_items):
@@ -1632,10 +1607,28 @@ def run_chat_sequential(
                         **item_kwargs,
                     )
                 )
+    except Exception as exc:
+        execution_error = exc
     finally:
         cleanup_started = time.perf_counter()
-        session.close()
+        try:
+            session.close()
+        except Exception as exc:  # pragma: no cover - platform-specific native failure
+            cleanup_error = exc
         cleanup_seconds = time.perf_counter() - cleanup_started
+
+    if execution_error is not None:
+        if cleanup_error is not None:
+            _LOGGER.warning(
+                "Sequential llama.cpp cleanup failed after an execution error: %s",
+                cleanup_error,
+            )
+        raise execution_error
+    if cleanup_error is not None:
+        raise BackendError(
+            "llama-cpp-python completed, but the sequential model could not be fully "
+            f"unloaded: {cleanup_error}"
+        ) from cleanup_error
 
     item_count = len(results)
     for index, result in enumerate(results):

@@ -1,6 +1,7 @@
 import base64
 import sys
-from types import ModuleType, SimpleNamespace
+from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -24,14 +25,8 @@ class FakeMTMDHandler:
     is_support_audio = True
     is_support_video = False
 
-    def _get_media_items(self):
-        pass
-
-    def _mtmd_tokenize(self):
-        pass
-
-    def _process_mtmd_prompt(self):
-        pass
+    def __call__(self, **_kwargs):
+        return object()
 
     def close(self):
         self.closed = True
@@ -54,7 +49,8 @@ class FakeLlama:
         "accept_calls": 3,
         "draft_token_acceptance_rate": 0.45,
     }
-    speculative_engine = None
+    token_values = {}
+    token_pieces = {}
 
     def __init__(self, **kwargs):
         NATIVE_EVENTS.append("target")
@@ -62,8 +58,6 @@ class FakeLlama:
         self.completion_kwargs = None
         self.completion_kwargs_history = []
         self.reset_count = 0
-        self._native_speculative = None
-        self.speculative = type(self).speculative_engine
         self.metadata = dict(type(self).metadata)
         self.last_speculative_stats = dict(type(self).speculative_stats)
         self.closed = False
@@ -90,14 +84,41 @@ class FakeLlama:
     def n_layer_nextn(self):
         return type(self).nextn_layers
 
+    def _token_value(self, name):
+        return type(self).token_values.get(name, -1)
+
+    def token_eos(self):
+        return self._token_value("eos_token")
+
+    def token_bos(self):
+        return self._token_value("bos_token")
+
+    def token_eot(self):
+        return self._token_value("eot_token")
+
+    def token_sep(self):
+        return self._token_value("sep_token")
+
+    def token_nl(self):
+        return self._token_value("nl_token")
+
+    def token_pad(self):
+        return self._token_value("pad_token")
+
+    def token_mask(self):
+        return self._token_value("mask_token")
+
+    def detokenize(self, tokens, *, special=False):
+        assert special is True
+        return b"".join(
+            type(self).token_pieces.get(token, b"") for token in tokens
+        )
+
     def close(self):
         self.close_count += 1
         if type(self).close_error is not None:
             raise type(self).close_error
         self.closed = True
-        draft_model = self.kwargs.get("draft_model")
-        if draft_model is not None:
-            draft_model.close()
         if self.chat_handler is not None:
             close_handler = getattr(self.chat_handler, "close", None)
             if callable(close_handler):
@@ -136,19 +157,6 @@ class FakeJinjaFormatter:
         return object()
 
 
-class FakeNGramDraft:
-    instances = []
-
-    def __init__(self, **kwargs):
-        NATIVE_EVENTS.append("ngram")
-        self.kwargs = kwargs
-        self.closed = False
-        type(self).instances.append(self)
-
-    def close(self):
-        self.closed = True
-
-
 class FakeSpeculativeType:
     @classmethod
     def from_str(cls, value):
@@ -182,10 +190,10 @@ def reset_fakes():
         "accept_calls": 3,
         "draft_token_acceptance_rate": 0.45,
     }
-    FakeLlama.speculative_engine = None
+    FakeLlama.token_values = {}
+    FakeLlama.token_pieces = {}
     FakeHandler.instances = []
     FakeJinjaFormatter.instances = []
-    FakeNGramDraft.instances = []
     FakeSpecConfig.instances = []
 
 
@@ -218,6 +226,28 @@ def gguf_files(tmp_path):
     return model, mmproj
 
 
+def test_backend_core_has_no_llama_private_api_or_broad_proxy():
+    source = Path(llama_cpp_backend.__file__).read_text(encoding="utf-8")
+    forbidden = (
+        "llm._model",
+        "llm._ctx",
+        "llm._sampling_ctx",
+        "llm._hybrid_cache_mgr",
+        "llm._stack",
+        "handler._get_media_items",
+        "handler._mtmd_tokenize",
+        "handler._process_mtmd_prompt",
+        "llm.speculative",
+        "selector_top_k",
+        "is_dflash2",
+        "LlamaNGramMapDecoding",
+        "ngram_sync_check_tokens",
+        "__getattr__",
+        "__setattr__",
+    )
+    assert [name for name in forbidden if name in source] == []
+
+
 def test_missing_optional_dependency_points_to_supported_fork(monkeypatch):
     monkeypatch.setitem(sys.modules, "llama_cpp", None)
 
@@ -245,21 +275,6 @@ def test_missing_experimental_speculative_api_has_actionable_error(monkeypatch):
     assert "https://github.com/JamePeng/llama-cpp-python/releases/" in message
     assert "CUDA runtime, and native DLLs" in message
     assert "No model was loaded" in message
-
-
-def test_missing_ngram_speculative_api_fails_only_when_requested(monkeypatch):
-    llama_cpp_package = ModuleType("llama_cpp")
-    llama_cpp_package.__path__ = []
-    monkeypatch.setitem(sys.modules, "llama_cpp", llama_cpp_package)
-    monkeypatch.setitem(sys.modules, "llama_cpp.llama_speculative", None)
-
-    with pytest.raises(BackendError) as error:
-        llama_cpp_backend._import_ngram_speculative_class()
-
-    message = str(error.value)
-    assert "N-gram speculative decoding is unavailable" in message
-    assert "speculative_mode set to off" in message
-    assert "DFlash/DSpark support is not required" in message
 
 
 def test_implicit_draft_model_path_api_is_rejected(tmp_path):
@@ -293,12 +308,6 @@ def test_target_only_path_does_not_import_or_pass_speculative_binding(
         "_import_native_speculative_bindings",
         unexpected_import,
     )
-    monkeypatch.setattr(
-        llama_cpp_backend,
-        "_import_ngram_speculative_class",
-        unexpected_import,
-    )
-
     run_chat(
         model_path=str(model),
         system="",
@@ -309,7 +318,6 @@ def test_target_only_path_does_not_import_or_pass_speculative_binding(
     )
 
     assert "draft_model" not in FakeLlama.instances[0].kwargs
-    assert FakeNGramDraft.instances == []
 
 
 def test_text_only_generate_omits_selected_mmproj_but_forwards_thinking(tmp_path):
@@ -395,6 +403,38 @@ def test_text_only_jinja_handler_receives_disabled_thinking_arguments(tmp_path):
     assert "reasoning_strength" not in formatter.call_kwargs
 
 
+def test_text_template_uses_public_detokenize_for_special_tokens(tmp_path):
+    model, _ = gguf_files(tmp_path)
+    FakeLlama.metadata = {"tokenizer.chat_template": "{{ eos_token }}"}
+    FakeLlama.token_values = {
+        "eos_token": 1,
+        "bos_token": 2,
+        "eot_token": 3,
+    }
+    FakeLlama.token_pieces = {
+        1: b"<eos>",
+        2: b"<bos>",
+        3: b"\xe2",
+    }
+
+    run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        thinking=False,
+        bindings=make_bindings(
+            jinja_formatter_class=FakeJinjaFormatter,
+            chat_formatter_to_handler=lambda formatter: formatter,
+        ),
+    )
+
+    formatter = FakeJinjaFormatter.instances[0]
+    assert formatter.kwargs["eos_token"] == "<eos>"
+    assert formatter.kwargs["bos_token"] == "<bos>"
+    assert formatter.kwargs["special_tokens_map"]["eot_token"] == "�"
+
+
 def test_text_only_thinking_template_requires_configurable_jinja_api(tmp_path):
     model, _ = gguf_files(tmp_path)
     FakeLlama.metadata = {
@@ -414,19 +454,14 @@ def test_text_only_thinking_template_requires_configurable_jinja_api(tmp_path):
     assert FakeLlama.instances[0].closed is True
 
 
-def test_ngram_speculative_forwards_parameters_and_preserves_multimodal_request(
-    tmp_path,
-):
-    model, mmproj = gguf_files(tmp_path)
-    bundle = normalize_images(solid_image(1, 2, 3, 3, 0.5))
+def test_ngram_speculative_uses_official_spec_config(tmp_path):
+    model, _ = gguf_files(tmp_path)
 
     result = run_chat(
         model_path=str(model),
-        mmproj_path=str(mmproj),
-        handler="auto",
         system="system",
         prompt="repeat a template",
-        media=bundle,
+        media=normalize_media(),
         ngram_speculative=llama_cpp_backend.normalize_ngram_speculative(
             {
                 "speculative_mode": "ngram",
@@ -435,43 +470,76 @@ def test_ngram_speculative_forwards_parameters_and_preserves_multimodal_request(
                 "ngram_mode": "k4v",
                 "ngram_min_hits": 3,
                 "ngram_max_entries_per_key": 0,
-                "ngram_sync_check_tokens": 24,
             }
         ),
         bindings=make_bindings(),
-        ngram_speculative_class=FakeNGramDraft,
+        speculative_api=make_speculative_api(),
     )
 
-    assert NATIVE_EVENTS == ["ngram", "target"]
-    draft = FakeNGramDraft.instances[0]
-    assert draft.kwargs == {
-        "ngram_size": 4,
-        "num_pred_tokens": 12,
-        "mode": "k4v",
-        "min_hits": 3,
-        "max_entries_per_key": None,
-        "sync_check_tokens": 24,
+    assert NATIVE_EVENTS == ["target"]
+    config = FakeSpecConfig.instances[0]
+    assert config.kwargs == {
+        "spec_type": "ngram-map-k4v",
+        "ngram_size_n": 4,
+        "ngram_size_m": 12,
+        "ngram_min_hits": 3,
+        "ngram_max_entries_per_key": None,
     }
     instance = FakeLlama.instances[0]
-    assert instance.kwargs["draft_model"] is draft
-    assert instance.kwargs["mmproj_path"] == str(mmproj.resolve())
-    content = instance.completion_kwargs["messages"][-1]["content"]
-    assert [part["type"] for part in content] == ["text", "image_url"]
+    assert instance.kwargs["speculative"] is config
     assert instance.closed is True
-    assert draft.closed is True
     assert result.metrics["ngram_speculative"] == {
         "speculative_mode": "ngram",
         "ngram_size": 4,
         "num_pred_tokens": 12,
         "ngram_min_hits": 3,
         "ngram_max_entries_per_key": None,
-        "ngram_sync_check_tokens": 24,
         "ngram_mode": "k4v",
+        "implementation": "ngram-map-k4v",
+        "stats": {
+            "drafted": 20,
+            "accepted_draft_tokens": 9,
+            "draft_calls": 4,
+            "accept_calls": 3,
+            "draft_token_acceptance_rate": 0.45,
+            "drafted_tokens": 20,
+            "accepted_tokens": 9,
+            "acceptance_rate": 0.45,
+            "mean_accepted_tokens": 2.25,
+            "mean_accepted_per_call": 2.25,
+        },
     }
     assert "speculative" not in result.metrics
 
 
-def test_ngram_speculative_generation_failure_closes_target_and_draft(tmp_path):
+def test_ngram_speculative_rejects_multimodal_requests(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    bundle = normalize_images(solid_image(1, 2, 3, 3, 0.5))
+
+    with pytest.raises(InputNormalizationError, match="text-only"):
+        run_chat(
+            model_path=str(model),
+            mmproj_path=str(mmproj),
+            handler="auto",
+            system="system",
+            prompt="repeat a template",
+            media=bundle,
+            ngram_speculative={
+                "speculative_mode": "ngram",
+                "ngram_size": 4,
+                "num_pred_tokens": 12,
+                "ngram_mode": "k4v",
+                "ngram_min_hits": 3,
+                "ngram_max_entries_per_key": 8,
+            },
+            bindings=make_bindings(),
+            speculative_api=make_speculative_api(),
+        )
+
+    assert FakeLlama.instances == []
+
+
+def test_ngram_speculative_generation_failure_closes_target(tmp_path):
     model, _ = gguf_files(tmp_path)
     FakeLlama.generation_error = RuntimeError("generation failed")
 
@@ -488,14 +556,12 @@ def test_ngram_speculative_generation_failure_closes_target_and_draft(tmp_path):
                 "ngram_mode": "k",
                 "ngram_min_hits": 2,
                 "ngram_max_entries_per_key": 8,
-                "ngram_sync_check_tokens": 16,
             },
             bindings=make_bindings(),
-            ngram_speculative_class=FakeNGramDraft,
+            speculative_api=make_speculative_api(),
         )
 
     assert FakeLlama.instances[0].closed is True
-    assert FakeNGramDraft.instances[0].closed is True
 
 
 @pytest.mark.parametrize(
@@ -506,7 +572,6 @@ def test_ngram_speculative_generation_failure_closes_target_and_draft(tmp_path):
         ({"ngram_mode": "other"}, "ngram_mode"),
         ({"ngram_min_hits": 0}, "ngram_min_hits"),
         ({"ngram_max_entries_per_key": 1025}, "ngram_max_entries_per_key"),
-        ({"ngram_sync_check_tokens": 0}, "ngram_sync_check_tokens"),
     ],
 )
 def test_ngram_speculative_parameters_are_validated(override, message):
@@ -517,7 +582,6 @@ def test_ngram_speculative_parameters_are_validated(override, message):
         "ngram_mode": "k",
         "ngram_min_hits": 2,
         "ngram_max_entries_per_key": 8,
-        "ngram_sync_check_tokens": 16,
     }
     values.update(override)
 
@@ -545,14 +609,11 @@ def test_native_and_ngram_speculative_modes_cannot_be_combined(tmp_path):
                 "ngram_mode": "k",
                 "ngram_min_hits": 2,
                 "ngram_max_entries_per_key": 8,
-                "ngram_sync_check_tokens": 16,
             },
             bindings=make_bindings(),
             speculative_api=make_speculative_api(),
-            ngram_speculative_class=FakeNGramDraft,
         )
 
-    assert FakeNGramDraft.instances == []
     assert FakeLlama.instances == []
 
 
@@ -613,60 +674,6 @@ def test_native_speculative_uses_official_spec_config_and_stats(tmp_path):
     assert result.metrics["speculative"]["n_max"] == 15
     assert result.metrics["speculative"]["n_min"] == 2
     assert result.metrics["speculative"]["p_min"] == 0.25
-
-
-def test_dflash2_alias_maps_to_official_dflash_and_reports_selector_metadata(tmp_path):
-    model, _ = gguf_files(tmp_path)
-    draft = tmp_path / "dflash2.gguf"
-    draft.write_bytes(b"draft")
-    FakeLlama.speculative_engine = SimpleNamespace(
-        is_dflash2=True,
-        selector_top_k=16,
-    )
-
-    result = run_chat(
-        model_path=str(model),
-        system="",
-        prompt="hello",
-        media=normalize_media(),
-        gpu_layers="all",
-        draft_model_path=str(draft),
-        spec_type="draft-dflash2",
-        spec_n_max=7,
-        bindings=make_bindings(),
-        speculative_api=make_speculative_api(),
-    )
-
-    config = FakeSpecConfig.instances[0]
-    assert config.kwargs["spec_type"] == "draft-dflash"
-    assert config.kwargs["draft_n_max"] == 7
-    assert result.metrics["speculative"]["implementation"] == "draft-dflash"
-    assert result.metrics["speculative"]["variant"] == "dflash2"
-    assert result.metrics["speculative"]["selector_top_k"] == 16
-
-
-def test_dflash2_alias_rejects_a_non_selector_dflash_draft(tmp_path):
-    model, _ = gguf_files(tmp_path)
-    draft = tmp_path / "dflash.gguf"
-    draft.write_bytes(b"draft")
-    FakeLlama.speculative_engine = SimpleNamespace(
-        is_dflash2=False,
-        selector_top_k=0,
-    )
-
-    with pytest.raises(BackendError, match="no positive dflash.selector_top_k"):
-        run_chat(
-            model_path=str(model),
-            system="",
-            prompt="hello",
-            media=normalize_media(),
-            draft_model_path=str(draft),
-            spec_type="draft-dflash2",
-            bindings=make_bindings(),
-            speculative_api=make_speculative_api(),
-        )
-
-    assert FakeLlama.instances[0].closed is True
 
 
 def test_native_speculative_target_initialization_failure_is_not_silently_disabled(
@@ -730,7 +737,7 @@ def test_native_speculative_parameters_are_validated_before_loading(
     assert FakeLlama.instances == []
 
 
-@pytest.mark.parametrize("spec_type", ["draft-dflash", "draft-dflash2", "draft-dspark"])
+@pytest.mark.parametrize("spec_type", ["draft-dflash", "draft-dspark"])
 def test_native_speculative_requires_a_draft_gguf(tmp_path, spec_type):
     model, _ = gguf_files(tmp_path)
 
