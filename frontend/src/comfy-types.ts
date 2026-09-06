@@ -1,5 +1,7 @@
 export type ComfyWidget = {
   name: string
+  label?: string
+  tooltip?: string
   value?: unknown
   disabled?: boolean
   serialize?: boolean

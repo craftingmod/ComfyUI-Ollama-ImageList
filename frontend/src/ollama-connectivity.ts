@@ -83,7 +83,7 @@ async function refreshModels(
 
   const sequence = (node[requestSequence] ?? 0) + 1
   node[requestSequence] = sequence
-  buttonWidget.name = "Fetching..."
+  buttonWidget.label = "Fetching..."
   buttonWidget.disabled = true
   node.setDirtyCanvas(true, true)
 
@@ -110,7 +110,7 @@ async function refreshModels(
     }
   } finally {
     if (node[requestSequence] === sequence) {
-      buttonWidget.name = "Fetch"
+      buttonWidget.label = "Fetch"
       buttonWidget.disabled = false
       node.setDirtyCanvas(true, true)
     }
@@ -143,6 +143,7 @@ export function registerOllamaConnectivity(app: ComfyApp, api: ComfyApi): void {
         const fetchButton = node.addWidget("button", "Fetch", null, () => {
           void refreshModels(app, api, node, fetchButton)
         })
+        fetchButton.tooltip = "Fetch available Ollama models from the configured server."
         fetchButton.serialize = false
 
         setTimeout(() => void refreshModels(app, api, node, fetchButton), 0)
