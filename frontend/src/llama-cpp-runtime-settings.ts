@@ -9,9 +9,31 @@ const AUTO_START_SETTING = "OllamaImageList.LlamaCpp.AutoStart"
 const PATH_STATUS_SETTING = "OllamaImageList.LlamaCpp.PathStatus"
 const EXECUTABLE_PATH_SETTING = "OllamaImageList.LlamaCpp.ExecutablePath"
 const LLAMA_VERSION_SETTING = "OllamaImageList.LlamaCpp.Version"
+const CTX_SIZE_SETTING = "OllamaImageList.LlamaCpp.CtxSize"
+const PORT_SETTING = "OllamaImageList.LlamaCpp.Port"
+const MODEL_DIR_SETTING = "OllamaImageList.LlamaCpp.ModelDir"
+const DEFAULT_CTX_SIZE = 16384
+const MIN_CTX_SIZE = 512
+const MAX_CTX_SIZE = 1048576
+const DEFAULT_PORT = 18582
+const MIN_PORT = 1024
+const MAX_PORT = 65535
+
+type RuntimeSettingsUpdate = {
+  auto_start?: boolean
+  ctx_size?: number
+  port?: number
+  model_dir?: string
+}
 
 type RuntimeStatus = {
   auto_start: boolean
+  ctx_size: number
+  port: number
+  active_port: number | null
+  model_dir: string
+  model_dirs: string[]
+  default_model_dir: string
   llama_available: boolean
   llama_executable: string | null
   llama_version: string | null
@@ -19,8 +41,12 @@ type RuntimeStatus = {
   error: string | null
 }
 
-let syncingFromBackend = false
-let settingChangeRevision = 0
+const syncingSettings = new Map<string, number>()
+let setupRevision = 0
+let autoStartRevision = 0
+let ctxSizeRevision = 0
+let portRevision = 0
+let modelDirRevision = 0
 let settingUpdateQueue: Promise<void> = Promise.resolve()
 let latestStatus: RuntimeStatus | undefined
 
@@ -29,11 +55,13 @@ async function setSettingFromBackend(
   id: string,
   value: unknown,
 ): Promise<void> {
-  syncingFromBackend = true
+  syncingSettings.set(id, (syncingSettings.get(id) ?? 0) + 1)
   try {
     await app.extensionManager.setting.set(id, value)
   } finally {
-    syncingFromBackend = false
+    const pending = (syncingSettings.get(id) ?? 1) - 1
+    if (pending > 0) syncingSettings.set(id, pending)
+    else syncingSettings.delete(id)
   }
 }
 
@@ -42,6 +70,17 @@ async function updatePathStatus(
   status: RuntimeStatus,
 ): Promise<void> {
   latestStatus = status
+  const settings = app.ui.settings as any
+  const modelDirSetting = settings.settingsParamLookup?.[MODEL_DIR_SETTING]
+  if (modelDirSetting) {
+    modelDirSetting.options = status.model_dirs
+  }
+  if (
+    app.extensionManager.setting.get<string>(MODEL_DIR_SETTING) !==
+    status.model_dir
+  ) {
+    await setSettingFromBackend(app, MODEL_DIR_SETTING, status.model_dir)
+  }
   await app.extensionManager.setting.set(
     PATH_STATUS_SETTING,
     status.llama_available ? "available" : "unavailable",
@@ -72,16 +111,16 @@ function showStartWarning(app: ComfyApp, status: RuntimeStatus): void {
 
 async function requestStatus(
   api: ComfyApi,
-  autoStart?: boolean,
+  update?: RuntimeSettingsUpdate,
 ): Promise<RuntimeStatus> {
   const response = await api.fetchApi(
     RUNTIME_ROUTE,
-    autoStart === undefined
+    update === undefined
       ? { method: "GET" }
       : {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ auto_start: autoStart }),
+          body: JSON.stringify(update),
         },
   )
   const payload: unknown = await response.json()
@@ -91,6 +130,31 @@ async function requestStatus(
     typeof payload !== "object" ||
     !("auto_start" in payload) ||
     typeof payload.auto_start !== "boolean" ||
+    !("ctx_size" in payload) ||
+    typeof payload.ctx_size !== "number" ||
+    !Number.isInteger(payload.ctx_size) ||
+    payload.ctx_size < MIN_CTX_SIZE ||
+    payload.ctx_size > MAX_CTX_SIZE ||
+    !("port" in payload) ||
+    typeof payload.port !== "number" ||
+    !Number.isInteger(payload.port) ||
+    payload.port < MIN_PORT ||
+    payload.port > MAX_PORT ||
+    !("active_port" in payload) ||
+    (typeof payload.active_port !== "number" && payload.active_port !== null) ||
+    (typeof payload.active_port === "number" &&
+      (!Number.isInteger(payload.active_port) ||
+        payload.active_port < MIN_PORT ||
+        payload.active_port > MAX_PORT)) ||
+    !("model_dir" in payload) ||
+    typeof payload.model_dir !== "string" ||
+    !("model_dirs" in payload) ||
+    !Array.isArray(payload.model_dirs) ||
+    !payload.model_dirs.every((path) => typeof path === "string") ||
+    !("default_model_dir" in payload) ||
+    typeof payload.default_model_dir !== "string" ||
+    !payload.model_dirs.includes(payload.model_dir) ||
+    !payload.model_dirs.includes(payload.default_model_dir) ||
     !("llama_available" in payload) ||
     typeof payload.llama_available !== "boolean" ||
     !("llama_executable" in payload) ||
@@ -122,35 +186,36 @@ export function registerLlamaCppRuntimeSettings(
     settings: [
       {
         id: AUTO_START_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp"],
+        category: [PROJECT_NAME, "llama.cpp", "AutoStart"],
         name: "Internal llama.cpp runtime activation",
         tooltip:
-          "When enabled, starts the PATH llama executable on 127.0.0.1:8080 now and on each ComfyUI startup.",
+          "When enabled, starts the PATH llama executable on 127.0.0.1 at the configured port now and on each ComfyUI startup.",
         type: "boolean",
         defaultValue: false,
-        sortOrder: 10,
+        sortOrder: 40,
         async onChange(value, oldValue) {
           if (
-            syncingFromBackend ||
+            syncingSettings.has(AUTO_START_SETTING) ||
             oldValue === undefined ||
             typeof value !== "boolean"
           )
             return
-          const revision = ++settingChangeRevision
+          const revision = ++autoStartRevision
+          setupRevision += 1
           try {
             const update = settingUpdateQueue.then(() =>
-              requestStatus(api, value),
+              requestStatus(api, { auto_start: value }),
             )
             settingUpdateQueue = update.then(
               () => undefined,
               () => undefined,
             )
             const status = await update
-            if (revision !== settingChangeRevision) return
+            if (revision !== autoStartRevision) return
             await updatePathStatus(app, status)
             showStartWarning(app, status)
           } catch (error) {
-            if (revision !== settingChangeRevision) return
+            if (revision !== autoStartRevision) return
             const messages = getRuntimeMessages(
               app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
             )
@@ -175,38 +240,233 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: PATH_STATUS_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp"],
+        category: [PROJECT_NAME, "llama.cpp", "PathStatus"],
         name: "PATH availability",
         tooltip: "Whether the llama executable is available on ComfyUI's PATH.",
         type: "text",
-        attrs: { readonly: true, style: { width: "20rem" } },
+        attrs: { readonly: true, style: { } },
         defaultValue: getRuntimeMessages(
           app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
         ).checking,
-        sortOrder: 0,
+        sortOrder: 30,
         telemetry: { trackChanges: false },
       },
       {
         id: EXECUTABLE_PATH_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp"],
+        category: [PROJECT_NAME, "llama.cpp", "ExecutablePath"],
         name: "llama executable path",
         tooltip: "The resolved executable path when llama is available.",
         type: "text",
-        attrs: { readonly: true, style: { width: "32rem" } },
+        attrs: { readonly: true, style: { width: "inherit" } },
         defaultValue: "—",
-        sortOrder: -10,
+        sortOrder: 20,
         telemetry: { trackChanges: false },
       },
       {
         id: LLAMA_VERSION_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp"],
+        category: [PROJECT_NAME, "llama.cpp", "Version"],
         name: "llama version",
         tooltip: "The version reported by llama --version.",
         type: "text",
-        attrs: { readonly: true, style: { width: "32rem" } },
+        attrs: { readonly: true, style: { width: "26rem" } },
         defaultValue: "—",
+        sortOrder: 10,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: CTX_SIZE_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp daemon", "config"],
+        name: "Context size",
+        tooltip:
+          "Takes effect the next time the internal server starts; editing this does not restart a running server.",
+        type: "number",
+        attrs: {
+          min: MIN_CTX_SIZE,
+          max: MAX_CTX_SIZE,
+          step: 1,
+          useGrouping: true,
+          locale: "en-US",
+        },
+        defaultValue: DEFAULT_CTX_SIZE,
+        sortOrder: 0,
+        telemetry: { trackChanges: false },
+        async onChange(value, oldValue) {
+          if (syncingSettings.has(CTX_SIZE_SETTING) || oldValue === undefined)
+            return
+          if (
+            typeof value !== "number" ||
+            !Number.isInteger(value) ||
+            value < MIN_CTX_SIZE ||
+            value > MAX_CTX_SIZE
+          ) {
+            if (typeof oldValue === "number") {
+              await setSettingFromBackend(app, CTX_SIZE_SETTING, oldValue)
+            }
+            return
+          }
+          const revision = ++ctxSizeRevision
+          setupRevision += 1
+          try {
+            const update = settingUpdateQueue.then(() =>
+              requestStatus(api, { ctx_size: value }),
+            )
+            settingUpdateQueue = update.then(
+              () => undefined,
+              () => undefined,
+            )
+            const status = await update
+            if (revision !== ctxSizeRevision) return
+            await updatePathStatus(app, status)
+          } catch (error) {
+            if (revision !== ctxSizeRevision) return
+            const messages = getRuntimeMessages(
+              app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+            )
+            app.extensionManager.toast.add({
+              severity: "error",
+              summary: messages.saveFailureSummary(PROJECT_NAME),
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : messages.unknownError,
+              life: 5000,
+            })
+            if (typeof oldValue === "number") {
+              try {
+                await setSettingFromBackend(app, CTX_SIZE_SETTING, oldValue)
+              } catch {
+                // The original setting write has already been reported above.
+              }
+            }
+          }
+        },
+      },
+      {
+        id: PORT_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp daemon", "config"],
+        name: "Internal server port",
+        tooltip:
+          "Takes effect the next time the internal server starts; editing this does not restart a running server.",
+        type: "number",
+        attrs: {
+          min: MIN_PORT,
+          max: MAX_PORT,
+          step: 1,
+          useGrouping: false,
+        },
+        defaultValue: DEFAULT_PORT,
+        sortOrder: -10,
+        telemetry: { trackChanges: false },
+        async onChange(value, oldValue) {
+          if (syncingSettings.has(PORT_SETTING) || oldValue === undefined)
+            return
+          if (
+            typeof value !== "number" ||
+            !Number.isInteger(value) ||
+            value < MIN_PORT ||
+            value > MAX_PORT
+          ) {
+            if (typeof oldValue === "number") {
+              await setSettingFromBackend(app, PORT_SETTING, oldValue)
+            }
+            return
+          }
+          const revision = ++portRevision
+          setupRevision += 1
+          try {
+            const update = settingUpdateQueue.then(() =>
+              requestStatus(api, { port: value }),
+            )
+            settingUpdateQueue = update.then(
+              () => undefined,
+              () => undefined,
+            )
+            const status = await update
+            if (revision !== portRevision) return
+            await updatePathStatus(app, status)
+          } catch (error) {
+            if (revision !== portRevision) return
+            const messages = getRuntimeMessages(
+              app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+            )
+            app.extensionManager.toast.add({
+              severity: "error",
+              summary: messages.saveFailureSummary(PROJECT_NAME),
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : messages.unknownError,
+              life: 5000,
+            })
+            if (typeof oldValue === "number") {
+              try {
+                await setSettingFromBackend(app, PORT_SETTING, oldValue)
+              } catch {
+                // The original setting write has already been reported above.
+              }
+            }
+          }
+        },
+      },
+      {
+        id: MODEL_DIR_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp daemon", "config"],
+        name: "LLM models directory",
+        tooltip:
+          "Selects the directory used by the internal llama server on its next start; changing it does not restart a running server.",
+        type: "combo",
+        options: [],
+        defaultValue: "",
         sortOrder: -20,
         telemetry: { trackChanges: false },
+        async onChange(value, oldValue) {
+          if (syncingSettings.has(MODEL_DIR_SETTING) || oldValue === undefined)
+            return
+          if (
+            typeof value !== "string" ||
+            (latestStatus && !latestStatus.model_dirs.includes(value))
+          ) {
+            if (typeof oldValue === "string") {
+              await setSettingFromBackend(app, MODEL_DIR_SETTING, oldValue)
+            }
+            return
+          }
+          const revision = ++modelDirRevision
+          setupRevision += 1
+          try {
+            const update = settingUpdateQueue.then(() =>
+              requestStatus(api, { model_dir: value }),
+            )
+            settingUpdateQueue = update.then(
+              () => undefined,
+              () => undefined,
+            )
+            const status = await update
+            if (revision !== modelDirRevision) return
+            await updatePathStatus(app, status)
+          } catch (error) {
+            if (revision !== modelDirRevision) return
+            const messages = getRuntimeMessages(
+              app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+            )
+            app.extensionManager.toast.add({
+              severity: "error",
+              summary: messages.saveFailureSummary(PROJECT_NAME),
+              detail:
+                error instanceof Error
+                  ? error.message
+                  : messages.unknownError,
+              life: 5000,
+            })
+            if (typeof oldValue === "string") {
+              try {
+                await setSettingFromBackend(app, MODEL_DIR_SETTING, oldValue)
+              } catch {
+                // The original setting write has already been reported above.
+              }
+            }
+          }
+        },
       },
     ],
     async setup() {
@@ -219,16 +479,27 @@ export function registerLlamaCppRuntimeSettings(
         },
       )
       try {
-        const revision = settingChangeRevision
+        const revision = setupRevision
         const status = await requestStatus(api)
-        if (revision !== settingChangeRevision) return
+        if (revision !== setupRevision) return
+        await updatePathStatus(app, status)
         if (
           app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !==
           status.auto_start
         ) {
           await setSettingFromBackend(app, AUTO_START_SETTING, status.auto_start)
         }
-        await updatePathStatus(app, status)
+        if (
+          app.extensionManager.setting.get<number>(CTX_SIZE_SETTING) !==
+          status.ctx_size
+        ) {
+          await setSettingFromBackend(app, CTX_SIZE_SETTING, status.ctx_size)
+        }
+        if (
+          app.extensionManager.setting.get<number>(PORT_SETTING) !== status.port
+        ) {
+          await setSettingFromBackend(app, PORT_SETTING, status.port)
+        }
         showStartWarning(app, status)
       } catch {
         const messages = getRuntimeMessages(

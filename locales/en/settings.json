@@ -1,7 +1,7 @@
 {
   "OllamaImageList_LlamaCpp_AutoStart": {
     "name": "Internal llama.cpp runtime activation",
-    "tooltip": "When enabled, starts the PATH llama executable on 127.0.0.1:8080 now and on each ComfyUI startup."
+    "tooltip": "When enabled, starts the PATH llama executable on 127.0.0.1 at the configured port now and on each ComfyUI startup."
   },
   "OllamaImageList_LlamaCpp_PathStatus": {
     "name": "PATH availability",
@@ -14,5 +14,17 @@
   "OllamaImageList_LlamaCpp_Version": {
     "name": "llama version",
     "tooltip": "The version reported by llama --version."
+  },
+  "OllamaImageList_LlamaCpp_CtxSize": {
+    "name": "Context size",
+    "tooltip": "Takes effect the next time the internal server starts; editing this does not restart a running server."
+  },
+  "OllamaImageList_LlamaCpp_Port": {
+    "name": "Internal server port",
+    "tooltip": "Takes effect the next time the internal server starts; editing this does not restart a running server."
+  },
+  "OllamaImageList_LlamaCpp_ModelDir": {
+    "name": "LLM models directory",
+    "tooltip": "Selects the directory used by the internal llama server on its next start; changing it does not restart a running server."
   }
 }

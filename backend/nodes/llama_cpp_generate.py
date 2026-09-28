@@ -17,6 +17,7 @@ from ..core import (
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
+from ..llm_model_paths import get_llm_model_directories
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativeType
 from .llama_cpp_runtime import LlamaCppGemma4RuntimeType, normalize_gemma4_runtime
@@ -37,25 +38,7 @@ def _get_folder_paths():
 
 
 def _register_llm_folder(folder_paths) -> None:
-    source_paths: list[str] = []
-    for folder_name, (
-        paths,
-        _extensions,
-    ) in folder_paths.folder_names_and_paths.items():
-        if folder_name.casefold() == "llm":
-            source_paths.extend(paths)
-    source_paths.append(os.path.join(folder_paths.models_dir, "LLM"))
-
-    models_dirs: list[str] = []
-    seen: set[str] = set()
-    for path in source_paths:
-        normalized = os.path.abspath(os.path.normpath(path))
-        identity = os.path.normcase(normalized)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        models_dirs.append(normalized)
-
+    models_dirs = get_llm_model_directories(folder_paths)
     registered = folder_paths.folder_names_and_paths.get(LLM_FOLDER_NAME)
     if registered != (models_dirs, {".gguf"}):
         folder_paths.folder_names_and_paths[LLM_FOLDER_NAME] = (
