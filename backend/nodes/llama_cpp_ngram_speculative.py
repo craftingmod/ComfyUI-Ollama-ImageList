@@ -19,7 +19,7 @@ class LlamaCppNGramSpeculativePresetNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppNGramSpeculativePreset",
-            display_name="Llama.cpp N-gram Speculative Preset",
+            display_name="[llama.cpp] N-gram Speculative Preset",
             category="llama_cpp/legacy",
             is_deprecated=True,
             is_dev_only=True,

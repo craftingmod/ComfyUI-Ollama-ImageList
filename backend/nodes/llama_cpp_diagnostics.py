@@ -87,7 +87,7 @@ class LlamaCppMediaDiagnosticsNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppMediaDiagnostics",
-            display_name="Llama.cpp Media Diagnostics",
+            display_name="[llama.cpp] Media Diagnostics",
             category="llama_cpp/utils",
             description=(
                 "Expands the fork-specific MTMD ingestion receipt into capability flags, "

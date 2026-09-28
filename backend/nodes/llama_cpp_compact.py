@@ -424,7 +424,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
         names = list(COMPACT_MODEL_PROFILES)
         return io.Schema(
             node_id="OllamaImageList_LlamaCppModelProfile",
-            display_name="Llama.cpp Model Profile",
+            display_name="[llama.cpp] Model Profile",
             category=COMPACT_CATEGORY,
             description=(
                 "Bundles model-dependent handler and sampling defaults into one typed "
@@ -544,7 +544,7 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppHardwareRuntimeProfile",
-            display_name="Llama.cpp Hardware Runtime Profile",
+            display_name="[llama.cpp] Hardware Runtime Profile",
             category=COMPACT_CATEGORY,
             description=(
                 "Bundles hardware-dependent batch, offload, CPU, attention, and mmap "
@@ -632,7 +632,7 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppReasoningConfig",
-            display_name="Llama.cpp Thinking / Reasoning Config",
+            display_name="[llama.cpp] Thinking / Reasoning Config",
             category=COMPACT_CATEGORY,
             description=(
                 "Controls thinking/reasoning mode, effort, and token budget for "
@@ -709,7 +709,7 @@ class LlamaCppNGramSpeculativeConfigNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppNGramSpeculativeConfig",
-            display_name="Llama.cpp N-gram Speculative Config",
+            display_name="[llama.cpp] N-gram Speculative Config",
             category=COMPACT_CATEGORY,
             description=(
                 "Produces the shared Compact speculative input using model-free "
@@ -769,7 +769,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
         draft_options = _draft_gguf_options()
         return io.Schema(
             node_id="OllamaImageList_LlamaCppNativeSpeculativeConfig",
-            display_name="Llama.cpp Native Speculative Config (Compat)",
+            display_name="[llama.cpp] Native Speculative Config (Compat)",
             category=EXPERIMENTAL_CATEGORY,
             description=(
                 "Bundles DFlash, DSpark, or Native MTP configuration and its optional "
@@ -1496,7 +1496,7 @@ class LlamaCppProfiledGenerateNode(_LlamaCppGenerateNodeBase):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppProfiledGenerate",
-            display_name="Llama.cpp Generate",
+            display_name="[llama.cpp] Generate",
             category=COMPACT_CATEGORY,
             description=(
                 "Runs one multimodal llama.cpp completion using separate Compact model "
@@ -1517,7 +1517,7 @@ class LlamaCppSequentialGenerateNode(_LlamaCppGenerateNodeBase):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSequentialGenerate",
-            display_name="Llama.cpp Sequential Generate",
+            display_name="[llama.cpp] Sequential Generate",
             category=COMPACT_CATEGORY,
             description=(
                 "Loads llama.cpp once, resets context before every independent item, "

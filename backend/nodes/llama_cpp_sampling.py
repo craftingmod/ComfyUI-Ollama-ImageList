@@ -86,7 +86,7 @@ class LlamaCppSamplingPresetNode(io.ComfyNode):
         preset_names = list(SAMPLING_PRESETS)
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSamplingPreset",
-            display_name="Llama.cpp Sampling Preset",
+            display_name="[llama.cpp] Sampling Preset",
             category="llama_cpp/legacy",
             is_dev_only=True,
             is_deprecated=True,

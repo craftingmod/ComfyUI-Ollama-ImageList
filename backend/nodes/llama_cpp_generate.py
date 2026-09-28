@@ -177,7 +177,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
         model_options, mmproj_options = _gguf_options()
         return io.Schema(
             node_id="OllamaImageList_LlamaCppGenerate",
-            display_name="Llama.cpp Generate (Multimodal)",
+            display_name="[llama.cpp] Generate (Multimodal)",
             category="llama_cpp/legacy",
             description=(
                 "Loads one local GGUF model, analyzes optional image, audio, and video inputs in "

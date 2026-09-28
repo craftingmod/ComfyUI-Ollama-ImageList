@@ -129,7 +129,7 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
         inputs[thinking_index + 1 : thinking_index + 1] = reasoning_inputs
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSpeculativeGenerate",
-            display_name="Llama.cpp Speculative Generate (Experimental)",
+            display_name="[llama.cpp] Speculative Generate (Experimental)",
             category="llama_cpp/experimental",
             description=(
                 "Experimental native speculative decoding for DFlash/DSpark drafts, Gemma 4 "

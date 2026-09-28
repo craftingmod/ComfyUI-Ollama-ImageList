@@ -116,7 +116,7 @@ class LlamaCppGemma4RuntimePresetNode(io.ComfyNode):
         preset_names = list(GEMMA4_RUNTIME_PRESETS)
         return io.Schema(
             node_id="OllamaImageList_LlamaCppGemma4RuntimePreset",
-            display_name="Llama.cpp Gemma 4 Runtime Preset",
+            display_name="[llama.cpp] Gemma 4 Runtime Preset",
             category="llama_cpp/legacy",
             is_deprecated=True,
             is_dev_only=True,

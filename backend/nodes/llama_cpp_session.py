@@ -31,7 +31,7 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
         model_options, mmproj_options = _gguf_options()
         return io.Schema(
             node_id="OllamaImageList_LlamaCppCreateSession",
-            display_name="Llama.cpp Create Session",
+            display_name="[llama.cpp] Create Session",
             category=f"{COMPACT_CATEGORY}/session",
             description=(
                 "Keeps one Llama.cpp model resident until Llama.cpp Unload Session. "
@@ -76,7 +76,7 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSessionGenerate",
-            display_name="Llama.cpp Generate (Session)",
+            display_name="[llama.cpp] Generate (Session)",
             category=f"{COMPACT_CATEGORY}/session",
             description="Runs one request on a resident Llama.cpp session and carries it forward.",
             is_input_list=True,
@@ -160,7 +160,7 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppUnloadSession",
-            display_name="Llama.cpp Unload Session",
+            display_name="[llama.cpp] Unload Session",
             category=f"{COMPACT_CATEGORY}/session",
             description=(
                 "Closes a resident Llama.cpp session. Connect session and a final "
