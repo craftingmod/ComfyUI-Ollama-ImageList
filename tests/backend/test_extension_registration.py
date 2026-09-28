@@ -224,9 +224,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_CLIPGenerateText",
     ]
     assert [schema.display_name for schema in schemas] == [
-        "Ollama Image List Connectivity",
-        "Ollama Image List Options",
-        "Ollama Generate (Image List)",
+        "Ollama Connectivity (images)",
+        "Ollama Options (images)",
+        "Ollama Generate (with images)",
         "MiniMax System Prompt Preset",
         "Jinja Chat Template Preset",
         "Llama.cpp Sampling Preset",
@@ -245,12 +245,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Llama.cpp Generate (Multimodal)",
         "Llama.cpp Media Diagnostics",
         "Muse Glimmer Response Parser",
-        "CLIP Generate Text (Image List)",
+        "CLIP Text Encode (Multimodal)",
     ]
     assert [schema.category for schema in schemas] == [
-        "Ollama/Image List",
-        "Ollama/Image List",
-        "Ollama/Image List",
+        "Ollama/images",
+        "Ollama/images",
+        "Ollama/images",
         "Ollama/preset",
         "Ollama/preset",
         "Ollama/llama_cpp/legacy",
@@ -269,7 +269,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/llama_cpp/legacy",
         "Ollama/llama_cpp/utils",
         "Ollama/llama_cpp/utils",
-        "Ollama/CLIP",
+        "model/conditioning/multimodal",
     ]
     assert routes.handlers.keys() == {"/ollama_image_list/models"}
 

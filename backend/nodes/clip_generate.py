@@ -263,8 +263,8 @@ class ClipImageListGenerateNode(io.ComfyNode):
         ]
         return io.Schema(
             node_id="OllamaImageList_CLIPGenerateText",
-            display_name="CLIP Generate Text (Image List)",
-            category="Ollama/CLIP",
+            display_name="CLIP Text Encode (Multimodal)",
+            category="model/conditioning/multimodal",
             description=(
                 "Extends ComfyUI Generate Text with a system role and one-call IMAGE LIST support."
             ),

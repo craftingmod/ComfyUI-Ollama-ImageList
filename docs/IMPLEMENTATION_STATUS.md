@@ -17,7 +17,7 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 | Resize/padding/montage | Never automatic |
 | Public media scope | Ollama Generate exposes IMAGE; llama.cpp Generate exposes optional IMAGE, AUDIO, and VIDEO |
 | Native CLIP scope | Official Generate Text flow plus system role and IMAGE data lists for Qwen3-VL, Qwen3.5, and Gemma 4 |
-| Node categories | Ollama nodes use `Ollama / Image List`; native nodes use `Ollama / llama_cpp`; Compact profiles/generation use `compact`; diagnostics/parsers use `utils`; native speculative configuration uses `experimental`; four registered detailed schemas are development-only under `legacy`; the detailed speculative Generate class is not registered |
+| Node categories | Ollama image nodes use `Ollama / images`; native nodes use `Ollama / llama_cpp`; Compact profiles/generation use `compact`; diagnostics/parsers use `utils`; native speculative configuration uses `experimental`; four registered detailed schemas are development-only under `legacy`; the detailed speculative Generate class is not registered |
 | Native model lifetime | Serialized, one completion per load, unconditional close in `finally`, no retained model output or cache |
 | Authentication | URL-supported only; credentials are redacted from diagnostics |
 | Ollama Cloud | Not compatibility-tested |
@@ -36,7 +36,7 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 - JamePeng API cleanup keeps native decoding on the public `SpecConfig` + `Llama(speculative=...)` boundary, replaces the broad sequential proxy and private tokenizer/handler checks with a narrow explicit adapter, and does not inspect native engine metadata. Real wheel, GGUF, MTMD/video, and process-tree validation remain manual.
 - Normal Generate supports a separate typed N-gram Speculative Preset backed by the official `SpecConfig`/`SpeculativeType.NGRAM_MAP_K` or `NGRAM_MAP_K4V` path, with an unchanged off path, no draft GGUF, public-stat capture, and explicit rejection of mixed native/n-gram modes and multimodal requests.
 - Phase 6: per-request Ollama unload is implemented through `unload_after_response`; native llama.cpp audio and video message construction is implemented, including optional embedded-video-audio extraction for compact Generate and atomic IMAGE/AUDIO/VIDEO sequencing with flat `response` and typed `response_seq` outputs for Sequential Generate, while broad real-model compatibility validation remains pending. A dedicated native unload node is unnecessary because native models are never cached.
-- Native CLIP Generate Text: implemented with official sampling/generation calls, model-specific system-role templates, one-call IMAGE lists, tokenizer capability detection, and Gemma 4 PR #15450 compatibility fallback.
+- Native CLIP Text Encode (Multimodal): implemented with official sampling/generation calls, model-specific system-role templates, one-call IMAGE lists, tokenizer capability detection, and Gemma 4 PR #15450 compatibility fallback.
 
 The Ollama node intentionally exposes no audio or video input. Native llama.cpp support depends on a separately installed platform/Python/native-backend-compatible wheel, a wheel built with `MTMD_VIDEO` for VIDEO, and modality-specific GGUF/mmproj compatibility. The optional `video_with_audio` mode uses the PyAV package already required by supported ComfyUI installations. Detailed operational documentation is in [`LLAMA_CPP.md`](LLAMA_CPP.md).
 

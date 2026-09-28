@@ -2,7 +2,7 @@
 
 ## 결론
 
-`CLIP Generate Text (Image List)`는 ComfyUI 공식 `Generate Text` 노드의 공개 실행 경로를 유지하면서 다음 기능만 추가한다.
+`CLIP Text Encode (Multimodal)`는 ComfyUI 공식 `Generate Text` 노드의 공개 실행 경로를 유지하면서 다음 기능만 추가한다.
 
 1. 별도의 system prompt 입력과 실제 system-role chat template
 2. 한 번의 실행에서 IMAGE batch/data list/nested list 처리

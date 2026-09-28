@@ -13,8 +13,8 @@ class OllamaImageListConnectivityNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_Connectivity",
-            display_name="Ollama Image List Connectivity",
-            category="Ollama/Image List",
+            display_name="Ollama Connectivity (images)",
+            category="Ollama/images",
             description=(
                 "Fetches the models available from an Ollama server and outputs the selected "
                 "server URL and model name."

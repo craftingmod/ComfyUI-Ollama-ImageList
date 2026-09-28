@@ -4,9 +4,9 @@ ComfyUI V3 custom nodes that send a single stateless Ollama `/api/chat` request 
 
 ## Nodes
 
-- **Ollama Image List Connectivity** — fetches available models from an Ollama server and outputs the selected URL and model name.
-- **Ollama Image List Options** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
-- **Ollama Generate (Image List)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
+- **Ollama Connectivity (images)** — fetches available models from an Ollama server and outputs the selected URL and model name.
+- **Ollama Options (images)** — builds Generate-compatible options dictionary and JSON outputs from individually enabled Ollama runtime parameters.
+- **Ollama Generate (with images)** — sends the system prompt, user prompt, and all normalized images in one non-streaming request.
 
 ## Install
 

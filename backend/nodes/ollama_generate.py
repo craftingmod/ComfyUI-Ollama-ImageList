@@ -41,8 +41,8 @@ class OllamaImageListGenerateNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_Generate",
-            display_name="Ollama Generate (Image List)",
-            category="Ollama/Image List",
+            display_name="Ollama Generate (with images)",
+            category="Ollama/images",
             description=(
                 "Sends one stateless /api/chat request containing all normalized images. "
                 "Original image dimensions and list order are preserved."

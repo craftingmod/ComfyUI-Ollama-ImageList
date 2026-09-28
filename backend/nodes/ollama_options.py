@@ -31,8 +31,8 @@ class OllamaImageListOptionsNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_Options",
-            display_name="Ollama Image List Options",
-            category="Ollama/Image List",
+            display_name="Ollama Options (images)",
+            category="Ollama/images",
             description=(
                 "Builds an Ollama options dictionary and JSON string from individually enabled "
                 "runtime parameters. Disabled parameters are omitted."
