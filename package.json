@@ -30,7 +30,7 @@
     "test": "bun test:frontend && bun test:backend -v",
     "test:agent": "AGENT=1 bun test:frontend --only-failures && bun test:backend -q",
     "test:frontend": "bun test --preload ./frontend/test/setup.ts --parallel frontend/test",
-    "test:backend": "uvx pytest -p no:cacheprovider -n auto tests/python tests/backend",
+    "test:backend": "uv run --with pytest-xdist pytest -p no:cacheprovider -n auto tests/python tests/backend",
     "typecheck": "bun typecheck:frontend && bun typecheck:test",
     "typecheck:frontend": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json",
     "typecheck:test": "tsc --noEmit -p ./frontend/test/tsconfig.json",

@@ -9,6 +9,10 @@ except (
 from comfy_api.latest import Caching, ComfyAPI
 
 from .llama_cpp_session_cleanup import close_tracked_sessions
+from .llama_cpp_runtime import (
+    initialize_llama_cpp_runtime,
+    register_runtime_routes,
+)
 from .nodes import (
     ClipImageListGenerateNode,
     JinjaChatTemplatePresetNode,
@@ -85,4 +89,6 @@ class OllamaImageListExtension(ComfyExtension):
 
 async def comfy_entrypoint() -> OllamaImageListExtension:
     register_routes()
+    register_runtime_routes()
+    initialize_llama_cpp_runtime()
     return OllamaImageListExtension()

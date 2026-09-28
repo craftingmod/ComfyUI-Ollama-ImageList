@@ -1,0 +1,18 @@
+{
+  "OllamaImageList_LlamaCpp_AutoStart": {
+    "name": "내부 llama.cpp 런타임 활성화",
+    "tooltip": "켜면 PATH의 llama로 127.0.0.1:8080 서버를 시작하고, 이후 ComfyUI를 시작할 때도 자동 실행합니다."
+  },
+  "OllamaImageList_LlamaCpp_PathStatus": {
+    "name": "PATH 실행 가능 여부",
+    "tooltip": "ComfyUI의 PATH에서 llama 실행 파일을 찾을 수 있는지 표시합니다."
+  },
+  "OllamaImageList_LlamaCpp_ExecutablePath": {
+    "name": "llama 실행 파일 경로",
+    "tooltip": "llama를 찾았을 때 확인된 실행 파일 경로입니다."
+  },
+  "OllamaImageList_LlamaCpp_Version": {
+    "name": "llama 버전",
+    "tooltip": "llama --version 명령이 반환한 버전입니다."
+  }
+}

@@ -26,7 +26,7 @@ PublisherId = "alyac"
 DisplayName = "Ollama-ImageList"
 requires-comfyui = ">=0.19.3"
 Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Ollama-ImageList@latest/docs/icon.svg"
-includes = ["dist"]
+includes = ["dist", "locales"]
 
 [tool.uv.sources]
 llama-cpp-python = { git = "https://github.com/JamePeng/llama-cpp-python.git", branch = "main" }

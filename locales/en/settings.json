@@ -1,0 +1,18 @@
+{
+  "OllamaImageList_LlamaCpp_AutoStart": {
+    "name": "Internal llama.cpp runtime activation",
+    "tooltip": "When enabled, starts the PATH llama executable on 127.0.0.1:8080 now and on each ComfyUI startup."
+  },
+  "OllamaImageList_LlamaCpp_PathStatus": {
+    "name": "PATH availability",
+    "tooltip": "Whether the llama executable is available on ComfyUI's PATH."
+  },
+  "OllamaImageList_LlamaCpp_ExecutablePath": {
+    "name": "llama executable path",
+    "tooltip": "The resolved executable path when llama is available."
+  },
+  "OllamaImageList_LlamaCpp_Version": {
+    "name": "llama version",
+    "tooltip": "The version reported by llama --version."
+  }
+}
