@@ -16,28 +16,35 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "bun run typecheck && bun frontend/dev.ts",
+    "build": "bun typecheck && bun frontend/build.ts",
+    "build:custom-node": "bun scripts/build-custom-nodes.ts",
+    "build:css-type": "bun scripts/create-modulecss-types.ts",
+    "dev": "bun typecheck && bun frontend/dev.ts",
+    "fmt": "oxfmt && bun fmt:backend",
+    "fmt:check": "oxfmt --check && bun fmt:backend --check",
+    "fmt:backend": "uvx ruff format --no-cache .",
+    "lint": "oxlint && bun lint:backend",
+    "lint:agent": "oxlint --format=agent && bun lint:backend --output-format 'json'",
+    "lint:fix": "oxlint --fix && bun lint:backend --fix",
+    "lint:backend": "uvx ruff check --no-cache .",
+    "test": "bun test:frontend && bun test:backend -v",
+    "test:agent": "AGENT=1 bun test:frontend --only-failures && bun test:backend -q",
+    "test:frontend": "bun test --preload ./frontend/test/setup.ts --parallel frontend/test",
+    "test:backend": "uvx pytest -p no:cacheprovider -n auto tests/python tests/backend",
+    "typecheck": "bun typecheck:frontend && bun typecheck:test",
+    "typecheck:frontend": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json",
+    "typecheck:test": "tsc --noEmit -p ./frontend/test/tsconfig.json",
+    "validate": "bun typecheck && bun lint && bun fmt:check && bun test",
+    "validate:agent": "bun typecheck && bun lint:agent && bun fmt:check && bun test:agent",
+    "validate:ci": "bun validate",
+    "init:template": "bun scripts/init-template.ts",
+    "setup:local": "bun scripts/setup-local.ts",
     "deploy:dev": "bun run build && bun scripts/deploy-dev.ts",
     "deploy:local": "bun scripts/deploy-local.ts",
-    "build": "bun run typecheck && bun frontend/build.ts",
-    "build:custom-node": "bun scripts/build-custom-nodes.ts",
-    "fmt": "oxfmt && uv run ruff format",
-    "fmt:check": "oxfmt --check && uv run ruff format --check",
-    "lint": "oxlint && uv run ruff check .",
-    "lint:fix": "oxlint --fix && uv run ruff check --fix .",
-    "init:template": "bun scripts/init-template.ts",
     "release:check": "bun scripts/validate-release.ts",
     "release:github": "bun scripts/prepare-github-release.ts",
     "skills:sync": "bun scripts/sync-comfyui-skills.ts",
     "skills:check": "bun scripts/sync-comfyui-skills.ts --check",
-    "setup:local": "bun scripts/setup-local.ts",
-    "test": "bun run test:unit",
-    "test:frontend": "bun test --preload ./frontend/test/setup.ts --parallel frontend/test",
-    "test:backend": "uv run pytest -n auto tests/python tests/backend -q",
-    "test:unit": " bun run --parallel test:frontend test:backend",
-    "test:watch": "bun test --preload ./frontend/test/setup.ts --watch frontend/test",
-    "test:coverage": "bun test --preload ./frontend/test/setup.ts --coverage frontend/test",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./frontend/src/tsconfig.json && tsc --noEmit -p ./frontend/test/tsconfig.json",
     "version:bump": "bun scripts/bump-version.ts"
   },
   "devDependencies": {
@@ -49,6 +56,7 @@
     "lint-staged": "^17.3.0",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
+    "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7.0.2"
   },
   "overrides": {
@@ -57,8 +65,8 @@
   "lint-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern",
     "*.py": [
-      "uv run ruff check --fix",
-      "uv run ruff format"
+      "uvx ruff check --fix",
+      "uvx ruff format"
     ]
   },
   "packageManager": "bun@1.4.0"

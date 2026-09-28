@@ -1,11 +1,15 @@
 import { defineConfig } from "oxlint"
-
 export default defineConfig({
   categories: {
     correctness: "warn",
   },
-  ignorePatterns: [".agents/**"],
-  plugins: ["import"],
+  options: {
+    typeAware: true,
+    typeCheck: true,
+  },
+  ignorePatterns: [".agents/**", "docs/**"],
+  plugins: ["import", "typescript", "oxc"],
+  jsPlugins: [],
   // https://oxc.rs/docs/guide/usage/linter/rules.html
   rules: {
     "eslint/no-unused-expressions": [
@@ -14,6 +18,7 @@ export default defineConfig({
         allowTaggedTemplates: true,
       },
     ],
+    "import/consistent-type-specifier-style": ["warn", "prefer-top-level-if-only-type-imports"],
     "import/extensions": [
       "error",
       "always",
@@ -22,5 +27,15 @@ export default defineConfig({
         checkTypeImports: true,
       },
     ],
+    "import/no-commonjs": "error",
+    "import/no-duplicates": "warn",
+    "import/no-cycle": [
+      "error",
+      {
+        maxDepth: 3,
+      },
+    ],
+    /* Too much effort on react */
+    "typescript/unbound-method": "off",
   },
 })
