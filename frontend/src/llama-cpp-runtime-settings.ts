@@ -5,6 +5,7 @@ import { getRuntimeMessages } from "./llama-cpp-runtime-messages.ts"
 
 const RUNTIME_ROUTE = "/ollama_image_list/llama_cpp/runtime"
 const RUNTIME_RESTART_ROUTE = `${RUNTIME_ROUTE}/restart`
+const RUNTIME_DOWNLOAD_ROUTE = `${RUNTIME_ROUTE}/download`
 const COMFY_LOCALE_SETTING = "Comfy.Locale"
 const AUTO_START_SETTING = "OllamaImageList.LlamaCpp.AutoStart"
 const RESTART_SETTING = "OllamaImageList.LlamaCpp.Restart"
@@ -28,6 +29,14 @@ const SERVICE_STATES = [
   "stopping",
   "failed",
 ] as const
+const DOWNLOAD_STATES = [
+  "idle",
+  "downloading",
+  "installing",
+  "installed",
+  "error",
+] as const
+const DOWNLOAD_POLL_INTERVAL_MS = 1000
 
 type RuntimeSettingsUpdate = {
   auto_start?: boolean
@@ -46,10 +55,18 @@ type RuntimeStatus = {
   model_dirs: string[]
   default_model_dir: string
   llama_available: boolean
+  llama_source: "path" | "internal" | null
   llama_executable: string | null
   llama_version: string | null
   running: boolean
   error: string | null
+  download_state: (typeof DOWNLOAD_STATES)[number]
+  download_target: string | null
+  download_supported: boolean
+  download_support_error: string | null
+  download_bytes_received: number
+  download_bytes_total: number | null
+  download_error: string | null
 }
 
 const syncingSettings = new Map<string, number>()
@@ -61,6 +78,18 @@ let modelDirRevision = 0
 let settingUpdateQueue: Promise<void> = Promise.resolve()
 let latestStatus: RuntimeStatus | undefined
 let restartInProgress = false
+let downloadInProgress = false
+let downloadStartPending = false
+let downloadRequestError: string | null = null
+let downloadPollTimer: ReturnType<typeof setTimeout> | undefined
+let downloadView:
+  | {
+      app: ComfyApp
+      button: HTMLButtonElement
+      progress: HTMLProgressElement
+      message: HTMLElement
+    }
+  | undefined
 
 async function setSettingFromBackend(
   app: ComfyApp,
@@ -82,6 +111,9 @@ async function updatePathStatus(
   status: RuntimeStatus,
 ): Promise<void> {
   latestStatus = status
+  const messages = getRuntimeMessages(
+    app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+  )
   const settings = app.ui.settings as any
   const modelDirSetting = settings.settingsParamLookup?.[MODEL_DIR_SETTING]
   if (modelDirSetting) {
@@ -99,7 +131,11 @@ async function updatePathStatus(
   )
   await app.extensionManager.setting.set(
     PATH_STATUS_SETTING,
-    status.llama_available ? "available" : "unavailable",
+    status.llama_source === "path"
+      ? messages.pathAvailable
+      : status.llama_source === "internal"
+        ? messages.internalInstallAvailable
+        : messages.pathUnavailable,
   )
   await app.extensionManager.setting.set(
     EXECUTABLE_PATH_SETTING,
@@ -109,9 +145,201 @@ async function updatePathStatus(
     LLAMA_VERSION_SETTING,
     status.llama_version ?? "—",
   )
+  downloadInProgress =
+    downloadStartPending || isDownloadActive(status.download_state)
+  renderDownloadView()
+}
+
+function isDownloadActive(state: RuntimeStatus["download_state"]): boolean {
+  return state === "downloading" || state === "installing"
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ["KB", "MB", "GB", "TB"]
+  let value = bytes
+  let unit = -1
+  do {
+    value /= 1024
+    unit += 1
+  } while (value >= 1024 && unit < units.length - 1)
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`
+}
+
+function renderDownloadView(): void {
+  if (!downloadView) return
+  const { app, button, progress, message } = downloadView
+  const status = latestStatus
+  const messages = getRuntimeMessages(
+    app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+  )
+  const state = status?.download_state
+  const active =
+    downloadInProgress || (state !== undefined && isDownloadActive(state))
+  const installed = state === "installed"
+  const target = status?.download_target ?? "llama.cpp"
+  progress.setAttribute("aria-label", messages.downloadProgressLabel)
+
+  button.textContent = active
+    ? state === "installing"
+      ? messages.installing(target)
+      : state === "downloading" && status
+        ? messages.downloading(
+            target,
+            status.download_bytes_total && status.download_bytes_total > 0
+              ? `${formatBytes(status.download_bytes_received)} / ${formatBytes(status.download_bytes_total)}`
+              : formatBytes(status.download_bytes_received),
+          )
+        : messages.downloadStarting
+    : messages.downloadButton
+  button.disabled =
+    !status ||
+    status.llama_available ||
+    !status.download_supported ||
+    installed ||
+    active
+
+  progress.hidden = state !== "downloading"
+  if (state === "downloading" && status) {
+    if (status.download_bytes_total && status.download_bytes_total > 0) {
+      progress.max = status.download_bytes_total
+      progress.value = status.download_bytes_received
+    } else {
+      progress.removeAttribute("value")
+    }
+  }
+
+  if (downloadRequestError) {
+    message.textContent = messages.downloadFailed(downloadRequestError)
+  } else if (state === "downloading" && status) {
+    const total = status.download_bytes_total
+    const received = formatBytes(status.download_bytes_received)
+    message.textContent = messages.downloading(
+      target,
+      total && total > 0 ? `${received} / ${formatBytes(total)}` : received,
+    )
+  } else if (state === "installing") {
+    message.textContent = messages.installing(target)
+  } else if (state === "installed") {
+    message.textContent = messages.installed(target)
+  } else if (state === "error") {
+    message.textContent = messages.downloadFailed(
+      status?.download_error ?? messages.unknownError,
+    )
+  } else if (status && !status.llama_available && !status.download_supported) {
+    message.textContent =
+      status.download_support_error ?? messages.downloadUnsupported
+  } else {
+    message.textContent = ""
+  }
+}
+
+function scheduleDownloadStatusPoll(app: ComfyApp, api: ComfyApi): void {
+  if (downloadPollTimer !== undefined) clearTimeout(downloadPollTimer)
+  downloadPollTimer = setTimeout(() => {
+    downloadPollTimer = undefined
+    void refreshDownloadStatus(app, api)
+  }, DOWNLOAD_POLL_INTERVAL_MS)
+}
+
+async function refreshDownloadStatus(
+  app: ComfyApp,
+  api: ComfyApi,
+  keepRequestError = false,
+): Promise<void> {
+  const wasActive = downloadInProgress
+  try {
+    const status = await requestLatestStatus(api)
+    if (
+      !keepRequestError ||
+      isDownloadActive(status.download_state) ||
+      status.download_state === "installed" ||
+      status.download_state === "error"
+    ) {
+      downloadRequestError = null
+    }
+    if (status.download_state !== "idle") downloadStartPending = false
+    await updatePathStatus(app, status)
+    if (wasActive && status.download_state === "installed") {
+      showStartWarning(app, status)
+    }
+    if (downloadStartPending || isDownloadActive(status.download_state)) {
+      scheduleDownloadStatusPoll(app, api)
+    }
+  } catch (error) {
+    downloadInProgress = true
+    downloadRequestError =
+      error instanceof Error
+        ? error.message
+        : "Could not refresh download status."
+    renderDownloadView()
+    scheduleDownloadStatusPoll(app, api)
+  }
+}
+
+async function startDownload(app: ComfyApp, api: ComfyApi): Promise<void> {
+  if (
+    downloadInProgress ||
+    !latestStatus ||
+    latestStatus.llama_available ||
+    latestStatus.download_state === "installed" ||
+    !latestStatus.download_supported
+  )
+    return
+  downloadInProgress = true
+  downloadStartPending = true
+  downloadRequestError = null
+  renderDownloadView()
+  try {
+    const start = settingUpdateQueue.then(() =>
+      api.fetchApi(RUNTIME_DOWNLOAD_ROUTE, { method: "POST" }),
+    )
+    settingUpdateQueue = start.then(
+      () => undefined,
+      () => undefined,
+    )
+    const response = await start
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => null)
+      throw new Error(
+        payload && typeof payload === "object" && "error" in payload
+          ? String(payload.error)
+          : `ComfyUI returned HTTP ${response.status}.`,
+      )
+    }
+    await refreshDownloadStatus(app, api)
+  } catch (error) {
+    downloadStartPending = false
+    downloadRequestError =
+      error instanceof Error ? error.message : "Unknown error."
+    await refreshDownloadStatus(app, api, true)
+  }
+}
+
+function createDownloadControl(app: ComfyApp, api: ComfyApi): HTMLElement {
+  const wrapper = document.createElement("div")
+  wrapper.style.display = "flex"
+  wrapper.style.flexWrap = "wrap"
+  wrapper.style.gap = "4px"
+
+  const button = document.createElement("button")
+  button.type = "button"
+  button.addEventListener("click", () => void startDownload(app, api))
+  const progress = document.createElement("progress")
+  progress.setAttribute("aria-label", "llama.cpp download progress")
+  progress.hidden = true
+  const message = document.createElement("div")
+  message.setAttribute("role", "status")
+  message.setAttribute("aria-live", "polite")
+  wrapper.append(message, progress, button)
+  downloadView = { app, button, progress, message }
+  renderDownloadView()
+  void refreshDownloadStatus(app, api)
+  return wrapper
 }
 
 function showStartWarning(app: ComfyApp, status: RuntimeStatus): void {
+  if (isDownloadActive(status.download_state)) return
   if (status.state === "failed" || (status.auto_start && !status.running)) {
     const messages = getRuntimeMessages(
       app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
@@ -177,6 +405,10 @@ async function requestStatus(
     !payload.model_dirs.includes(payload.default_model_dir) ||
     !("llama_available" in payload) ||
     typeof payload.llama_available !== "boolean" ||
+    !("llama_source" in payload) ||
+    (payload.llama_source !== "path" &&
+      payload.llama_source !== "internal" &&
+      payload.llama_source !== null) ||
     !("llama_executable" in payload) ||
     (typeof payload.llama_executable !== "string" &&
       payload.llama_executable !== null) ||
@@ -186,7 +418,31 @@ async function requestStatus(
     !("running" in payload) ||
     typeof payload.running !== "boolean" ||
     !("error" in payload) ||
-    (typeof payload.error !== "string" && payload.error !== null)
+    (typeof payload.error !== "string" && payload.error !== null) ||
+    !("download_state" in payload) ||
+    typeof payload.download_state !== "string" ||
+    !DOWNLOAD_STATES.includes(
+      payload.download_state as RuntimeStatus["download_state"],
+    ) ||
+    !("download_target" in payload) ||
+    (typeof payload.download_target !== "string" && payload.download_target !== null) ||
+    !("download_supported" in payload) ||
+    typeof payload.download_supported !== "boolean" ||
+    !("download_support_error" in payload) ||
+    (typeof payload.download_support_error !== "string" &&
+      payload.download_support_error !== null) ||
+    !("download_bytes_received" in payload) ||
+    typeof payload.download_bytes_received !== "number" ||
+    !Number.isInteger(payload.download_bytes_received) ||
+    payload.download_bytes_received < 0 ||
+    !("download_bytes_total" in payload) ||
+    (typeof payload.download_bytes_total !== "number" &&
+      payload.download_bytes_total !== null) ||
+    (typeof payload.download_bytes_total === "number" &&
+      (!Number.isInteger(payload.download_bytes_total) ||
+        payload.download_bytes_total < 0)) ||
+    !("download_error" in payload) ||
+    (typeof payload.download_error !== "string" && payload.download_error !== null)
   ) {
     const detail =
       payload && typeof payload === "object" && "error" in payload
@@ -195,6 +451,17 @@ async function requestStatus(
     throw new Error(detail)
   }
   return payload as RuntimeStatus
+}
+
+let currentStatusRequest: Promise<RuntimeStatus> | undefined
+
+function requestLatestStatus(api: ComfyApi): Promise<RuntimeStatus> {
+  if (currentStatusRequest) return currentStatusRequest
+  const request = requestStatus(api).finally(() => {
+    if (currentStatusRequest === request) currentStatusRequest = undefined
+  })
+  currentStatusRequest = request
+  return request
 }
 
 function createRestartButton(app: ComfyApp, api: ComfyApi): HTMLButtonElement {
@@ -276,7 +543,7 @@ export function registerLlamaCppRuntimeSettings(
           "Starts the PATH llama executable on 127.0.0.1 now and on each ComfyUI startup. Settings changes restart the owned service; closing ComfyUI stops it.",
         type: "boolean",
         defaultValue: false,
-        sortOrder: 40,
+        sortOrder: 100,
         async onChange(value, oldValue) {
           if (
             syncingSettings.has(AUTO_START_SETTING) ||
@@ -330,7 +597,53 @@ export function registerLlamaCppRuntimeSettings(
         type: "text",
         attrs: { readonly: true },
         defaultValue: "stopped",
-        sortOrder: 30,
+        sortOrder: 90,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: "OllamaImageList.LlamaCpp.Download" as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "DownloadActor"],
+        name: "Download llama.cpp",
+        tooltip: "Download and install the supported llama.cpp build for this runtime.",
+        type: () => createDownloadControl(app, api),
+        defaultValue: null,
+        sortOrder: 95,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: PATH_STATUS_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "PathStatus"],
+        name: "llama executable availability",
+        tooltip:
+          "Shows whether llama is available on PATH or provided by the internal install.",
+        type: "text",
+        attrs: { readonly: true, style: { width: "auto" } },
+        defaultValue: getRuntimeMessages(
+          app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+        ).checking,
+        sortOrder: 80,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: EXECUTABLE_PATH_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "ExecutablePath"],
+        name: "llama executable path",
+        tooltip: "The resolved executable path when llama is available.",
+        type: "text",
+        attrs: { readonly: true, style: { width: "26rem" } },
+        defaultValue: "—",
+        sortOrder: 50,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: LLAMA_VERSION_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "Version"],
+        name: "llama version",
+        tooltip: "The version reported by llama --version.",
+        type: "text",
+        attrs: { readonly: true, style: { width: "26rem" } },
+        defaultValue: "—",
+        sortOrder: 60,
         telemetry: { trackChanges: false },
       },
       {
@@ -342,42 +655,7 @@ export function registerLlamaCppRuntimeSettings(
         ).restartTooltip,
         type: () => createRestartButton(app, api),
         defaultValue: null,
-        sortOrder: 25,
-        telemetry: { trackChanges: false },
-      },
-      {
-        id: PATH_STATUS_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp Daemon", "PathStatus"],
-        name: "PATH availability",
-        tooltip: "Whether the llama executable is available on ComfyUI's PATH.",
-        type: "text",
-        attrs: { readonly: true, style: { } },
-        defaultValue: getRuntimeMessages(
-          app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
-        ).checking,
         sortOrder: 30,
-        telemetry: { trackChanges: false },
-      },
-      {
-        id: EXECUTABLE_PATH_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp Daemon", "ExecutablePath"],
-        name: "llama executable path",
-        tooltip: "The resolved executable path when llama is available.",
-        type: "text",
-        attrs: { readonly: true, style: { width: "inherit" } },
-        defaultValue: "—",
-        sortOrder: 20,
-        telemetry: { trackChanges: false },
-      },
-      {
-        id: LLAMA_VERSION_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp Daemon", "Version"],
-        name: "llama version",
-        tooltip: "The version reported by llama --version.",
-        type: "text",
-        attrs: { readonly: true, style: { width: "26rem" } },
-        defaultValue: "—",
-        sortOrder: 10,
         telemetry: { trackChanges: false },
       },
       {
@@ -585,14 +863,19 @@ export function registerLlamaCppRuntimeSettings(
         () => {
           if (latestStatus) {
             void updatePathStatus(app, latestStatus).catch(() => undefined)
+          } else {
+            renderDownloadView()
           }
         },
       )
       try {
         const revision = setupRevision
-        const status = await requestStatus(api)
+        const status = await requestLatestStatus(api)
         if (revision !== setupRevision) return
         await updatePathStatus(app, status)
+        if (isDownloadActive(status.download_state)) {
+          void refreshDownloadStatus(app, api)
+        }
         if (
           app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !==
           status.auto_start

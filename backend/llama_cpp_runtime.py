@@ -2,20 +2,28 @@ from __future__ import annotations
 
 import atexit
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
 import os
+import platform
 import shutil
 import socket
+import stat
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
+import zipfile
 from pathlib import Path
-from threading import Lock
+from pathlib import PurePosixPath
+from threading import Lock, Thread
 from typing import Any
-from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from aiohttp import web
 
@@ -27,6 +35,7 @@ from .llm_model_paths import (
 
 RUNTIME_ROUTE = "/ollama_image_list/llama_cpp/runtime"
 RUNTIME_RESTART_ROUTE = f"{RUNTIME_ROUTE}/restart"
+RUNTIME_DOWNLOAD_ROUTE = f"{RUNTIME_ROUTE}/download"
 _DEFAULT_PORT = 18582
 _MIN_PORT = 1024
 _MAX_PORT = 65535
@@ -40,9 +49,110 @@ _HEALTH_POLL_INTERVAL_SECONDS = 0.2
 _SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS = 8
 _VERSION_PROBE_TIMEOUT = 3
 _VERSION_DISPLAY_LIMIT = 256
+_LLAMA_RELEASE = "b11146"
+_LLAMA_RELEASE_URL = "https://github.com/ggml-org/llama.cpp/releases/download/b11146/{}"
+_DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+_DOWNLOAD_TIMEOUT_SECONDS = 30
+_INSTALL_MARKER = "install.json"
+_ALLOWED_REDIRECT_HOSTS = {
+    "github.com",
+    "release-assets.githubusercontent.com",
+    "objects.githubusercontent.com",
+}
+_RELEASE_ASSETS: dict[tuple[str, str, str], tuple[tuple[str, str], ...]] = {
+    ("windows", "x64", "cpu"): (
+        (
+            "llama-b11146-bin-win-cpu-x64.zip",
+            "14cf1303ca9ac3abd94816850532f9f9a69ac66fbaca3776fc6f9061c2fac1d1",
+        ),
+    ),
+    ("windows", "arm64", "cpu"): (
+        (
+            "llama-b11146-bin-win-cpu-arm64.zip",
+            "1727d241f3bf6d27360e984e851cf013928fd655bf89f8628e70da027f377b7d",
+        ),
+    ),
+    ("windows", "x64", "cuda"): (
+        (
+            "llama-b11146-bin-win-cuda-13.4-x64.zip",
+            "b1866c0ce76bc7bfb0c24b33e9a37e9669f1be18539b12c74ce361f81c41f047",
+        ),
+        (
+            "cudart-llama-bin-win-cuda-13.4-x64.zip",
+            "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668",
+        ),
+    ),
+    ("windows", "arm64", "cuda"): (
+        (
+            "llama-b11146-bin-win-cuda-13.4-arm64.zip",
+            "a4060b5031a0e862e225d4a7c4aa403852ebedf598906ef8258a86cb77de8351",
+        ),
+        (
+            "cudart-llama-bin-win-cuda-13.4-arm64.zip",
+            "642dcde8805b3e3165ca710a5443b3b4044b27d96bd3ee3132473988c9bcb774",
+        ),
+    ),
+    ("windows", "x64", "rocm"): (
+        (
+            "llama-b11146-bin-win-rocm-10.0-x64.zip",
+            "5dee283ec0fd5f38f29df0929769a07266ac6047f74381c153eb54b441e4ef99",
+        ),
+    ),
+    ("macos", "x64", "cpu"): (
+        (
+            "llama-b11146-bin-macos-x64.tar.gz",
+            "305f0e3a17d2c01eb205cd0a62128357f1ec3b55329cb084d94e5ec0115d7a3b",
+        ),
+    ),
+    ("macos", "arm64", "cpu"): (
+        (
+            "llama-b11146-bin-macos-arm64.tar.gz",
+            "1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711",
+        ),
+    ),
+    ("linux", "x64", "cpu"): (
+        (
+            "llama-b11146-bin-ubuntu-x64.tar.gz",
+            "c150306eb16b5ab696f76a8bdf810c35fd98a24e82158742e6fa28f420ff8410",
+        ),
+    ),
+    ("linux", "arm64", "cpu"): (
+        (
+            "llama-b11146-bin-ubuntu-arm64.tar.gz",
+            "4aeda6fe68831547e49b7fa87607383ca5352b3d72ca5f70d52ed265f58c131f",
+        ),
+    ),
+    ("linux", "x64", "cuda"): (
+        (
+            "llama-b11146-bin-ubuntu-cuda-13.4-x64.tar.gz",
+            "1603d9c00a4b6eac8298c5c7868cdb080a3ac31948ab1e457441d71ce274dd7e",
+        ),
+        (
+            "cudart-llama-b11146-bin-ubuntu-cuda-13.4-x64.tar.gz",
+            "7c2af505f8b26ecd3707ab7723fa985fee1df233b7c1d60e5e17724b536d15bb",
+        ),
+    ),
+    ("linux", "arm64", "cuda"): (
+        (
+            "llama-b11146-bin-ubuntu-cuda-13.4-arm64.tar.gz",
+            "4e00496ab6cdee9c00afb11de3cb9d10f9da7e17147d8ed14ca3af05209b400f",
+        ),
+        (
+            "cudart-llama-b11146-bin-ubuntu-cuda-13.4-arm64.tar.gz",
+            "7f46057efcba6338c58ed9f91c06f268c290f3a228fdbdd4bea229dd60b0e094",
+        ),
+    ),
+    ("linux", "x64", "rocm"): (
+        (
+            "llama-b11146-bin-ubuntu-rocm-10.0-x64.tar.gz",
+            "50e79dc559a11af3ea59391d416e9a704a715ac6be94352dbba710782c5dd7d1",
+        ),
+    ),
+}
 _logger = logging.getLogger(__name__)
 _lock = Lock()
 _restart_lock = Lock()
+_download_lock = Lock()
 _auto_start = False
 _ctx_size = _DEFAULT_CTX_SIZE
 _port = _DEFAULT_PORT
@@ -55,6 +165,12 @@ _last_error: str | None = None
 _routes_registered = False
 _version_probe_executable: str | None = None
 _llama_version: str | None = None
+_download_state = "idle"
+_download_target: str | None = None
+_download_bytes_received = 0
+_download_bytes_total: int | None = None
+_download_error: str | None = None
+_download_thread: Thread | None = None
 _CONFIG_DIRECTORY_ERROR = (
     "This ComfyUI version does not provide the protected system user directory "
     "API; internal llama.cpp settings are unavailable."
@@ -74,6 +190,142 @@ def _config_path() -> Path:
     if callable(get_system_user_directory):
         return Path(get_system_user_directory("llama_cpp")) / _CONFIG_NAME
     raise RuntimeError(_CONFIG_DIRECTORY_ERROR)
+
+
+def _select_release_asset(
+    platform_name: str, machine: str, backend: str
+) -> dict[str, Any]:
+    os_name = {
+        "win32": "windows",
+        "darwin": "macos",
+        "linux": "linux",
+    }.get(platform_name)
+    if os_name is None:
+        raise ValueError(f"llama.cpp downloads are unsupported on {platform_name}.")
+
+    architecture = machine.casefold().replace("_", "").replace("-", "")
+    arch = {
+        "amd64": "x64",
+        "x8664": "x64",
+        "x64": "x64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(architecture)
+    if arch is None:
+        raise ValueError(f"llama.cpp downloads are unsupported on {machine}.")
+
+    if os_name == "macos":
+        backend = "cpu"
+    if backend not in {"cpu", "cuda", "rocm"}:
+        raise ValueError(f"Unsupported llama.cpp backend: {backend}.")
+    key = (os_name, arch, backend)
+    assets = _RELEASE_ASSETS.get(key)
+    if assets is None:
+        description = f"{os_name} {arch} {backend}"
+        raise ValueError(f"No b11146 llama.cpp build is available for {description}.")
+
+    backend_label = {
+        "cpu": "CPU",
+        "cuda": "CUDA 13.4",
+        "rocm": "ROCm 10.0",
+    }[backend]
+    os_label = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}[
+        os_name
+    ]
+    label = (
+        f"{os_label} {arch}"
+        if os_name == "macos"
+        else f"{os_label} {arch} {backend_label}"
+    )
+    return {
+        "os": os_name,
+        "arch": arch,
+        "backend": backend,
+        "directory": f"{os_name}-{arch}-{backend}",
+        "label": label,
+        "assets": assets,
+    }
+
+
+def _current_release_selection() -> dict[str, Any]:
+    if sys.platform not in {"win32", "darwin", "linux"}:
+        return _select_release_asset(sys.platform, platform.machine(), "cpu")
+    if sys.platform == "darwin":
+        return _select_release_asset(sys.platform, platform.machine(), "cpu")
+    try:
+        import torch
+
+        torch_version = torch.version
+        backend = (
+            "rocm"
+            if torch_version.hip
+            else "cuda"
+            if torch_version.cuda
+            else "cpu"
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not determine the ComfyUI PyTorch accelerator: {exc}"
+        ) from exc
+    return _select_release_asset(sys.platform, platform.machine(), backend)
+
+
+def _artifacts_directory() -> Path:
+    return _config_path().parent / "artifacts"
+
+
+def _installation_directory(selection: dict[str, Any]) -> Path:
+    return _artifacts_directory() / _LLAMA_RELEASE / selection["directory"]
+
+
+def _installed_llama_executable(selection: dict[str, Any]) -> str | None:
+    try:
+        install_dir = _installation_directory(selection)
+        marker_path = install_dir / _INSTALL_MARKER
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        executable_name = marker["executable"]
+        if (
+            marker.get("release") != _LLAMA_RELEASE
+            or marker.get("target") != selection["directory"]
+            or not isinstance(executable_name, str)
+        ):
+            return None
+        relative_path = PurePosixPath(executable_name.replace("\\", "/"))
+        if (
+            relative_path.is_absolute()
+            or not relative_path.parts
+            or any(part in {".", ".."} or ":" in part for part in relative_path.parts)
+        ):
+            return None
+        root = install_dir.resolve()
+        executable = install_dir.joinpath(*relative_path.parts).resolve()
+        if root not in executable.parents or not executable.is_file():
+            return None
+        if os.name != "nt" and not os.access(executable, os.X_OK):
+            return None
+        return str(executable)
+    except (KeyError, OSError, RuntimeError, TypeError, ValueError):
+        return None
+
+
+def _path_llama_executable() -> str | None:
+    executable = shutil.which("llama")
+    return str(Path(executable).resolve()) if executable else None
+
+
+def _resolve_llama_executable(
+    selection: dict[str, Any] | None = None,
+) -> tuple[str | None, str | None]:
+    executable = _path_llama_executable()
+    if executable:
+        return executable, "path"
+    if selection is None:
+        try:
+            selection = _current_release_selection()
+        except (RuntimeError, ValueError):
+            return None, None
+    executable = _installed_llama_executable(selection)
+    return (executable, "internal") if executable else (None, None)
 
 
 def _valid_ctx_size(value: Any) -> bool:
@@ -157,8 +409,7 @@ def _save_runtime_settings(
 
 
 def _llama_executable() -> str | None:
-    executable = shutil.which("llama")
-    return str(Path(executable).resolve()) if executable else None
+    return _resolve_llama_executable()[0]
 
 
 def _probe_llama_version(executable: str | None) -> str | None:
@@ -197,6 +448,363 @@ def _probe_llama_version(executable: str | None) -> str | None:
     except (OSError, subprocess.SubprocessError) as exc:
         _logger.warning("Could not probe llama version: %s", exc)
     return _llama_version
+
+
+def _validate_download_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in _ALLOWED_REDIRECT_HOSTS
+        or parsed.port not in (None, 443)
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise RuntimeError("Rejected an unsafe llama.cpp download redirect.")
+
+
+class _GitHubRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected_url = urljoin(req.full_url, newurl)
+        try:
+            _validate_download_url(redirected_url)
+        except RuntimeError as exc:
+            raise HTTPError(req.full_url, code, str(exc), headers, fp) from exc
+        return super().redirect_request(req, fp, code, msg, headers, redirected_url)
+
+
+def _download_asset(
+    filename: str,
+    expected_sha256: str,
+    destination: Path,
+) -> None:
+    global _download_bytes_total, _download_bytes_received
+    url = _LLAMA_RELEASE_URL.format(filename)
+    _validate_download_url(url)
+    request = Request(url, headers={"User-Agent": "ComfyUI-Ollama-Multimodal"})
+    opener = build_opener(_GitHubRedirectHandler())
+    digest = hashlib.sha256()
+    with opener.open(request, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
+        _validate_download_url(response.geturl())
+        content_length = response.headers.get("Content-Length")
+        try:
+            expected_size = int(content_length) if content_length is not None else None
+        except ValueError:
+            expected_size = None
+        with _download_lock:
+            if expected_size is None:
+                _download_bytes_total = None
+            elif _download_bytes_total is not None:
+                _download_bytes_total += expected_size
+        with destination.open("xb") as output:
+            while chunk := response.read(_DOWNLOAD_CHUNK_SIZE):
+                output.write(chunk)
+                digest.update(chunk)
+                with _download_lock:
+                    _download_bytes_received += len(chunk)
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != expected_sha256:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"SHA-256 verification failed for {filename}: "
+            f"expected {expected_sha256}, received {actual_sha256}."
+        )
+
+
+def _safe_archive_path(root: Path, member_name: str) -> Path:
+    name = member_name.replace("\\", "/")
+    relative_path = PurePosixPath(name)
+    if name in {"", "."}:
+        return root
+    if (
+        relative_path.is_absolute()
+        or any(part in {"..", "."} or ":" in part for part in relative_path.parts)
+    ):
+        raise RuntimeError(f"Archive contains an unsafe path: {member_name!r}.")
+    resolved_root = root.resolve()
+    destination = root.joinpath(*relative_path.parts).resolve()
+    if resolved_root not in destination.parents:
+        raise RuntimeError(f"Archive path escapes its destination: {member_name!r}.")
+    return destination
+
+
+def _extract_archive(archive_path: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    if zipfile.is_zipfile(archive_path):
+        with zipfile.ZipFile(archive_path) as archive:
+            for info in archive.infolist():
+                target = _safe_archive_path(destination, info.filename)
+                mode = (info.external_attr >> 16) & 0xFFFF
+                file_type = stat.S_IFMT(mode)
+                if file_type == stat.S_IFLNK or file_type not in {
+                    0,
+                    stat.S_IFREG,
+                    stat.S_IFDIR,
+                }:
+                    raise RuntimeError(
+                        f"Archive contains a link or special file: {info.filename!r}."
+                    )
+                if info.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(info) as source, target.open("xb") as output:
+                        shutil.copyfileobj(source, output)
+                    if mode & 0o111:
+                        target.chmod(mode & 0o777)
+        return
+
+    try:
+        archive = tarfile.open(archive_path, mode="r:*")
+    except (tarfile.TarError, OSError) as exc:
+        raise RuntimeError(f"Could not read downloaded archive: {exc}") from exc
+    with archive:
+        for member in archive.getmembers():
+            target = _safe_archive_path(destination, member.name)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                raise RuntimeError(
+                    f"Archive contains a link or special file: {member.name!r}."
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source = archive.extractfile(member)
+            if source is None:
+                raise RuntimeError(f"Could not read archive member: {member.name!r}.")
+            with source, target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+            if member.mode & 0o111:
+                target.chmod(member.mode & 0o777)
+
+
+def _archive_content_root(extracted: Path) -> Path:
+    entries = list(extracted.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    return extracted
+
+
+def _find_llama_executable(root: Path, os_name: str) -> Path:
+    expected_name = "llama.exe" if os_name == "windows" else "llama"
+    matches = sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file() and path.name.casefold() == expected_name
+    )
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"Expected one {expected_name} in the b11146 archive; found {len(matches)}."
+        )
+    return matches[0]
+
+
+def _is_runtime_library(path: Path) -> bool:
+    name = path.name.casefold()
+    return name.endswith((".dll", ".dylib")) or ".so" in name
+
+
+def _copy_runtime_files(
+    source_root: Path, destination: Path, executable: Path
+) -> Path:
+    executable_relative = executable.relative_to(source_root)
+    runtime_files = [
+        path
+        for path in source_root.rglob("*")
+        if path.is_file() and (path == executable or _is_runtime_library(path))
+    ]
+    for source in runtime_files:
+        relative_path = source.relative_to(source_root)
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            raise RuntimeError(f"Multiple archives contain {relative_path}.")
+        shutil.copyfile(source, target)
+    return destination / executable_relative
+
+
+def _llama_child_environment(executable: Path, *, internal: bool) -> dict[str, str]:
+    environment = os.environ.copy()
+    if internal and sys.platform == "linux":
+        library_path = str(executable.parent)
+        existing_library_path = environment.get("LD_LIBRARY_PATH")
+        environment["LD_LIBRARY_PATH"] = os.pathsep.join(
+            path for path in (library_path, existing_library_path) if path
+        )
+    return environment
+
+
+def _probe_downloaded_executable(
+    executable: Path, selection: dict[str, Any]
+) -> str | None:
+    result = subprocess.run(
+        [str(executable), "--version"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=_VERSION_PROBE_TIMEOUT,
+        check=True,
+        shell=False,
+        env=_llama_child_environment(
+            executable,
+            internal=selection["os"] == "linux",
+        ),
+    )
+    lines = (result.stdout + "\n" + result.stderr).splitlines()
+    version_line = next(
+        (
+            line.strip()
+            for line in lines
+            if line.strip().lower().startswith("version:")
+        ),
+        next((line.strip() for line in lines if line.strip()), None),
+    )
+    return version_line[:_VERSION_DISPLAY_LIMIT] if version_line else None
+
+
+def _set_download_state(
+    state: str,
+    *,
+    target: str | None = None,
+    error: str | None = None,
+) -> None:
+    global _download_state, _download_target, _download_error
+    with _download_lock:
+        _download_state = state
+        if target is not None:
+            _download_target = target
+        _download_error = error
+
+
+def _download_and_install(selection: dict[str, Any]) -> None:
+    global _version_probe_executable, _llama_version, _start_attempted
+    global _download_thread
+    try:
+        artifacts_dir = _artifacts_directory()
+        version_dir = artifacts_dir / _LLAMA_RELEASE
+        version_dir.mkdir(parents=True, exist_ok=True)
+        install_dir = _installation_directory(selection)
+        if install_dir.exists():
+            if _installed_llama_executable(selection):
+                _set_download_state("installed", target=selection["label"])
+                return
+            raise RuntimeError(
+                f"An incomplete installation already exists at {install_dir}; "
+                "it was left untouched."
+            )
+
+        with tempfile.TemporaryDirectory(
+            prefix=".llama-download-", dir=version_dir
+        ) as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            downloaded_archives: list[tuple[Path, str]] = []
+            for filename, expected_sha256 in selection["assets"]:
+                archive_path = temporary_root / filename
+                _download_asset(filename, expected_sha256, archive_path)
+                downloaded_archives.append((archive_path, filename))
+
+            _set_download_state("installing", target=selection["label"])
+            install_stage = temporary_root / "install"
+            install_stage.mkdir()
+            primary_archive, _primary_filename = downloaded_archives[0]
+            primary_extract = temporary_root / "primary"
+            _extract_archive(primary_archive, primary_extract)
+            primary_root = _archive_content_root(primary_extract)
+            source_executable = _find_llama_executable(primary_root, selection["os"])
+            executable = _copy_runtime_files(
+                primary_root, install_stage, source_executable
+            )
+
+            for archive_path, _filename in downloaded_archives[1:]:
+                runtime_extract = temporary_root / "runtime"
+                _extract_archive(archive_path, runtime_extract)
+                runtime_root = _archive_content_root(runtime_extract)
+                for source in runtime_root.rglob("*"):
+                    if not source.is_file() or not _is_runtime_library(source):
+                        continue
+                    relative_path = source.relative_to(runtime_root)
+                    target = install_stage / relative_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists():
+                        raise RuntimeError(
+                            f"Multiple archives contain runtime library {relative_path}."
+                        )
+                    shutil.copyfile(source, target)
+
+            if os.name != "nt":
+                executable.chmod(
+                    executable.stat().st_mode
+                    | stat.S_IXUSR
+                    | stat.S_IXGRP
+                    | stat.S_IXOTH
+                )
+            version = _probe_downloaded_executable(executable, selection)
+            marker = {
+                "release": _LLAMA_RELEASE,
+                "target": selection["directory"],
+                "executable": executable.relative_to(install_stage).as_posix(),
+                "version": version,
+                "assets": [filename for _path, filename in downloaded_archives],
+            }
+            (install_stage / _INSTALL_MARKER).write_text(
+                json.dumps(marker, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(install_stage, install_dir)
+
+        installed_executable = str(install_dir / marker["executable"])
+        with _lock:
+            _version_probe_executable = installed_executable
+            _llama_version = version
+            if (
+                _auto_start
+                and _last_error == "'llama' executable was not found in PATH."
+            ):
+                _start_attempted = False
+                _start_locked()
+        _set_download_state("installed", target=selection["label"])
+    except Exception as exc:
+        _logger.exception("Could not download or install llama.cpp.")
+        _set_download_state("error", target=selection["label"], error=str(exc))
+    finally:
+        with _download_lock:
+            _download_thread = None
+
+
+def _start_runtime_download() -> str:
+    global _download_state, _download_target, _download_bytes_received
+    global _download_bytes_total, _download_error, _download_thread
+    with _download_lock:
+        if _download_state in {"downloading", "installing"}:
+            raise RuntimeError("A llama.cpp download is already in progress.")
+        if _path_llama_executable():
+            raise RuntimeError("A llama executable is already available in PATH.")
+        selection = _current_release_selection()
+        if _installed_llama_executable(selection):
+            _download_state = "installed"
+            _download_target = selection["label"]
+            _download_error = None
+            return "installed"
+        install_dir = _installation_directory(selection)
+        if install_dir.exists():
+            raise RuntimeError(
+                f"An incomplete installation already exists at {install_dir}; "
+                "it was left untouched."
+            )
+        _download_state = "downloading"
+        _download_target = selection["label"]
+        _download_bytes_received = 0
+        _download_bytes_total = 0
+        _download_error = None
+        _download_thread = Thread(
+            target=_download_and_install,
+            args=(selection,),
+            name="llama-cpp-download",
+            daemon=True,
+        )
+        _download_thread.start()
+        return "started"
 
 
 def _observe_process_exit_locked() -> None:
@@ -303,6 +911,7 @@ def _start_locked(*, repair_model_dir: bool = True) -> None:
     _last_error = None
 
     executable = _llama_executable()
+    executable_source = "path" if _path_llama_executable() == executable else "internal"
     if executable is None:
         _state = "failed"
         _last_error = "'llama' executable was not found in PATH."
@@ -347,10 +956,14 @@ def _start_locked(*, repair_model_dir: bool = True) -> None:
             "3",
         ]
         supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
+        child_environment = _llama_child_environment(
+            Path(executable), internal=executable_source == "internal"
+        )
         process = subprocess.Popen(
             [sys.executable, str(supervisor_path), "--", *command],
             stdin=subprocess.PIPE,
             close_fds=True,
+            env=child_environment,
         )
         _process = process
         if not _wait_for_server_ready(process, _port):
@@ -394,13 +1007,40 @@ def initialize_llama_cpp_runtime() -> None:
 
 def _runtime_status_locked() -> dict[str, Any]:
     _observe_process_exit_locked()
-    executable = _llama_executable()
+    path_executable = _path_llama_executable()
+    try:
+        selection = _current_release_selection()
+        _artifacts_directory()
+        download_support_error = None
+    except (RuntimeError, ValueError) as exc:
+        selection = None
+        download_support_error = str(exc)
+    if path_executable is not None:
+        executable = path_executable
+        llama_source = "path"
+    elif selection is not None:
+        executable = _installed_llama_executable(selection)
+        llama_source = "internal" if executable is not None else None
+    else:
+        executable = None
+        llama_source = None
     model_dirs, default_model_dir = _model_directory_options()
     model_dir = (
         resolve_llm_model_directory(_model_dir, model_dirs) if _model_dir else None
     )
     if model_dir is None:
         model_dir = default_model_dir
+    with _download_lock:
+        download_state = _download_state
+        download_error = _download_error
+        if llama_source == "internal":
+            download_state = "installed"
+            download_error = None
+        download_target = _download_target or (
+            selection["label"] if selection else None
+        )
+        download_bytes_received = _download_bytes_received
+        download_bytes_total = _download_bytes_total
     return {
         "auto_start": _auto_start,
         "ctx_size": _ctx_size,
@@ -412,7 +1052,16 @@ def _runtime_status_locked() -> dict[str, Any]:
         "state": _state,
         "llama_available": executable is not None,
         "llama_executable": executable,
+        "llama_source": llama_source,
+        "llama_path_executable": path_executable,
         "llama_version": _probe_llama_version(executable),
+        "download_supported": selection is not None,
+        "download_support_error": download_support_error,
+        "download_state": download_state,
+        "download_target": download_target,
+        "download_bytes_received": download_bytes_received,
+        "download_bytes_total": download_bytes_total,
+        "download_error": download_error,
         "running": _state == "running",
         "error": _last_error,
     }
@@ -596,6 +1245,22 @@ async def restart_runtime_endpoint(request: Any):
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def download_runtime_endpoint(request: Any):
+    if not _is_local_request(request):
+        return web.json_response(
+            {"error": "This setting can only be changed locally."}, status=403
+        )
+    try:
+        result = await asyncio.to_thread(_start_runtime_download)
+        status = await asyncio.to_thread(get_runtime_status)
+        return web.json_response(status, status=202 if result == "started" else 200)
+    except (RuntimeError, ValueError) as exc:
+        return web.json_response({"error": str(exc)}, status=409)
+    except OSError as exc:
+        _logger.exception("Could not start the llama.cpp download.")
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 def register_runtime_routes() -> None:
     global _routes_registered
     if _routes_registered:
@@ -607,6 +1272,7 @@ def register_runtime_routes() -> None:
     PromptServer.instance.routes.post(RUNTIME_RESTART_ROUTE)(
         restart_runtime_endpoint
     )
+    PromptServer.instance.routes.post(RUNTIME_DOWNLOAD_ROUTE)(download_runtime_endpoint)
     _routes_registered = True
 
 
@@ -621,6 +1287,8 @@ atexit.register(_stop_at_exit)
 __all__ = [
     "RUNTIME_ROUTE",
     "RUNTIME_RESTART_ROUTE",
+    "RUNTIME_DOWNLOAD_ROUTE",
+    "download_runtime_endpoint",
     "get_runtime_status",
     "initialize_llama_cpp_runtime",
     "register_runtime_routes",

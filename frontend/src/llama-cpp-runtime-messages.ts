@@ -13,6 +13,17 @@ type RuntimeMessages = {
   restartSuccessDetail: string
   restartFailureSummary: (projectName: string) => string
   restartFailureFallback: string
+  pathAvailable: string
+  internalInstallAvailable: string
+  pathUnavailable: string
+  downloadButton: string
+  downloadStarting: string
+  downloading: (target: string, progress: string) => string
+  installing: (target: string) => string
+  installed: (target: string) => string
+  downloadFailed: (error: string) => string
+  downloadUnsupported: string
+  downloadProgressLabel: string
 }
 
 const messages: Record<string, RuntimeMessages> = {
@@ -37,6 +48,17 @@ const messages: Record<string, RuntimeMessages> = {
     restartFailureSummary: (projectName) =>
       `${projectName} could not restart the internal llama.cpp daemon`,
     restartFailureFallback: "The daemon did not pass its health check.",
+    pathAvailable: "Available on PATH",
+    internalInstallAvailable: "Unavailable (installable)",
+    pathUnavailable: "Unavailable on both PATH and internal",
+    downloadButton: "Download llama.cpp",
+    downloadStarting: "Starting download…",
+    downloading: (target, progress) => `Downloading ${target} (${progress})…`,
+    installing: (target) => `Installing ${target}…`,
+    installed: (target) => `Installed ${target}`,
+    downloadFailed: (error) => `Download failed: ${error}`,
+    downloadUnsupported: "This platform is not supported.",
+    downloadProgressLabel: "llama.cpp download progress",
   },
   ko: {
     checking: "확인 중...",
@@ -59,6 +81,17 @@ const messages: Record<string, RuntimeMessages> = {
     restartFailureSummary: (projectName) =>
       `${projectName} 내부 llama.cpp daemon을 재시작하지 못했습니다`,
     restartFailureFallback: "daemon이 헬스 체크를 통과하지 못했습니다.",
+    pathAvailable: "PATH에서 사용 가능",
+    internalInstallAvailable: "내부 설치본을 설치해 사용 가능",
+    pathUnavailable: "사용 불가",
+    downloadButton: "llama.cpp 다운로드",
+    downloadStarting: "다운로드 시작 중…",
+    downloading: (target, progress) => `${target} 다운로드 중 (${progress})…`,
+    installing: (target) => `${target} 설치 중…`,
+    installed: (target) => `${target} 설치 완료`,
+    downloadFailed: (error) => `다운로드 실패: ${error}`,
+    downloadUnsupported: "지원하지 않는 플랫폼입니다.",
+    downloadProgressLabel: "llama.cpp 다운로드 진행률",
   },
 }
 

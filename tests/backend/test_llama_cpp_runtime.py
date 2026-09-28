@@ -1,6 +1,8 @@
 import asyncio
+import io
 import json
 import subprocess
+import zipfile
 
 import pytest
 
@@ -252,3 +254,137 @@ def test_restart_endpoint_requires_local_request_and_enabled_runtime(monkeypatch
     local_response = asyncio.run(runtime.restart_runtime_endpoint(LocalRequest()))
     assert local_response.status == 409
     assert "Enable" in json.loads(local_response.text)["error"]
+
+
+def test_release_asset_selection_uses_fixed_platform_backend_mapping():
+    windows_cuda = runtime._select_release_asset("win32", "AMD64", "cuda")
+    assert windows_cuda["directory"] == "windows-x64-cuda"
+    assert windows_cuda["assets"][0][0] == "llama-b11146-bin-win-cuda-13.4-x64.zip"
+    assert windows_cuda["assets"][1][0] == "cudart-llama-bin-win-cuda-13.4-x64.zip"
+
+    macos = runtime._select_release_asset("darwin", "arm64", "cuda")
+    assert macos["assets"][0][0] == "llama-b11146-bin-macos-arm64.tar.gz"
+
+    with pytest.raises(ValueError, match="No b11146 llama.cpp build"):
+        runtime._select_release_asset("linux", "aarch64", "rocm")
+
+
+def test_llama_executable_prefers_path_over_internal_install(monkeypatch):
+    monkeypatch.setattr(runtime, "_path_llama_executable", lambda: "path/llama")
+    monkeypatch.setattr(
+        runtime,
+        "_installed_llama_executable",
+        lambda _selection: pytest.fail("PATH executable must win"),
+    )
+
+    assert runtime._llama_executable() == "path/llama"
+
+
+def test_runtime_status_recognizes_persisted_install_after_restart(
+    monkeypatch, tmp_path
+):
+    selection = runtime._select_release_asset("win32", "AMD64", "cpu")
+    install_dir = (
+        tmp_path / "artifacts" / runtime._LLAMA_RELEASE / selection["directory"]
+    )
+    install_dir.mkdir(parents=True)
+    executable = install_dir / "llama.exe"
+    executable.write_bytes(b"installed")
+    executable.chmod(0o755)
+    (install_dir / runtime._INSTALL_MARKER).write_text(
+        json.dumps(
+            {
+                "release": runtime._LLAMA_RELEASE,
+                "target": selection["directory"],
+                "executable": "llama.exe",
+            }
+        ),
+        encoding="utf-8",
+    )
+    model_dir = str(tmp_path / "models")
+    monkeypatch.setattr(runtime, "_current_release_selection", lambda: selection)
+    monkeypatch.setattr(
+        runtime, "_artifacts_directory", lambda: tmp_path / "artifacts"
+    )
+    monkeypatch.setattr(runtime, "_path_llama_executable", lambda: None)
+    monkeypatch.setattr(
+        runtime, "_model_directory_options", lambda: ([model_dir], model_dir)
+    )
+    monkeypatch.setattr(runtime, "_probe_llama_version", lambda _path: "b11146")
+    monkeypatch.setattr(runtime, "_download_state", "error")
+    monkeypatch.setattr(runtime, "_download_error", "stale download error")
+    monkeypatch.setattr(runtime, "_process", None)
+
+    status = runtime.get_runtime_status()
+
+    assert status["llama_available"] is True
+    assert status["llama_source"] == "internal"
+    assert status["llama_executable"] == str(executable.resolve())
+    assert status["download_state"] == "installed"
+    assert status["download_error"] is None
+    assert runtime._start_runtime_download() == "installed"
+    assert runtime._download_state == "installed"
+
+
+def test_download_asset_rejects_sha256_mismatch(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime, "_download_bytes_received", 0)
+    monkeypatch.setattr(runtime, "_download_bytes_total", 0)
+
+    class FakeResponse:
+        headers = {"Content-Length": "4"}
+
+        def __init__(self):
+            self._stream = io.BytesIO(b"fake")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return "https://github.com/ggml-org/llama.cpp/releases/download/b11146/test.zip"
+
+        def read(self, size):
+            return self._stream.read(size)
+
+    class FakeOpener:
+        def open(self, _request, timeout):
+            assert timeout == runtime._DOWNLOAD_TIMEOUT_SECONDS
+            return FakeResponse()
+
+    monkeypatch.setattr(runtime, "build_opener", lambda *_args: FakeOpener())
+
+    with pytest.raises(RuntimeError, match="SHA-256 verification failed"):
+        runtime._download_asset("test.zip", "0" * 64, tmp_path / "test.zip")
+    assert not (tmp_path / "test.zip").exists()
+
+
+def test_archive_extraction_rejects_path_traversal(tmp_path):
+    archive_path = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("../escape.txt", "unsafe")
+
+    with pytest.raises(RuntimeError, match="unsafe path"):
+        runtime._extract_archive(archive_path, tmp_path / "extracted")
+
+
+def test_download_start_rejects_a_second_active_download(monkeypatch):
+    monkeypatch.setattr(runtime, "_download_state", "downloading")
+    monkeypatch.setattr(
+        runtime,
+        "_current_release_selection",
+        lambda: pytest.fail("active download must be checked first"),
+    )
+
+    with pytest.raises(RuntimeError, match="already in progress"):
+        runtime._start_runtime_download()
+
+
+def test_download_endpoint_requires_local_request(monkeypatch):
+    remote_request = LocalRequest()
+    remote_request.remote = "192.168.1.20"
+
+    response = asyncio.run(runtime.download_runtime_endpoint(remote_request))
+
+    assert response.status == 403

@@ -287,6 +287,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "/ollama_image_list/llama_cpp/models",
         "/ollama_image_list/llama_cpp/runtime",
         "/ollama_image_list/llama_cpp/runtime/restart",
+        "/ollama_image_list/llama_cpp/runtime/download",
     }
     assert (
         "GET",
@@ -295,6 +296,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert (
         "POST",
         "/ollama_image_list/llama_cpp/runtime/restart",
+    ) in routes.methods
+    assert (
+        "POST",
+        "/ollama_image_list/llama_cpp/runtime/download",
     ) in routes.methods
 
     registered = {
