@@ -1082,6 +1082,129 @@ def _compact_common_inputs(*, include_video_with_audio: bool = True) -> list[Any
     return inputs
 
 
+def build_compact_session_kwargs(
+    *,
+    model_path: Any,
+    mmproj_path: Any,
+    model_profile: Any,
+    hardware_profile: Any = None,
+    reasoning: Any = None,
+    speculative: Any = None,
+    n_ctx: Any,
+    image_min_tokens: Any,
+    image_max_tokens: Any,
+    verbose: Any,
+) -> dict[str, Any]:
+    """Resolve Compact node fields that must remain fixed for one session."""
+    speculative_config = {"kind": "off"}
+    if speculative is not None:
+        speculative_config = normalize_compact_speculative(
+            unwrap_required_scalar("speculative", speculative)
+        )
+    native_config = None
+    speculative_api = None
+    if speculative_config["kind"] == "native":
+        native_config = speculative_config["config"]
+        if native_config["spec_type"] != "none":
+            speculative_api = require_native_speculative()
+
+    reasoning_config = {
+        "reasoning_mode": "auto",
+        "reasoning_effort": "auto",
+        "max_reasoning_tokens": 0,
+        "preserve_thinking": False,
+    }
+    if reasoning is not None:
+        reasoning_config = normalize_reasoning_config(
+            unwrap_required_scalar("reasoning", reasoning)
+        )
+    compact_model_profile = normalize_compact_model_profile(
+        unwrap_required_scalar("model_profile", model_profile)
+    )
+    profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
+    compact_hardware_profile = normalize_compact_hardware_profile(
+        COMPACT_HARDWARE_PROFILES["GPU Full Offload"]
+        if hardware_profile is None
+        else unwrap_required_scalar("hardware_profile", hardware_profile)
+    )
+    n_ubatch = compact_hardware_profile.pop("n_ubatch")
+    reasoning_mode = reasoning_config["reasoning_mode"]
+    if (
+        profile_reasoning_mode != "auto"
+        and reasoning_mode != "auto"
+        and reasoning_mode != profile_reasoning_mode
+    ):
+        raise InputNormalizationError(
+            "The selected Model Profile requires reasoning_mode="
+            f"{profile_reasoning_mode}, but Thinking / Reasoning Config requests "
+            f"reasoning_mode={reasoning_mode}."
+        )
+    if reasoning_mode == "auto" and profile_reasoning_mode != "auto":
+        reasoning_mode = profile_reasoning_mode
+    thinking_value = None if reasoning_mode == "auto" else reasoning_mode == "on"
+    image_token_floor = int(
+        unwrap_optional_scalar("image_min_tokens", image_min_tokens, 0)
+    )
+    image_token_limit = int(
+        unwrap_optional_scalar("image_max_tokens", image_max_tokens, 0)
+    )
+    extra: dict[str, Any] = {}
+    if speculative_config["kind"] == "ngram":
+        extra["ngram_speculative"] = speculative_config["config"]
+    if native_config is not None:
+        spec_type = native_config["spec_type"]
+        draft_required = spec_type in {"draft-dflash", "draft-dspark"} or (
+            spec_type == "draft-mtp" and native_config["mtp_provider"] == "external"
+        )
+        extra.update(
+            draft_model_path=(
+                _resolve_gguf_selection(
+                    native_config["draft_model"],
+                    label="draft model GGUF",
+                    required=draft_required,
+                )
+                if spec_type != "none"
+                else ""
+            ),
+            spec_type=spec_type,
+            spec_n_max=native_config["draft_n_max"],
+            spec_n_min=0,
+            spec_p_min=native_config["draft_p_min"],
+            mtp_provider=native_config["mtp_provider"],
+            draft_n_gpu_layers=native_config["draft_n_gpu_layers"],
+            draft_backend_sampling=native_config["draft_backend_sampling"],
+        )
+        if speculative_api is not None:
+            extra["speculative_api"] = speculative_api
+    return {
+        "model_path": _resolve_gguf_selection(
+            str(unwrap_required_scalar("model_path", model_path)),
+            label="model GGUF",
+            required=True,
+        ),
+        "mmproj_path": _resolve_gguf_selection(
+            str(unwrap_optional_scalar("mmproj_path", mmproj_path, NO_MMPROJ_OPTION)),
+            label="mmproj GGUF",
+            required=False,
+        ),
+        "n_ctx": int(unwrap_optional_scalar("n_ctx", n_ctx, 8_192)),
+        "override_image_min_tokens": image_token_floor > 0,
+        "image_min_tokens": image_token_floor if image_token_floor > 0 else 1_024,
+        "override_image_max_tokens": image_token_limit > 0,
+        "image_max_tokens": image_token_limit if image_token_limit > 0 else 1_120,
+        "override_n_ubatch": n_ubatch > 0,
+        "n_ubatch": n_ubatch if n_ubatch > 0 else 512,
+        "thinking": thinking_value,
+        "reasoning_strength": reasoning_config["reasoning_effort"],
+        "reasoning_budget": reasoning_config["max_reasoning_tokens"],
+        "preserve_thinking": reasoning_config["preserve_thinking"],
+        "verbose": bool(unwrap_optional_scalar("verbose", verbose, False)),
+        **compact_model_profile,
+        **compact_hardware_profile,
+        **extra,
+    }
+
+
 def _execute_compact(
     *,
     model_path: Any,

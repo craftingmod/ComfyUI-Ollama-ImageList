@@ -64,6 +64,21 @@ class ComfyExtension:
     pass
 
 
+class Caching:
+    class CacheProvider:
+        pass
+
+    providers = []
+
+    async def register_provider(self, provider):
+        self.providers.append(provider)
+
+
+class ComfyAPI:
+    def __init__(self):
+        self.caching = Caching()
+
+
 class NodeOutput(tuple):
     def __new__(cls, *values):
         return super().__new__(cls, values)
@@ -117,6 +132,8 @@ def install_comfy_api_stub(monkeypatch):
     monkeypatch.setitem(sys.modules, "comfy_api", comfy_api)
     monkeypatch.setitem(sys.modules, "comfy_api.v0_0_2", versioned_api)
     latest_api = ModuleType("comfy_api.latest")
+    latest_api.Caching = Caching
+    latest_api.ComfyAPI = ComfyAPI
     latest_api.ComfyExtension = ComfyExtension
     latest_api.io = io
     comfy_api.latest = latest_api
@@ -160,6 +177,24 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
 
     extension_module = importlib.import_module("backend.extension")
     extension = asyncio.run(extension_module.comfy_entrypoint())
+    asyncio.run(extension.on_load())
+    assert len(Caching.providers) == 1
+    cleanup_provider = Caching.providers[0]
+    assert cleanup_provider.should_cache(None) is False
+
+    class TrackedSession:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    tracked_session = TrackedSession()
+    importlib.import_module("backend.llama_cpp_session_cleanup").track_session(
+        tracked_session
+    )
+    cleanup_provider.on_prompt_end("interrupted-prompt")
+    assert tracked_session.closed is True
+
     node_classes = asyncio.run(extension.get_node_list())
     schemas = [node_class.define_schema() for node_class in node_classes]
 
@@ -178,6 +213,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppReasoningConfig",
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
         "OllamaImageList_LlamaCppNativeSpeculativeConfig",
+        "OllamaImageList_LlamaCppCreateSession",
+        "OllamaImageList_LlamaCppSessionGenerate",
+        "OllamaImageList_LlamaCppUnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
         "OllamaImageList_LlamaCppSequentialGenerate",
         "OllamaImageList_LlamaCppGenerate",
@@ -199,6 +237,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Llama.cpp Thinking / Reasoning Config",
         "Llama.cpp N-gram Speculative Config",
         "Llama.cpp Native Speculative Config (Compat)",
+        "Llama.cpp Create Session",
+        "Llama.cpp Generate (Session)",
+        "Llama.cpp Unload Session",
         "Llama.cpp Generate",
         "Llama.cpp Sequential Generate",
         "Llama.cpp Generate (Multimodal)",
@@ -220,6 +261,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Ollama/llama_cpp/compact",
         "Ollama/llama_cpp/compact",
         "Ollama/llama_cpp/experimental",
+        "Ollama/llama_cpp/compact/session",
+        "Ollama/llama_cpp/compact/session",
+        "Ollama/llama_cpp/compact/session",
         "Ollama/llama_cpp/compact",
         "Ollama/llama_cpp/compact",
         "Ollama/llama_cpp/legacy",
@@ -999,6 +1043,69 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert compact_inputs["video_with_audio"].options["default"] is False
     assert compact_inputs["speculative"].options["optional"] is True
 
+    create_session_class, create_session_schema = registered[
+        "OllamaImageList_LlamaCppCreateSession"
+    ]
+    assert create_session_schema.is_input_list is True
+    assert create_session_schema.not_idempotent is True
+    assert create_session_schema.is_experimental is True
+    assert [field.name for field in create_session_schema.inputs] == [
+        "model_path",
+        "mmproj_path",
+        "model_profile",
+        "hardware_profile",
+        "reasoning",
+        "speculative",
+        "n_ctx",
+        "image_min_tokens",
+        "image_max_tokens",
+        "verbose",
+    ]
+    assert create_session_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    )
+    session_generate_class, session_generate_schema = registered[
+        "OllamaImageList_LlamaCppSessionGenerate"
+    ]
+    assert session_generate_schema.is_input_list is True
+    assert [field.name for field in session_generate_schema.inputs] == [
+        "session",
+        "system",
+        "prompt",
+        "max_tokens",
+        "seed",
+        "stop",
+        "images",
+        "audio",
+        "video",
+        "video_with_audio",
+    ]
+    assert [field.name for field in session_generate_schema.outputs] == [
+        "response",
+        "thinking",
+        "raw_json",
+        "metrics_json",
+        "media_diagnostics",
+        "session",
+    ]
+    assert session_generate_schema.outputs[-1].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    )
+    unload_session_class, unload_session_schema = registered[
+        "OllamaImageList_LlamaCppUnloadSession"
+    ]
+    assert unload_session_schema.is_output_node is True
+    assert unload_session_schema.outputs == []
+    assert [field.name for field in unload_session_schema.inputs] == [
+        "session",
+        "timing",
+    ]
+    assert unload_session_schema.inputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    )
+    assert unload_session_schema.inputs[1].data_type == "*"
+    assert unload_session_schema.inputs[1].options["optional"] is True
+
     sequential_class, sequential_schema = registered[
         "OllamaImageList_LlamaCppSequentialGenerate"
     ]
@@ -1224,6 +1331,81 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "run_chat_sequential",
         fake_run_chat_sequential,
     )
+    session_module = importlib.import_module("backend.nodes.llama_cpp_session")
+    captured_session_configuration = {}
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            captured_session_configuration.update(kwargs)
+            self.closed = False
+            self.requests = []
+
+        def generate(self, **kwargs):
+            self.requests.append(kwargs)
+            return SimpleNamespace(
+                response="session done",
+                thinking="",
+                raw={"choices": []},
+                metrics={"model_unloaded": False},
+                media_diagnostics={"model_unloaded_after_response": False},
+            )
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(session_module, "LlamaCppSession", FakeSession)
+    create_session_values = {
+        field.name: [field.options["default"]]
+        for field in create_session_schema.inputs
+        if "default" in field.options
+    }
+    create_session_values.update(
+        model_path=["external/model-a.gguf"],
+        mmproj_path=["[none]"],
+        model_profile=[muse_profile],
+        hardware_profile=[custom_hardware_profile],
+        reasoning=[muse_reasoning],
+        speculative=[compact_ngram_config],
+    )
+    created_session = create_session_class.execute(**create_session_values)[0]
+    assert isinstance(created_session, FakeSession)
+    assert captured_session_configuration["model_path"] == (
+        "D:/SharedModels/LLM/external/model-a.gguf"
+    )
+    assert captured_session_configuration["n_batch"] == 2048
+    assert captured_session_configuration["n_ubatch"] == 1024
+    assert captured_session_configuration["reasoning_budget"] == 1024
+    assert captured_session_configuration["temperature"] == 1.0
+    assert captured_session_configuration["ngram_speculative"] == ngram_configuration
+    session_generate_output = session_generate_class.execute(
+        [created_session],
+        ["system"],
+        ["prompt"],
+        [512],
+        [-1],
+        [""],
+        [None],
+        [None],
+        [None],
+        [False],
+    )
+    assert session_generate_output[0] == "session done"
+    assert session_generate_output[-1] is created_session
+    assert created_session.requests[0]["prompt"] == "prompt"
+    unload_session_class.execute([created_session], ["after loop"])
+    assert created_session.closed is True
+    unload_session_class.execute([created_session])
+
+    default_session_values = dict(create_session_values)
+    default_session_values.pop("hardware_profile")
+    default_session_values.pop("reasoning")
+    default_session_values.pop("speculative")
+    captured_session_configuration.clear()
+    create_session_class.execute(**default_session_values)
+    assert captured_session_configuration["n_batch"] == 512
+    assert captured_session_configuration["reasoning_budget"] == 0
+    assert "ngram_speculative" not in captured_session_configuration
+
     llama_values = {
         field.name: [field.options["default"]]
         for field in llama_schema.inputs

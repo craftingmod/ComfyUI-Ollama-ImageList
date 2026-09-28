@@ -6,9 +6,13 @@ except (
     ImportError
 ):  # pragma: no cover - compatibility with newer ComfyUI development builds
     from comfy_api.latest import ComfyExtension, io
+from comfy_api.latest import Caching, ComfyAPI
 
+from .llama_cpp_session_cleanup import close_tracked_sessions
 from .nodes import (
     ClipImageListGenerateNode,
+    JinjaChatTemplatePresetNode,
+    LlamaCppCreateSessionNode,
     LlamaCppGemma4RuntimePresetNode,
     LlamaCppHardwareRuntimeProfileNode,
     LlamaCppImageListGenerateNode,
@@ -21,7 +25,8 @@ from .nodes import (
     LlamaCppReasoningConfigNode,
     LlamaCppSamplingPresetNode,
     LlamaCppSequentialGenerateNode,
-    JinjaChatTemplatePresetNode,
+    LlamaCppSessionGenerateNode,
+    LlamaCppUnloadSessionNode,
     MiniMaxSystemPromptPresetNode,
     MuseGlimmerResponseParserNode,
     OllamaImageListConnectivityNode,
@@ -31,7 +36,24 @@ from .nodes import (
 from .routes import register_routes
 
 
+class LlamaCppSessionCleanupProvider(Caching.CacheProvider):
+    async def on_lookup(self, _context):
+        return None
+
+    async def on_store(self, _context, _value) -> None:
+        return None
+
+    def should_cache(self, _context, _value=None) -> bool:
+        return False
+
+    def on_prompt_end(self, _prompt_id: str) -> None:
+        close_tracked_sessions()
+
+
 class OllamaImageListExtension(ComfyExtension):
+    async def on_load(self) -> None:
+        await ComfyAPI().caching.register_provider(LlamaCppSessionCleanupProvider())
+
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
             OllamaImageListConnectivityNode,
@@ -47,6 +69,9 @@ class OllamaImageListExtension(ComfyExtension):
             LlamaCppReasoningConfigNode,
             LlamaCppNGramSpeculativeConfigNode,
             LlamaCppNativeSpeculativeConfigNode,
+            LlamaCppCreateSessionNode,
+            LlamaCppSessionGenerateNode,
+            LlamaCppUnloadSessionNode,
             LlamaCppProfiledGenerateNode,
             LlamaCppSequentialGenerateNode,
             LlamaCppImageListGenerateNode,

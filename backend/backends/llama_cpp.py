@@ -11,6 +11,7 @@ from threading import RLock
 from typing import Any
 
 from ..core import BackendError, InputNormalizationError, MediaBundle
+from ..llama_cpp_session_cleanup import track_session, untrack_session
 
 HANDLER_NAMES = (
     "auto",
@@ -230,6 +231,71 @@ class _SequentialLlamaSession:
         finally:
             self.llm = None
             gc.collect()
+
+
+class LlamaCppSession:
+    """Retain one llama.cpp model across independent ComfyUI executions."""
+
+    def __init__(
+        self,
+        *,
+        bindings: LlamaCppBindings | None = None,
+        **configuration: Any,
+    ) -> None:
+        native = bindings or _import_bindings()
+        self._configuration = dict(configuration)
+        self._native_session = _SequentialLlamaSession(native.llama_class)
+        self._bindings = LlamaCppBindings(
+            llama_class=self._native_session.create,
+            handlers=native.handlers,
+            jinja_formatter_class=native.jinja_formatter_class,
+            chat_formatter_to_handler=native.chat_formatter_to_handler,
+        )
+        self._closed = False
+        self._execution_count = 0
+        track_session(self)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def generate(self, **request: Any) -> LlamaCppResult:
+        if self._closed:
+            raise BackendError("The Llama.cpp session has already been unloaded.")
+        max_tokens = int(request.get("max_tokens", 0))
+        reasoning_budget = int(self._configuration.get("reasoning_budget", 0))
+        if reasoning_budget > max_tokens:
+            raise InputNormalizationError(
+                "Session reasoning_budget cannot exceed Generate max_tokens."
+            )
+        try:
+            result = run_chat(
+                bindings=self._bindings,
+                **self._configuration,
+                **request,
+            )
+        except Exception:
+            self.close()
+            raise
+        self._execution_count += 1
+        result.metrics["model_unloaded"] = False
+        result.metrics["session"] = {
+            "execution_index": self._execution_count - 1,
+            "model_reused": self._execution_count > 1,
+            "unload_required": True,
+        }
+        result.media_diagnostics["model_unloaded_after_response"] = False
+        return result
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            with _NATIVE_EXECUTION_LOCK:
+                self._native_session.close()
+                self._closed = True
+        finally:
+            untrack_session(self)
 
 
 def _import_bindings() -> LlamaCppBindings:
@@ -1660,6 +1726,7 @@ __all__ = [
     "LlamaCppBindings",
     "NativeSpeculativeBindings",
     "LlamaCppResult",
+    "LlamaCppSession",
     "normalize_ngram_speculative",
     "require_native_speculative",
     "run_chat",

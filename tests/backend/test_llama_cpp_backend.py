@@ -6,7 +6,12 @@ from types import ModuleType
 import pytest
 
 import backend.backends.llama_cpp as llama_cpp_backend
-from backend.backends.llama_cpp import LlamaCppBindings, run_chat, run_chat_sequential
+from backend.backends.llama_cpp import (
+    LlamaCppBindings,
+    LlamaCppSession,
+    run_chat,
+    run_chat_sequential,
+)
 from backend.core import (
     BackendError,
     InputNormalizationError,
@@ -15,6 +20,7 @@ from backend.core import (
     normalize_media,
     normalize_video,
 )
+from backend.llama_cpp_session_cleanup import close_tracked_sessions
 from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 
 NATIVE_EVENTS = []
@@ -1182,6 +1188,57 @@ def test_run_chat_sequential_reuses_model_resets_each_audio_and_unloads_once(tmp
         result.media_diagnostics["model_unloaded_after_sequence"] is True
         for result in results
     )
+
+
+def test_retained_session_reuses_model_until_prompt_end_unload(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    session = LlamaCppSession(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="auto",
+        bindings=make_bindings(),
+    )
+    bundles = [
+        normalize_audio(
+            {"waveform": silent_audio(1, 1, sample_count), "sample_rate": 16_000}
+        )
+        for sample_count in (80, 160)
+    ]
+
+    first = session.generate(
+        system="",
+        prompt="first",
+        media=bundles[0],
+        max_tokens=32,
+        seed=-1,
+        stop="",
+    )
+    second = session.generate(
+        system="",
+        prompt="second",
+        media=bundles[1],
+        max_tokens=32,
+        seed=-1,
+        stop="",
+    )
+
+    assert len(FakeLlama.instances) == 1
+    instance = FakeLlama.instances[0]
+    assert instance.reset_count == 2
+    assert instance.closed is False
+    assert first.metrics["model_unloaded"] is False
+    assert second.metrics["session"] == {
+        "execution_index": 1,
+        "model_reused": True,
+        "unload_required": True,
+    }
+    assert second.media_diagnostics["model_unloaded_after_response"] is False
+
+    close_tracked_sessions()
+
+    assert session.closed is True
+    assert instance.closed is True
+    assert instance.close_count == 1
 
 
 def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
