@@ -98,13 +98,21 @@ class DynamicCombo:
 class Routes:
     def __init__(self):
         self.handlers = {}
+        self.methods = {}
 
-    def post(self, path):
+    def _register(self, method, path):
         def register(handler):
             self.handlers[path] = handler
+            self.methods[(method, path)] = handler
             return handler
 
         return register
+
+    def post(self, path):
+        return self._register("POST", path)
+
+    def get(self, path):
+        return self._register("GET", path)
 
 
 def install_comfy_api_stub(monkeypatch):
@@ -277,7 +285,17 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert routes.handlers.keys() == {
         "/ollama_image_list/models",
         "/ollama_image_list/llama_cpp/models",
+        "/ollama_image_list/llama_cpp/runtime",
+        "/ollama_image_list/llama_cpp/runtime/restart",
     }
+    assert (
+        "GET",
+        "/ollama_image_list/llama_cpp/runtime",
+    ) in routes.methods
+    assert (
+        "POST",
+        "/ollama_image_list/llama_cpp/runtime/restart",
+    ) in routes.methods
 
     registered = {
         schema.node_id: (node_class, schema)

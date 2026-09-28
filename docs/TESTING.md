@@ -40,6 +40,16 @@ The automated suite covers:
 
 The suite does not install or load a real GGUF, start ComfyUI, exercise native `MTMD_VIDEO` decoding, launch a browser, or contact Ollama. Those integrations remain manual because wheel, GPU backend, model, projector, and chat-template compatibility are environment-specific.
 
+### Internal llama.cpp daemon restart
+
+Use an isolated ComfyUI instance with no active generation; restarting can interrupt requests using its internal daemon. In **Settings → Ollama Image List → llama.cpp Daemon**:
+
+1. With runtime activation off, click **Restart internal daemon**. Confirm the enablement guidance appears and the daemon stays stopped.
+2. Enable runtime activation, note the daemon settings file contents, then restart. Confirm the button is disabled while pending, the state reaches `running`, and the success toast appears only after `/health` succeeds.
+3. Compare the settings file contents to confirm restart did not save or change daemon settings.
+4. In a test instance with a failed or stopped daemon, retry and confirm it can reach `running`; make a stop failure and confirm no replacement process starts.
+5. Confirm an external llama.cpp server and **Llama.cpp Connect Session** remain untouched.
+
 Before publishing a llama.cpp build, manually verify in the target ComfyUI environment:
 
 1. Model Profile, Hardware Runtime Profile, Thinking / Reasoning Profile, and Native Speculative Profile appear under `llama_cpp / profile`; N-gram Speculative Config, Generate, and Sequential Generate appear under `llama_cpp / compact`; Diagnostics and Muse Parser appear under `utils`; the four registered legacy schemas are hidden from search/menu outside developer mode; and the detailed Speculative Generate node is not registered;

@@ -42,6 +42,16 @@ The experimental Speculative Generate node adds a `draft_model` Combo from the s
 
 After adding files or changing `extra_model_paths.yaml`, restart ComfyUI or refresh the node definitions. A saved relative selection is resolved through ComfyUI's registered model paths again at execution time.
 
+## Optional local llama.cpp server
+
+The **Internal llama.cpp runtime activation** setting starts the `llama server` executable from ComfyUI's `PATH` on `127.0.0.1`. ComfyUI starts a Python supervisor with its own interpreter; the supervisor owns the server process and watches a private lifetime pipe. It reports `running` only after `/health` returns `{"status":"ok"}`. Startup is bounded to 30 seconds.
+
+Turning the setting off stops the owned server. Changing its context size, port, or model directory while enabled stops the old server completely before starting the new configuration. The settings show `stopped`, `starting`, `running`, `stopping`, or `failed`.
+
+Use **Restart internal daemon** in the same Settings section to retry a failed or stopped daemon with the saved configuration. The action does not write settings. Runtime activation must be enabled; if it is off, the button explains how to enable it. Restarting can interrupt requests using the internal server; it does not stop external llama.cpp servers or affect **Llama.cpp Connect Session**.
+
+When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shuts down its server. The separate **Llama.cpp Connect Session** node only connects to a server supplied by the workflow; it does not own or stop that external server.
+
 ## Supported files and handlers
 
 The main model must be a single-file GGUF supported by the installed llama.cpp build. Safetensors/Transformers directories, PyTorch checkpoints, ONNX files, and Ollama model names are not accepted.

@@ -9,11 +9,13 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 from threading import Lock
 from typing import Any
 from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 
 from aiohttp import web
 
@@ -24,6 +26,7 @@ from .llm_model_paths import (
 )
 
 RUNTIME_ROUTE = "/ollama_image_list/llama_cpp/runtime"
+RUNTIME_RESTART_ROUTE = f"{RUNTIME_ROUTE}/restart"
 _DEFAULT_PORT = 18582
 _MIN_PORT = 1024
 _MAX_PORT = 65535
@@ -31,15 +34,21 @@ _CONFIG_NAME = "settings.json"
 _DEFAULT_CTX_SIZE = 16384
 _MIN_CTX_SIZE = 512
 _MAX_CTX_SIZE = 1048576
+_STARTUP_TIMEOUT_SECONDS = 30
+_HEALTH_REQUEST_TIMEOUT_SECONDS = 0.5
+_HEALTH_POLL_INTERVAL_SECONDS = 0.2
+_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS = 8
 _VERSION_PROBE_TIMEOUT = 3
 _VERSION_DISPLAY_LIMIT = 256
 _logger = logging.getLogger(__name__)
 _lock = Lock()
+_restart_lock = Lock()
 _auto_start = False
 _ctx_size = _DEFAULT_CTX_SIZE
 _port = _DEFAULT_PORT
 _model_dir: str | None = None
 _active_port: int | None = None
+_state = "stopped"
 _start_attempted = False
 _process: subprocess.Popen[bytes] | None = None
 _last_error: str | None = None
@@ -50,6 +59,10 @@ _CONFIG_DIRECTORY_ERROR = (
     "This ComfyUI version does not provide the protected system user directory "
     "API; internal llama.cpp settings are unavailable."
 )
+
+
+class _RestartDisabled(RuntimeError):
+    pass
 
 
 def _config_path() -> Path:
@@ -186,37 +199,112 @@ def _probe_llama_version(executable: str | None) -> str | None:
     return _llama_version
 
 
-def _stop_locked() -> None:
-    global _process, _active_port, _start_attempted, _last_error
+def _observe_process_exit_locked() -> None:
+    global _process, _active_port, _state, _start_attempted, _last_error
     process = _process
+    if process is None:
+        return
+    exit_code = process.poll()
+    if exit_code is None:
+        return
+    if process.stdin is not None and not process.stdin.closed:
+        try:
+            process.stdin.close()
+        except OSError:
+            _logger.debug(
+                "Could not close exited llama supervisor pipe", exc_info=True
+            )
     _process = None
     _active_port = None
-    _start_attempted = False
-    _last_error = None
-    if process is None or process.poll() is not None:
-        return
+    _start_attempted = True
+    if _auto_start:
+        _state = "failed"
+        _last_error = f"llama supervisor exited unexpectedly with code {exit_code}."
+    else:
+        _state = "stopped"
+        _last_error = None
+
+
+def _stop_locked(*, clear_error: bool = True) -> bool:
+    global _process, _active_port, _state, _start_attempted, _last_error
+    process = _process
+    _state = "stopping" if process is not None else "stopped"
+    if process is None:
+        _active_port = None
+        _start_attempted = False
+        if clear_error:
+            _last_error = None
+        return True
+
+    if process.stdin is not None and not process.stdin.closed:
+        try:
+            process.stdin.close()
+        except OSError:
+            _logger.debug(
+                "Could not close llama supervisor lifetime pipe", exc_info=True
+            )
     try:
-        process.terminate()
-    except ProcessLookupError:
-        return
-    try:
-        process.wait(timeout=5)
+        process.wait(timeout=_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
+        _state = "failed"
+        _last_error = "llama supervisor did not stop before the shutdown timeout."
+        _logger.error("%s", _last_error)
+        return False
+    except OSError as exc:
+        _state = "failed"
+        _last_error = f"Could not wait for llama supervisor to stop: {exc}"
+        _logger.error("%s", _last_error, exc_info=True)
+        return False
+
+    _process = None
+    _active_port = None
+    _state = "stopped"
+    _start_attempted = False
+    if clear_error:
+        _last_error = None
+    return True
 
 
-def _start_locked() -> None:
-    global _process, _active_port, _start_attempted, _last_error, _model_dir
-    if _process is not None and _process.poll() is None:
-        return
+def _server_ready(port: int) -> bool:
+    request = Request(f"http://127.0.0.1:{port}/health", method="GET")
+    try:
+        with urlopen(request, timeout=_HEALTH_REQUEST_TIMEOUT_SECONDS) as response:
+            if response.status != 200:
+                return False
+            health = json.loads(response.read())
+    except (OSError, ValueError):
+        return False
+    return isinstance(health, dict) and health.get("status") == "ok"
+
+
+def _wait_for_server_ready(process: subprocess.Popen[bytes], port: int) -> bool:
+    deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            _observe_process_exit_locked()
+            return False
+        if _server_ready(port):
+            return True
+        time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
+    return False
+
+
+def _start_locked(*, repair_model_dir: bool = True) -> None:
+    global _process, _active_port, _state, _start_attempted, _last_error, _model_dir
+    if _process is not None:
+        if _process.poll() is None:
+            return
+        _observe_process_exit_locked()
     if _start_attempted:
         return
     _start_attempted = True
+    _state = "starting"
+    _active_port = None
+    _last_error = None
 
     executable = _llama_executable()
     if executable is None:
-        _active_port = None
+        _state = "failed"
         _last_error = "'llama' executable was not found in PATH."
         _logger.warning("Internal llama.cpp auto-start failed: %s", _last_error)
         return
@@ -231,6 +319,10 @@ def _start_locked() -> None:
             else None
         )
         if models_dir_path is None:
+            if not repair_model_dir:
+                raise RuntimeError(
+                    f"Configured LLM models directory is unavailable: {_model_dir}"
+                )
             _model_dir = default_model_dir
             _save_runtime_settings(_auto_start, _ctx_size, _port, _model_dir)
             models_dir_path = default_model_dir
@@ -251,25 +343,41 @@ def _start_locked() -> None:
             str(_ctx_size),
             "--cors-origins",
             "localhost",
+            "--log-verbosity",
+            "3",
         ]
-        process = subprocess.Popen(command, stdin=subprocess.DEVNULL)
+        supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
+        process = subprocess.Popen(
+            [sys.executable, str(supervisor_path), "--", *command],
+            stdin=subprocess.PIPE,
+            close_fds=True,
+        )
         _process = process
-        _active_port = _port
-        time.sleep(0.2)
-        exit_code = process.poll()
-        if exit_code is not None:
-            _process = None
-            _active_port = None
-            _last_error = (
-                f"llama server exited during startup with code {exit_code} on "
-                f"port {_port}; the port may already be in use."
+        if not _wait_for_server_ready(process, _port):
+            startup_error = _last_error or (
+                f"llama server did not become ready on port {_port} within "
+                f"{_STARTUP_TIMEOUT_SECONDS} seconds."
             )
+            stopped = _stop_locked(clear_error=False)
+            _state = "failed"
+            _start_attempted = True
+            if stopped:
+                _last_error = startup_error
+            elif _last_error and _last_error != startup_error:
+                _last_error = f"{startup_error} {_last_error}"
             _logger.error("Internal llama.cpp auto-start failed: %s", _last_error)
-        else:
-            _last_error = None
-    except OSError as exc:
+            return
+        _active_port = _port
+        _state = "running"
+        _last_error = None
+    except (OSError, RuntimeError) as exc:
+        start_error = f"Could not start llama server on port {_port}: {exc}"
+        if _process is not None:
+            _stop_locked(clear_error=False)
         _active_port = None
-        _last_error = f"Could not start llama server on port {_port}: {exc}"
+        _state = "failed"
+        _start_attempted = True
+        _last_error = start_error
         _logger.error("%s", _last_error, exc_info=True)
 
 
@@ -285,13 +393,7 @@ def initialize_llama_cpp_runtime() -> None:
 
 
 def _runtime_status_locked() -> dict[str, Any]:
-    global _process, _active_port, _last_error
-    if _process is not None:
-        exit_code = _process.poll()
-        if exit_code is not None:
-            _process = None
-            _active_port = None
-            _last_error = f"llama server exited with code {exit_code}."
+    _observe_process_exit_locked()
     executable = _llama_executable()
     model_dirs, default_model_dir = _model_directory_options()
     model_dir = (
@@ -307,10 +409,11 @@ def _runtime_status_locked() -> dict[str, Any]:
         "model_dir": model_dir,
         "model_dirs": model_dirs,
         "default_model_dir": default_model_dir,
+        "state": _state,
         "llama_available": executable is not None,
         "llama_executable": executable,
         "llama_version": _probe_llama_version(executable),
-        "running": _process is not None,
+        "running": _state == "running",
         "error": _last_error,
     }
 
@@ -328,6 +431,8 @@ def update_runtime_settings(
 ) -> dict[str, Any]:
     global _auto_start, _ctx_size, _port, _model_dir
     with _lock:
+        previous_auto_start = _auto_start
+        previous_launch_config = (_ctx_size, _port, _model_dir)
         next_auto_start = _auto_start if auto_start is None else auto_start
         next_ctx_size = _ctx_size if ctx_size is None else ctx_size
         next_port = _port if port is None else port
@@ -351,12 +456,42 @@ def update_runtime_settings(
             next_port,
             next_model_dir,
         )
-        if auto_start is not None:
-            if auto_start:
+        launch_config_changed = previous_launch_config != (
+            next_ctx_size,
+            next_port,
+            next_model_dir,
+        )
+        if not next_auto_start:
+            _stop_locked()
+        elif not previous_auto_start or launch_config_changed:
+            if not previous_auto_start or _stop_locked():
                 _start_locked()
-            else:
-                _stop_locked()
         return _runtime_status_locked()
+
+
+def restart_runtime() -> dict[str, Any]:
+    if not _restart_lock.acquire(blocking=False):
+        with _lock:
+            _observe_process_exit_locked()
+            if not _auto_start:
+                raise _RestartDisabled(
+                    "Enable the internal llama.cpp runtime before restarting it."
+                )
+            return _runtime_status_locked()
+
+    try:
+        with _lock:
+            _observe_process_exit_locked()
+            if not _auto_start:
+                raise _RestartDisabled(
+                    "Enable the internal llama.cpp runtime before restarting it."
+                )
+            if not _stop_locked():
+                return _runtime_status_locked()
+            _start_locked(repair_model_dir=False)
+            return _runtime_status_locked()
+    finally:
+        _restart_lock.release()
 
 
 def _is_local_request(request: Any) -> bool:
@@ -446,6 +581,21 @@ async def update_runtime_endpoint(request: Any):
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def restart_runtime_endpoint(request: Any):
+    if not _is_local_request(request):
+        return web.json_response(
+            {"error": "This setting can only be changed locally."}, status=403
+        )
+    try:
+        status = await asyncio.to_thread(restart_runtime)
+        return web.json_response(status)
+    except _RestartDisabled as exc:
+        return web.json_response({"error": str(exc)}, status=409)
+    except (OSError, RuntimeError) as exc:
+        _logger.exception("Could not restart the internal llama.cpp runtime.")
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 def register_runtime_routes() -> None:
     global _routes_registered
     if _routes_registered:
@@ -454,6 +604,9 @@ def register_runtime_routes() -> None:
 
     PromptServer.instance.routes.get(RUNTIME_ROUTE)(runtime_status_endpoint)
     PromptServer.instance.routes.post(RUNTIME_ROUTE)(update_runtime_endpoint)
+    PromptServer.instance.routes.post(RUNTIME_RESTART_ROUTE)(
+        restart_runtime_endpoint
+    )
     _routes_registered = True
 
 
@@ -467,9 +620,12 @@ atexit.register(_stop_at_exit)
 
 __all__ = [
     "RUNTIME_ROUTE",
+    "RUNTIME_RESTART_ROUTE",
     "get_runtime_status",
     "initialize_llama_cpp_runtime",
     "register_runtime_routes",
+    "restart_runtime",
+    "restart_runtime_endpoint",
     "runtime_status_endpoint",
     "update_runtime_endpoint",
     "update_runtime_settings",

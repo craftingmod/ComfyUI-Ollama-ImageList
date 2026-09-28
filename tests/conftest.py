@@ -1,10 +1,28 @@
+import json
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 MISSING = object()
+
+try:
+    import aiohttp  # noqa: F401
+except ModuleNotFoundError:
+    class JsonResponse:
+        def __init__(self, payload, *, status=200):
+            self.status = status
+            self.text = json.dumps(payload)
+
+    aiohttp_stub = ModuleType("aiohttp")
+    aiohttp_stub.web = SimpleNamespace(
+        json_response=lambda payload, *, status=200: JsonResponse(
+            payload, status=status
+        )
+    )
+    sys.modules["aiohttp"] = aiohttp_stub
 
 
 def load_package_from_path(

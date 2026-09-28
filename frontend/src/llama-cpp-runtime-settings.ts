@@ -4,8 +4,11 @@ import { PROJECT_NAME } from "./constants.ts"
 import { getRuntimeMessages } from "./llama-cpp-runtime-messages.ts"
 
 const RUNTIME_ROUTE = "/ollama_image_list/llama_cpp/runtime"
+const RUNTIME_RESTART_ROUTE = `${RUNTIME_ROUTE}/restart`
 const COMFY_LOCALE_SETTING = "Comfy.Locale"
 const AUTO_START_SETTING = "OllamaImageList.LlamaCpp.AutoStart"
+const RESTART_SETTING = "OllamaImageList.LlamaCpp.Restart"
+const SERVICE_STATE_SETTING = "OllamaImageList.LlamaCpp.ServiceState"
 const PATH_STATUS_SETTING = "OllamaImageList.LlamaCpp.PathStatus"
 const EXECUTABLE_PATH_SETTING = "OllamaImageList.LlamaCpp.ExecutablePath"
 const LLAMA_VERSION_SETTING = "OllamaImageList.LlamaCpp.Version"
@@ -18,6 +21,13 @@ const MAX_CTX_SIZE = 1048576
 const DEFAULT_PORT = 18582
 const MIN_PORT = 1024
 const MAX_PORT = 65535
+const SERVICE_STATES = [
+  "stopped",
+  "starting",
+  "running",
+  "stopping",
+  "failed",
+] as const
 
 type RuntimeSettingsUpdate = {
   auto_start?: boolean
@@ -28,6 +38,7 @@ type RuntimeSettingsUpdate = {
 
 type RuntimeStatus = {
   auto_start: boolean
+  state: (typeof SERVICE_STATES)[number]
   ctx_size: number
   port: number
   active_port: number | null
@@ -49,6 +60,7 @@ let portRevision = 0
 let modelDirRevision = 0
 let settingUpdateQueue: Promise<void> = Promise.resolve()
 let latestStatus: RuntimeStatus | undefined
+let restartInProgress = false
 
 async function setSettingFromBackend(
   app: ComfyApp,
@@ -82,6 +94,10 @@ async function updatePathStatus(
     await setSettingFromBackend(app, MODEL_DIR_SETTING, status.model_dir)
   }
   await app.extensionManager.setting.set(
+    SERVICE_STATE_SETTING,
+    status.state,
+  )
+  await app.extensionManager.setting.set(
     PATH_STATUS_SETTING,
     status.llama_available ? "available" : "unavailable",
   )
@@ -96,7 +112,7 @@ async function updatePathStatus(
 }
 
 function showStartWarning(app: ComfyApp, status: RuntimeStatus): void {
-  if (status.auto_start && !status.running) {
+  if (status.state === "failed" || (status.auto_start && !status.running)) {
     const messages = getRuntimeMessages(
       app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
     )
@@ -112,17 +128,18 @@ function showStartWarning(app: ComfyApp, status: RuntimeStatus): void {
 async function requestStatus(
   api: ComfyApi,
   update?: RuntimeSettingsUpdate,
+  restart = false,
 ): Promise<RuntimeStatus> {
-  const response = await api.fetchApi(
-    RUNTIME_ROUTE,
+  const route = restart ? RUNTIME_RESTART_ROUTE : RUNTIME_ROUTE
+  const options: RequestInit =
     update === undefined
-      ? { method: "GET" }
+      ? { method: restart ? "POST" : "GET" }
       : {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(update),
-        },
-  )
+        }
+  const response = await api.fetchApi(route, options)
   const payload: unknown = await response.json()
   if (
     !response.ok ||
@@ -130,6 +147,9 @@ async function requestStatus(
     typeof payload !== "object" ||
     !("auto_start" in payload) ||
     typeof payload.auto_start !== "boolean" ||
+    !("state" in payload) ||
+    typeof payload.state !== "string" ||
+    !SERVICE_STATES.includes(payload.state as RuntimeStatus["state"]) ||
     !("ctx_size" in payload) ||
     typeof payload.ctx_size !== "number" ||
     !Number.isInteger(payload.ctx_size) ||
@@ -177,6 +197,70 @@ async function requestStatus(
   return payload as RuntimeStatus
 }
 
+function createRestartButton(app: ComfyApp, api: ComfyApi): HTMLButtonElement {
+  const messages = getRuntimeMessages(
+    app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+  )
+  const button = document.createElement("button")
+  button.type = "button"
+  button.textContent = messages.restartButton
+  button.title = messages.restartTooltip
+  button.setAttribute("aria-label", messages.restartButton)
+  button.disabled = restartInProgress
+  button.addEventListener("click", () => {
+    if (restartInProgress) return
+    restartInProgress = true
+    button.disabled = true
+    button.textContent = messages.restarting
+
+    const restart = settingUpdateQueue.then(async () => {
+      if (
+        app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !== true
+      ) {
+        app.extensionManager.toast.add({
+          severity: "info",
+          summary: messages.restartRequiresAutoStart,
+          life: 5000,
+        })
+        return
+      }
+
+      const status = await requestStatus(api, undefined, true)
+      await updatePathStatus(app, status)
+      if (status.state === "running") {
+        app.extensionManager.toast.add({
+          severity: "success",
+          summary: messages.restartSuccessSummary(PROJECT_NAME),
+          detail: messages.restartSuccessDetail,
+          life: 5000,
+        })
+      } else {
+        showStartWarning(app, status)
+      }
+    })
+    settingUpdateQueue = restart.then(
+      () => undefined,
+      () => undefined,
+    )
+    void restart
+      .catch((error: unknown) => {
+        app.extensionManager.toast.add({
+          severity: "error",
+          summary: messages.restartFailureSummary(PROJECT_NAME),
+          detail:
+            error instanceof Error ? error.message : messages.unknownError,
+          life: 7000,
+        })
+      })
+      .finally(() => {
+        restartInProgress = false
+        button.disabled = false
+        button.textContent = messages.restartButton
+      })
+  })
+  return button
+}
+
 export function registerLlamaCppRuntimeSettings(
   app: ComfyApp,
   api: ComfyApi,
@@ -186,10 +270,10 @@ export function registerLlamaCppRuntimeSettings(
     settings: [
       {
         id: AUTO_START_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp", "AutoStart"],
+        category: [PROJECT_NAME, "llama.cpp Daemon", "AutoStart"],
         name: "Internal llama.cpp runtime activation",
         tooltip:
-          "When enabled, starts the PATH llama executable on 127.0.0.1 at the configured port now and on each ComfyUI startup.",
+          "Starts the PATH llama executable on 127.0.0.1 now and on each ComfyUI startup. Settings changes restart the owned service; closing ComfyUI stops it.",
         type: "boolean",
         defaultValue: false,
         sortOrder: 40,
@@ -239,8 +323,31 @@ export function registerLlamaCppRuntimeSettings(
         },
       },
       {
+        id: SERVICE_STATE_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "AutoStart"],
+        name: "Internal service state",
+        tooltip: "Lifecycle state of the service owned by this ComfyUI process.",
+        type: "text",
+        attrs: { readonly: true },
+        defaultValue: "stopped",
+        sortOrder: 30,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: RESTART_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "AutoStart"],
+        name: "Restart internal daemon",
+        tooltip: getRuntimeMessages(
+          app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
+        ).restartTooltip,
+        type: () => createRestartButton(app, api),
+        defaultValue: null,
+        sortOrder: 25,
+        telemetry: { trackChanges: false },
+      },
+      {
         id: PATH_STATUS_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp", "PathStatus"],
+        category: [PROJECT_NAME, "llama.cpp Daemon", "PathStatus"],
         name: "PATH availability",
         tooltip: "Whether the llama executable is available on ComfyUI's PATH.",
         type: "text",
@@ -253,7 +360,7 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: EXECUTABLE_PATH_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp", "ExecutablePath"],
+        category: [PROJECT_NAME, "llama.cpp Daemon", "ExecutablePath"],
         name: "llama executable path",
         tooltip: "The resolved executable path when llama is available.",
         type: "text",
@@ -264,7 +371,7 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: LLAMA_VERSION_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp", "Version"],
+        category: [PROJECT_NAME, "llama.cpp Daemon", "Version"],
         name: "llama version",
         tooltip: "The version reported by llama --version.",
         type: "text",
@@ -275,10 +382,10 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: CTX_SIZE_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp daemon", "config"],
+        category: [PROJECT_NAME, "llama.cpp Daemon Config", "ContextSize"],
         name: "Context size",
         tooltip:
-          "Takes effect the next time the internal server starts; editing this does not restart a running server.",
+          "Changing this while the internal server is running restarts it with the new context size.",
         type: "number",
         attrs: {
           min: MIN_CTX_SIZE,
@@ -343,10 +450,10 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: PORT_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp daemon", "config"],
+        category: [PROJECT_NAME, "llama.cpp Daemon Config", "Port"],
         name: "Internal server port",
         tooltip:
-          "Takes effect the next time the internal server starts; editing this does not restart a running server.",
+          "Changing this while the internal server is running restarts it on the new port.",
         type: "number",
         attrs: {
           min: MIN_PORT,
@@ -410,15 +517,18 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: MODEL_DIR_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp daemon", "config"],
+        category: [PROJECT_NAME, "llama.cpp Daemon Config", "ModelDir"],
         name: "LLM models directory",
         tooltip:
-          "Selects the directory used by the internal llama server on its next start; changing it does not restart a running server.",
+          "Changing this while the internal server is running restarts it with the new models directory.",
         type: "combo",
         options: [],
         defaultValue: "",
         sortOrder: -20,
         telemetry: { trackChanges: false },
+        attrs: {
+          style: { width: "20rem" }
+        },
         async onChange(value, oldValue) {
           if (syncingSettings.has(MODEL_DIR_SETTING) || oldValue === undefined)
             return

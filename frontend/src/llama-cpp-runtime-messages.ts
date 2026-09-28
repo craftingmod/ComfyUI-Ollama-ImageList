@@ -5,6 +5,14 @@ type RuntimeMessages = {
   startFailureFallback: string
   saveFailureSummary: (projectName: string) => string
   unknownError: string
+  restartButton: string
+  restarting: string
+  restartTooltip: string
+  restartRequiresAutoStart: string
+  restartSuccessSummary: (projectName: string) => string
+  restartSuccessDetail: string
+  restartFailureSummary: (projectName: string) => string
+  restartFailureFallback: string
 }
 
 const messages: Record<string, RuntimeMessages> = {
@@ -17,6 +25,18 @@ const messages: Record<string, RuntimeMessages> = {
     saveFailureSummary: (projectName) =>
       `${projectName} could not save the llama.cpp setting`,
     unknownError: "Unknown error.",
+    restartButton: "Restart internal daemon",
+    restarting: "Restarting…",
+    restartTooltip:
+      "Restarting can interrupt active requests. This restarts only the internal daemon owned by this ComfyUI process; external servers and Connect Session are unaffected.",
+    restartRequiresAutoStart:
+      "Turn on Internal llama.cpp runtime activation before restarting the daemon.",
+    restartSuccessSummary: (projectName) =>
+      `${projectName} restarted the internal llama.cpp daemon`,
+    restartSuccessDetail: "The daemon passed its health check and is running.",
+    restartFailureSummary: (projectName) =>
+      `${projectName} could not restart the internal llama.cpp daemon`,
+    restartFailureFallback: "The daemon did not pass its health check.",
   },
   ko: {
     checking: "확인 중...",
@@ -27,6 +47,18 @@ const messages: Record<string, RuntimeMessages> = {
     saveFailureSummary: (projectName) =>
       `${projectName} llama.cpp 설정을 저장하지 못했습니다`,
     unknownError: "알 수 없는 오류입니다.",
+    restartButton: "내부 daemon 재시작",
+    restarting: "재시작 중…",
+    restartTooltip:
+      "재시작하면 실행 중인 요청이 중단될 수 있습니다. 이 ComfyUI 프로세스가 소유한 내부 daemon만 재시작하며, 외부 서버와 Connect Session에는 영향이 없습니다.",
+    restartRequiresAutoStart:
+      "daemon을 재시작하려면 Internal llama.cpp runtime activation을 먼저 켜세요.",
+    restartSuccessSummary: (projectName) =>
+      `${projectName} 내부 llama.cpp daemon을 재시작했습니다`,
+    restartSuccessDetail: "헬스 체크를 통과해 daemon이 실행 중입니다.",
+    restartFailureSummary: (projectName) =>
+      `${projectName} 내부 llama.cpp daemon을 재시작하지 못했습니다`,
+    restartFailureFallback: "daemon이 헬스 체크를 통과하지 못했습니다.",
   },
 }
 
