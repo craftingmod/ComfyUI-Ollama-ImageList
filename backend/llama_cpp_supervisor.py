@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from typing import BinaryIO
 
 _SHUTDOWN_TIMEOUT_SECONDS = 5
 _logger = logging.getLogger("llama-supervisor")
+_SUPPRESSED_STDOUT_LINE = re.compile(rb"^\[\s*\d+\]\s*$")
 
 
 def _request_stop(stop_requested: Event, _frame: object) -> None:
@@ -21,6 +23,14 @@ def _watch_owner(owner_pipe: BinaryIO, stop_requested: Event) -> None:
         owner_pipe.read()
     finally:
         stop_requested.set()
+
+
+def _forward_server_stdout(server_stdout: BinaryIO) -> None:
+    for line in server_stdout:
+        if _SUPPRESSED_STDOUT_LINE.fullmatch(line.rstrip(b"\r\n")):
+            continue
+        sys.stdout.buffer.write(line)
+        sys.stdout.buffer.flush()
 
 
 def _stop_server(server: subprocess.Popen[bytes]) -> None:
@@ -63,6 +73,7 @@ def _supervise(command: list[str], owner_pipe: BinaryIO) -> int:
         server = subprocess.Popen(
             command,
             stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             close_fds=True,
             creationflags=creationflags,
         )
@@ -71,6 +82,11 @@ def _supervise(command: list[str], owner_pipe: BinaryIO) -> int:
         return 1
 
     _logger.info("llama-server started (pid %s)", server.pid)
+    assert server.stdout is not None
+    stdout_thread = Thread(
+        target=_forward_server_stdout, args=(server.stdout,), daemon=True
+    )
+    stdout_thread.start()
     Thread(target=_watch_owner, args=(owner_pipe, stop_requested), daemon=True).start()
     handlers = {}
     for signum in (signal.SIGINT, signal.SIGTERM):
@@ -89,6 +105,8 @@ def _supervise(command: list[str], owner_pipe: BinaryIO) -> int:
                 return 0
     finally:
         _stop_server(server)
+        stdout_thread.join()
+        server.stdout.close()
         for signum, handler in handlers.items():
             signal.signal(signum, handler)
         _logger.info("supervisor exited")

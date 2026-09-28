@@ -324,7 +324,7 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: SERVICE_STATE_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp Daemon", "AutoStart"],
+        category: [PROJECT_NAME, "llama.cpp Daemon", "LifecycleStatus"],
         name: "Internal service state",
         tooltip: "Lifecycle state of the service owned by this ComfyUI process.",
         type: "text",
@@ -335,7 +335,7 @@ export function registerLlamaCppRuntimeSettings(
       },
       {
         id: RESTART_SETTING as any,
-        category: [PROJECT_NAME, "llama.cpp Daemon", "AutoStart"],
+        category: [PROJECT_NAME, "llama.cpp Daemon", "RestartActor"],
         name: "Restart internal daemon",
         tooltip: getRuntimeMessages(
           app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),

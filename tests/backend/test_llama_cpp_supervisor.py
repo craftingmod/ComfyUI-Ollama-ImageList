@@ -1,8 +1,22 @@
+import io
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+from backend.llama_cpp_supervisor import _forward_server_stdout
+
+
+def test_server_stdout_suppresses_bracketed_numeric_lines(monkeypatch):
+    output = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(output))
+
+    _forward_server_stdout(
+        io.BytesIO(b"[ 12]\nvisible\n[\t3]\r\n[4] trailing\nlast")
+    )
+
+    assert output.getvalue() == b"visible\n[4] trailing\nlast"
 
 
 def test_owner_pipe_eof_stops_the_owned_server(tmp_path):
