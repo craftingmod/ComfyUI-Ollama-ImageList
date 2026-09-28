@@ -136,6 +136,12 @@ ignoring the limit. Reasoning tokens share the `max_tokens` output allowance, so
 
 If an image token floor or ceiling is explicitly overridden for an IMAGE or VIDEO request, the effective limit cannot exceed `n_ctx`, `n_batch`, or the effective `n_ubatch`. When both are set, `image_min_tokens` cannot exceed `image_max_tokens`. Invalid combinations fail before loading the model rather than reaching a native assertion.
 
+## Profile nodes
+
+`[llama.cpp] Model Profile`, `[llama.cpp] Hardware Runtime Profile`,
+`[llama.cpp] Thinking / Reasoning Profile`, and `[llama.cpp] Native Speculative Profile`
+live under `llama_cpp / profile` and provide typed inputs to Compact Generate.
+
 ## Compact nodes
 
 The nodes under `llama_cpp / compact` keep model selection, request budgets,
@@ -143,22 +149,21 @@ prompts, seed, media, and diagnostics visible while moving stable model and hard
 tuning behind separate typed connections:
 
 ```text
-Model Profile -------------------------+-> Llama.cpp Generate
-Hardware Runtime Profile (optional) ---/
-Thinking / Reasoning Config -----------/
-N-gram Speculative Config ------------\
-Native Speculative Config (Compat) ---+-> speculative (choose one)
+[llama.cpp] Model Profile -------------------------+-> [llama.cpp] Generate
+[llama.cpp] Hardware Runtime Profile (optional) ---/
+[llama.cpp] Thinking / Reasoning Profile ---------/
+[llama.cpp] N-gram Speculative Config -----------\
+[llama.cpp] Native Speculative Profile ----------+-> speculative (choose one)
 ```
 
-The two Profile nodes, Thinking / Reasoning Config, N-gram Speculative Config, Generate,
-and Sequential Generate live under `llama_cpp / compact`. Sequential Generate
+N-gram Speculative Config, Generate, and Sequential Generate live under
+`llama_cpp / compact`. Sequential Generate
 receives the complete input list in one call, loads the model once, calls `Llama.reset()`
 before every independent completion on native-speculative forks, and otherwise clears the
 underlying context memory before setting `n_tokens=0`. It retains results as data lists and
 unloads once after the sequence. Speculative configs are rejected on this node because
-their decoder history cannot yet be guaranteed independent. Native Speculative Config
-remains under the `experimental` subcategory because its providers require experimental
-backend support.
+their decoder history cannot yet be guaranteed independent. Native Speculative Profile
+providers still require experimental backend support.
 
 Its `prompt` input is also a list: with media, it must contain either one shared prompt
 or exactly one prompt per execution item; any other length is rejected. Sequential execution
@@ -193,7 +198,7 @@ layers, main GPU 0, automatic CPU threads and flash attention, mmap enabled, and
 CPU threads, flash attention, or mmap settings. Its `n_ubatch=0` means that no explicit
 override is sent to llama.cpp.
 
-Thinking / Reasoning Config has exactly `reasoning_mode`, `reasoning_effort`, and
+Thinking / Reasoning Profile has exactly `reasoning_mode`, `reasoning_effort`, and
 `max_reasoning_tokens`. `auto` or a disconnected socket leaves chat-template reasoning
 controls untouched for ordinary profiles; Qwen 3.5+ Thinking/Non-thinking instead applies
 the mode named by the profile. An explicitly connected opposite mode fails before model
@@ -208,13 +213,13 @@ For Qwen-VL grounding tasks, set `image_min_tokens=1024`. Explicit image-token l
 fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
 and output length remain user-selected even when a Qwen 3.5+ profile supplies its mode.
 
-Native Speculative Config choices are `Off`, `External MTP`, `Internal MTP`, `DFlash`,
+Native Speculative Profile choices are `Off`, `External MTP`, `Internal MTP`, `DFlash`,
 `DSpark`, and `Custom`. The `draft_model` selector is enabled for External MTP,
 DFlash, DSpark, and Custom, while Internal MTP uses embedded NextN layers and does
 not use a draft GGUF. `draft_n_max` and `draft_p_min` are shared proposal controls; the former
 is visible and the latter remains advanced. The advanced draft-engine controls are
 `draft_n_gpu_layers` (`auto` or `all`) and `draft_backend_sampling`. The Compact N-gram and
-Native config nodes intentionally
+Native Speculative Profile nodes intentionally
 emit the same typed `speculative` output, so one Generate node dispatches either strategy and
 the graph cannot connect both simultaneously. The same backend validation, dependency checks,
 statistics, and cleanup paths used by the detailed nodes remain active.
@@ -289,13 +294,13 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 ## Native speculative decoding (Experimental)
 
-`Llama.cpp Native Speculative Config (Compat)` is registered under `llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
+`[llama.cpp] Native Speculative Profile` is registered under `llama_cpp / profile` and connects to Compact Generate. The detailed `[llama.cpp] Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
 This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
 The node requires a fork wheel that provides `llama_cpp.llama_speculative.SpecConfig` and `SpeculativeType`, plus the corresponding native engines. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. New code must pass `speculative=SpecConfig(...)` to `Llama`; the deprecated `draft_model=` callback path is not used. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
-Choose `preset=Off` for target-only generation; all Native Speculative Config fields are disabled and the output is an off config. For External MTP, DFlash, or DSpark, choose a compatible GGUF in `draft_model`. Internal MTP uses no separate draft GGUF. `Custom` exposes `custom_spec_type` and `custom_mtp_provider`; the latter is enabled only for Custom. `draft_n_max` and `draft_p_min` are accepted for every non-Off preset. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
+Choose `preset=Off` for target-only generation; all Native Speculative Profile fields are disabled and the output is an off config. For External MTP, DFlash, or DSpark, choose a compatible GGUF in `draft_model`. Internal MTP uses no separate draft GGUF. `Custom` exposes `custom_spec_type` and `custom_mtp_provider`; the latter is enabled only for Custom. `draft_n_max` and `draft_p_min` are accepted for every non-Off preset. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
 
 For Native MTP, choose one explicit `mtp_provider`:
 

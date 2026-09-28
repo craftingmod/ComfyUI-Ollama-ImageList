@@ -75,7 +75,9 @@ class JinjaChatTemplatePresetNode(io.ComfyNode):
                 io.String.Output(
                     "chat_template",
                     display_name="chat template",
-                    tooltip="Connect to a Model Profile's custom_chat_template input.",
+                    tooltip=(
+                        "Connect to [llama.cpp] Model Profile's custom_chat_template input."
+                    ),
                 ),
             ],
             search_aliases=[

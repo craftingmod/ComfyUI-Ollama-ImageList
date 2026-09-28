@@ -48,8 +48,8 @@ LlamaCppSpeculativeConfigType = io.Custom(
 LlamaCppSequentialResponseType = io.Custom("LLAMA_SEQUENTIAL_RESPONSE")
 
 BASE_CATEGORY = "llama_cpp"
+PROFILE_CATEGORY = f"{BASE_CATEGORY}/profile"
 COMPACT_CATEGORY = f"{BASE_CATEGORY}/compact"
-EXPERIMENTAL_CATEGORY = f"{BASE_CATEGORY}/experimental"
 
 _BASE_MODEL_PROFILE: dict[str, Any] = {
     "handler": "auto",
@@ -167,7 +167,7 @@ NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
 def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise InputNormalizationError(
-            "model_profile must be a Llama.cpp Compact Model Profile object."
+            "model_profile must be a [llama.cpp] Model Profile object."
         )
 
     missing = [
@@ -280,7 +280,7 @@ def normalize_compact_hardware_profile(value: Any) -> dict[str, Any]:
 def normalize_reasoning_config(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise InputNormalizationError(
-            "reasoning must be a Llama.cpp Thinking / Reasoning Config object."
+            "reasoning must be a [llama.cpp] Thinking / Reasoning Profile object."
         )
     mode = value.get("reasoning_mode")
     if mode not in {"auto", "off", "on"}:
@@ -314,7 +314,8 @@ def normalize_reasoning_config(value: Any) -> dict[str, Any]:
 def normalize_native_draft_config(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise InputNormalizationError(
-            "native_speculative must be a Llama.cpp Native Speculative Config object."
+            "native_speculative must be a [llama.cpp] "
+            "Native Speculative Profile object."
         )
     spec_type = value.get("spec_type")
     if spec_type not in {
@@ -400,7 +401,8 @@ def normalize_native_draft_config(value: Any) -> dict[str, Any]:
 def normalize_compact_speculative(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise InputNormalizationError(
-            "speculative must be a Compact N-gram or Native Speculative Config object."
+            "speculative must be a Compact N-gram or [llama.cpp] "
+            "Native Speculative Profile object."
         )
     kind = value.get("kind")
     if kind == "off":
@@ -425,7 +427,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppModelProfile",
             display_name="[llama.cpp] Model Profile",
-            category=COMPACT_CATEGORY,
+            category=PROFILE_CATEGORY,
             description=(
                 "Bundles model-dependent handler and sampling defaults into one typed "
                 "connection."
@@ -545,7 +547,7 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppHardwareRuntimeProfile",
             display_name="[llama.cpp] Hardware Runtime Profile",
-            category=COMPACT_CATEGORY,
+            category=PROFILE_CATEGORY,
             description=(
                 "Bundles hardware-dependent batch, offload, CPU, attention, and mmap "
                 "settings. n_ubatch=0 uses the backend default."
@@ -632,8 +634,8 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppReasoningConfig",
-            display_name="[llama.cpp] Thinking / Reasoning Config",
-            category=COMPACT_CATEGORY,
+            display_name="[llama.cpp] Thinking / Reasoning Profile",
+            category=PROFILE_CATEGORY,
             description=(
                 "Controls thinking/reasoning mode, effort, and token budget for "
                 "supported model templates. A zero token limit applies no separate "
@@ -769,8 +771,8 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
         draft_options = _draft_gguf_options()
         return io.Schema(
             node_id="OllamaImageList_LlamaCppNativeSpeculativeConfig",
-            display_name="[llama.cpp] Native Speculative Config (Compat)",
-            category=EXPERIMENTAL_CATEGORY,
+            display_name="[llama.cpp] Native Speculative Profile",
+            category=PROFILE_CATEGORY,
             description=(
                 "Bundles DFlash, DSpark, or Native MTP configuration and its optional "
                 "draft GGUF into one typed connection."
@@ -1017,13 +1019,13 @@ def _compact_common_inputs(*, include_video_with_audio: bool = True) -> list[Any
         io.Combo.Input("mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION),
         LlamaCppModelProfileType.Input(
             "model_profile",
-            tooltip="Required output from Llama.cpp Model Profile.",
+            tooltip="Required output from [llama.cpp] Model Profile.",
         ),
         LlamaCppHardwareRuntimeProfileType.Input(
             "hardware_profile",
             optional=True,
             tooltip=(
-                "Optional output from Llama.cpp Hardware Runtime Profile. "
+                "Optional output from [llama.cpp] Hardware Runtime Profile. "
                 "Disconnected uses GPU Full Offload."
             ),
         ),
@@ -1135,8 +1137,9 @@ def build_compact_session_kwargs(
         and reasoning_mode != profile_reasoning_mode
     ):
         raise InputNormalizationError(
-            "The selected Model Profile requires reasoning_mode="
-            f"{profile_reasoning_mode}, but Thinking / Reasoning Config requests "
+            "The selected [llama.cpp] Model Profile requires reasoning_mode="
+            f"{profile_reasoning_mode}, but "
+            "[llama.cpp] Thinking / Reasoning Profile requests "
             f"reasoning_mode={reasoning_mode}."
         )
     if reasoning_mode == "auto" and profile_reasoning_mode != "auto":
@@ -1286,8 +1289,9 @@ def _execute_compact(
         and reasoning_mode != profile_reasoning_mode
     ):
         raise InputNormalizationError(
-            "The selected Model Profile requires reasoning_mode="
-            f"{profile_reasoning_mode}, but Thinking / Reasoning Config requests "
+            "The selected [llama.cpp] Model Profile requires reasoning_mode="
+            f"{profile_reasoning_mode}, but "
+            "[llama.cpp] Thinking / Reasoning Profile requests "
             f"reasoning_mode={reasoning_mode}."
         )
     if reasoning_mode == "auto" and profile_reasoning_mode != "auto":
@@ -1418,7 +1422,7 @@ def _compact_profiled_generate_inputs(
             "reasoning",
             optional=True,
             tooltip=(
-                "Optional output from Llama.cpp Thinking / Reasoning Config. "
+                "Optional output from [llama.cpp] Thinking / Reasoning Profile. "
                 "Disconnected uses model-default reasoning behavior."
             ),
         ),
