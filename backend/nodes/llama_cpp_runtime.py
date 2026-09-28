@@ -117,7 +117,8 @@ class LlamaCppGemma4RuntimePresetNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppGemma4RuntimePreset",
             display_name="Llama.cpp Gemma 4 Runtime Preset",
-            category="Ollama/llama_cpp/legacy",
+            category="llama_cpp/legacy",
+            is_deprecated=True,
             is_dev_only=True,
             description=(
                 "Outputs one typed multimodal batch configuration plus separate "

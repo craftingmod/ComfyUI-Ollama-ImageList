@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Moved native llama.cpp node categories from `Ollama / llama_cpp` to top-level `llama_cpp`.
+
 ## 0.7.0 - 2026-08-17
 
 ### Added

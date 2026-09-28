@@ -130,7 +130,7 @@ class LlamaCppSpeculativeGenerateNode(LlamaCppImageListGenerateNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSpeculativeGenerate",
             display_name="Llama.cpp Speculative Generate (Experimental)",
-            category="Ollama/llama_cpp/experimental",
+            category="llama_cpp/experimental",
             description=(
                 "Experimental native speculative decoding for DFlash/DSpark drafts, Gemma 4 "
                 "external MTP assistants, and Qwen 3.5+ embedded MTP. MTP is text-only and "

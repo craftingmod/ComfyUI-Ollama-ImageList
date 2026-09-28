@@ -47,7 +47,7 @@ LlamaCppSpeculativeConfigType = io.Custom(
 )
 LlamaCppSequentialResponseType = io.Custom("LLAMA_SEQUENTIAL_RESPONSE")
 
-BASE_CATEGORY = "Ollama/llama_cpp"
+BASE_CATEGORY = "llama_cpp"
 COMPACT_CATEGORY = f"{BASE_CATEGORY}/compact"
 EXPERIMENTAL_CATEGORY = f"{BASE_CATEGORY}/experimental"
 

@@ -1,6 +1,6 @@
 # Native llama.cpp backend
 
-The nodes under `Ollama / llama_cpp` run a GGUF model directly inside the ComfyUI process through `llama-cpp-python`. They are intended for one stateless text or multimodal chat completion. No model object, context, KV cache, or projector is exposed to the workflow or retained after execution.
+The nodes under `llama_cpp` run a GGUF model directly inside the ComfyUI process through `llama-cpp-python`. They are intended for one stateless text or multimodal chat completion. No model object, context, KV cache, or projector is exposed to the workflow or retained after execution.
 
 ## Optional dependency
 
@@ -83,7 +83,7 @@ The compact Generate and Sequential Generate nodes expose `video_with_audio` (de
 ## Generate inputs
 
 The detailed Generate node and its Sampling, Gemma 4 Runtime, and N-gram Preset helpers
-remain registered for saved-workflow compatibility under `Ollama / llama_cpp / legacy`.
+remain registered for saved-workflow compatibility under `llama_cpp / legacy`.
 They are marked V3 development-only, so normal ComfyUI sessions hide them from search
 and the add-node menu. Enable developer mode only when the detailed interface is needed.
 
@@ -138,7 +138,7 @@ If an image token floor or ceiling is explicitly overridden for an IMAGE or VIDE
 
 ## Compact nodes
 
-The nodes under `Ollama / llama_cpp / compact` keep model selection, request budgets,
+The nodes under `llama_cpp / compact` keep model selection, request budgets,
 prompts, seed, media, and diagnostics visible while moving stable model and hardware
 tuning behind separate typed connections:
 
@@ -151,7 +151,7 @@ Native Speculative Config (Compat) ---+-> speculative (choose one)
 ```
 
 The two Profile nodes, Thinking / Reasoning Config, N-gram Speculative Config, Generate,
-and Sequential Generate live under `Ollama / llama_cpp / compact`. Sequential Generate
+and Sequential Generate live under `llama_cpp / compact`. Sequential Generate
 receives the complete input list in one call, loads the model once, calls `Llama.reset()`
 before every independent completion on native-speculative forks, and otherwise clears the
 underlying context memory before setting `n_tokens=0`. It retains results as data lists and
@@ -257,7 +257,7 @@ These profiles are named for Gemma 4 because the image-token and physical-batch 
 
 ## N-gram speculative preset
 
-Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `Ollama / llama_cpp`; the Experimental native DFlash/DSpark node does not expose or consume this type.
+Connect **Llama.cpp N-gram Speculative Preset** to the normal Generate node's optional `ngram_speculative` input. The Preset and input are registered under `llama_cpp`; the Experimental native DFlash/DSpark node does not expose or consume this type.
 
 `off` preserves the normal target-only path: no speculative module is imported and the `Llama` constructor receives exactly the same arguments as before. The detail widgets are disabled in this mode without resetting their values, so switching back to `ngram` restores the previous configuration. `ngram` uses JamePeng's official stateful `SpecConfig` path with `SpeculativeType.NGRAM_MAP_K` or `NGRAM_MAP_K4V`, passed to `Llama(speculative=...)`. It does not use the deprecated `Llama(draft_model=...)` callback or construct `LlamaNGramMapDecoding` directly. N-gram predicts candidates from repeated patterns already present in the verified prompt and generated history, requires no additional GGUF, and uses little additional VRAM. The stateful native speculative path is currently text-only, and the target model still verifies every proposed token, so this is not a reduced-accuracy generation mode.
 
@@ -289,7 +289,7 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 ## Native speculative decoding (Experimental)
 
-`Llama.cpp Native Speculative Config (Compat)` is registered under `Ollama / llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
+`Llama.cpp Native Speculative Config (Compat)` is registered under `llama_cpp / experimental` and connects to Compact Generate. The detailed `Llama.cpp Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
 
 This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 

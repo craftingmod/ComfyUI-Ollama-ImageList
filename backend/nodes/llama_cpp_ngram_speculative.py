@@ -20,7 +20,8 @@ class LlamaCppNGramSpeculativePresetNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppNGramSpeculativePreset",
             display_name="Llama.cpp N-gram Speculative Preset",
-            category="Ollama/llama_cpp/legacy",
+            category="llama_cpp/legacy",
+            is_deprecated=True,
             is_dev_only=True,
             description=(
                 "Configures optional model-free n-gram speculative decoding for the normal "

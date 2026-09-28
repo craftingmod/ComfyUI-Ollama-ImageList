@@ -87,8 +87,9 @@ class LlamaCppSamplingPresetNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSamplingPreset",
             display_name="Llama.cpp Sampling Preset",
-            category="Ollama/llama_cpp/legacy",
+            category="llama_cpp/legacy",
             is_dev_only=True,
+            is_deprecated=True,
             description=(
                 "Outputs a compact llama.cpp sampling preset for temperature, top-p, "
                 "top-k, min-p, and repeat penalty."

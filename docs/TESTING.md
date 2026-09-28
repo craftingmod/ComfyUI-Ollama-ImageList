@@ -42,7 +42,7 @@ The suite does not install or load a real GGUF, start ComfyUI, exercise native `
 
 Before publishing a llama.cpp build, manually verify in the target ComfyUI environment:
 
-1. Model Profile, Hardware Runtime Profile, Thinking / Reasoning Config, N-gram Speculative Config, Generate, and Sequential Generate appear under `Ollama / llama_cpp / compact`; Native Speculative Config appears under `experimental`; Diagnostics and Muse Parser appear under `utils`; the four registered legacy schemas are hidden from search/menu outside developer mode; and the detailed Speculative Generate node is not registered;
+1. Model Profile, Hardware Runtime Profile, Thinking / Reasoning Config, N-gram Speculative Config, Generate, and Sequential Generate appear under `llama_cpp / compact`; Native Speculative Config appears under `experimental`; Diagnostics and Muse Parser appear under `utils`; the four registered legacy schemas are hidden from search/menu outside developer mode; and the detailed Speculative Generate node is not registered;
 2. GGUF files from the local and any `extra_model_paths.yaml` `LLM` directories appear in both Combos;
 3. the selected main model and projector complete the intended IMAGE, AUDIO, and/or VIDEO request;
 4. Media Diagnostics reports the requested capability and evaluated item counts;

@@ -17,7 +17,7 @@ This document maps `PLAN.md` onto the package. Runtime Python stays under `backe
 | Resize/padding/montage | Never automatic |
 | Public media scope | Ollama Generate exposes IMAGE; llama.cpp Generate exposes optional IMAGE, AUDIO, and VIDEO |
 | Native CLIP scope | Official Generate Text flow plus system role and IMAGE data lists for Qwen3-VL, Qwen3.5, and Gemma 4 |
-| Node categories | Ollama image nodes use `Ollama / images`; native nodes use `Ollama / llama_cpp`; Compact profiles/generation use `compact`; diagnostics/parsers use `utils`; native speculative configuration uses `experimental`; four registered detailed schemas are development-only under `legacy`; the detailed speculative Generate class is not registered |
+| Node categories | Ollama image nodes use `Ollama / images`; native nodes use top-level `llama_cpp`; Compact profiles/generation use `compact`; diagnostics/parsers use `utils`; native speculative configuration uses `experimental`; four registered detailed schemas are development-only under `legacy`; the detailed speculative Generate class is not registered |
 | Native model lifetime | Serialized, one completion per load, unconditional close in `finally`, no retained model output or cache |
 | Authentication | URL-supported only; credentials are redacted from diagnostics |
 | Ollama Cloud | Not compatibility-tested |
