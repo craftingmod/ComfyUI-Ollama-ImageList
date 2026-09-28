@@ -10,6 +10,7 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI build
     from comfy_api.latest import io
 
 from ..backends.llama_cpp import LlamaCppSession
+from ..backends.llama_cpp_server import LlamaCppServerSession
 from ..core import normalize_media, unwrap_required_scalar
 from .llama_cpp_compact import (
     COMPACT_CATEGORY,
@@ -23,6 +24,66 @@ from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_generate import NO_MMPROJ_OPTION, _gguf_options
 
 LlamaCppSessionType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION")
+
+
+class LlamaCppConnectSessionNode(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="OllamaImageList_LlamaCppConnectSession",
+            display_name="[llama.cpp] Connect Session",
+            category=f"{COMPACT_CATEGORY}/session",
+            description=(
+                "Creates a session handle for a llama.cpp server. Connect fetches model IDs; "
+                "the saved model string remains the value used for generation."
+            ),
+            is_input_list=True,
+            not_idempotent=True,
+            is_experimental=True,
+            inputs=[
+                io.String.Input(
+                    "url",
+                    default="http://127.0.0.1:8080",
+                    tooltip="llama.cpp server base URL. Only HTTP and HTTPS are accepted.",
+                ),
+                io.Combo.Input(
+                    "available_models",
+                    options=[],
+                    default="",
+                    tooltip="Models reported by the configured llama.cpp server.",
+                ),
+                io.String.Input(
+                    "model",
+                    default="",
+                    tooltip=(
+                        "Saved model ID used for generation. Selecting available_models "
+                        "copies its ID here."
+                    ),
+                ),
+            ],
+            outputs=[LlamaCppSessionType.Output("session", display_name="session")],
+        )
+
+    @classmethod
+    def fingerprint_inputs(cls, **_kwargs: Any) -> int:
+        return time.monotonic_ns()
+
+    @classmethod
+    def validate_inputs(cls, available_models: str) -> bool:
+        del available_models
+        return True
+
+    @classmethod
+    def execute(cls, url: Any, available_models: Any, model: Any) -> io.NodeOutput:
+        resolved_url = unwrap_required_scalar("url", url)
+        resolved_model = unwrap_required_scalar("model", model)
+        del available_models
+        return io.NodeOutput(
+            LlamaCppServerSession(
+                url=str(resolved_url),
+                model=str(resolved_model),
+            )
+        )
 
 
 class LlamaCppCreateSessionNode(io.ComfyNode):
@@ -78,7 +139,10 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
             node_id="OllamaImageList_LlamaCppSessionGenerate",
             display_name="[llama.cpp] Generate (Session)",
             category=f"{COMPACT_CATEGORY}/session",
-            description="Runs one request on a resident Llama.cpp session and carries it forward.",
+            description=(
+                "Runs one request on a local or server-backed llama.cpp session and "
+                "carries it forward."
+            ),
             is_input_list=True,
             not_idempotent=True,
             is_experimental=True,
@@ -125,8 +189,8 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
         video_with_audio: Any = False,
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
-        if not isinstance(resolved_session, LlamaCppSession):
-            raise TypeError("session must be a Llama.cpp Create Session output.")
+        if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
+            raise TypeError("session must be a Llama.cpp Create or Connect Session output.")
         bundle = normalize_media(
             images=images,
             audio=audio,
@@ -163,8 +227,8 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
             display_name="[llama.cpp] Unload Session",
             category=f"{COMPACT_CATEGORY}/session",
             description=(
-                "Closes a resident Llama.cpp session. Connect session and a final "
-                "End Loop result to timing so unloading runs after the loop."
+                "Unloads a local or server-backed Llama.cpp session. Connect session and "
+                "a final End Loop result to timing so unloading runs after the loop."
             ),
             is_input_list=True,
             is_output_node=True,
@@ -185,13 +249,14 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
     def execute(cls, session: Any, timing: Any = None) -> io.NodeOutput:
         del timing
         resolved_session = unwrap_required_scalar("session", session)
-        if not isinstance(resolved_session, LlamaCppSession):
-            raise TypeError("session must be a Llama.cpp Create Session output.")
+        if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
+            raise TypeError("session must be a Llama.cpp Create or Connect Session output.")
         resolved_session.close()
         return io.NodeOutput()
 
 
 __all__ = [
+    "LlamaCppConnectSessionNode",
     "LlamaCppCreateSessionNode",
     "LlamaCppSessionGenerateNode",
     "LlamaCppSessionType",

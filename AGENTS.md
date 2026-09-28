@@ -1,16 +1,19 @@
 # AGENTS.md
 
-Single publishable ComfyUI custom node pack.
+## Repository
 
-- Backend node code lives in `backend/`
-- Frontend runtime source lives in `frontend/` and is bundled to generated `dist/`
-- Root `__init__.py` is the thin ComfyUI entry shim
-- Use repo commands first: `bun run typecheck`, `bun run test`, `bun run build`
-- Use `uv` for Python dependency sync and Python execution outside repo scripts
+- Frontend runtime code lives in `frontend/`; backend code lives in `backend/`; the root `__init__.py` is the ComfyUI entry shim.
+- Use `uv` for Python dependency sync and Python execution outside repo scripts.
 
-For testing details, see `docs/TESTING.md`.
-For ComfyUI API changes, verify current official docs before changing architecture or advanced frontend hooks.
+## Validation
 
-## Git
-- When Codex creates a Git commit, append:
-  `Co-authored-by: Codex <codex@openai.com>`
+- Do not run validation unless explicitly requested.
+- When tests are requested, use `bun run test:agent`.
+- Full validation is performed once at the end by the parent agent or manually by the user.
+- See `docs/TESTING.md` when manual runtime testing is required.
+- For ComfyUI API changes, verify the current official documentation.
+
+## Rules
+
+- Use `GPT-6 Luna` with `MAX` reasoning for sub-agent.
+- Use `snake_case` for custom node's parameters

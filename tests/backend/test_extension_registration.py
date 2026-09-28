@@ -214,6 +214,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
         "OllamaImageList_LlamaCppNativeSpeculativeConfig",
         "OllamaImageList_LlamaCppCreateSession",
+        "OllamaImageList_LlamaCppConnectSession",
         "OllamaImageList_LlamaCppSessionGenerate",
         "OllamaImageList_LlamaCppUnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
@@ -238,6 +239,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] N-gram Speculative Config",
         "[llama.cpp] Native Speculative Profile",
         "[llama.cpp] Create Session",
+        "[llama.cpp] Connect Session",
         "[llama.cpp] Generate (Session)",
         "[llama.cpp] Unload Session",
         "[llama.cpp] Generate",
@@ -264,6 +266,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/compact/session",
         "llama_cpp/compact/session",
         "llama_cpp/compact/session",
+        "llama_cpp/compact/session",
         "llama_cpp/compact",
         "llama_cpp/compact",
         "llama_cpp/legacy",
@@ -271,7 +274,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/utils",
         "model/conditioning/multimodal",
     ]
-    assert routes.handlers.keys() == {"/ollama_image_list/models"}
+    assert routes.handlers.keys() == {
+        "/ollama_image_list/models",
+        "/ollama_image_list/llama_cpp/models",
+    }
 
     registered = {
         schema.node_id: (node_class, schema)
@@ -1062,6 +1068,25 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "verbose",
     ]
     assert create_session_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    )
+    _, connect_session_schema = registered[
+        "OllamaImageList_LlamaCppConnectSession"
+    ]
+    assert connect_session_schema.is_input_list is True
+    assert connect_session_schema.not_idempotent is True
+    assert connect_session_schema.is_experimental is True
+    assert [field.name for field in connect_session_schema.inputs] == [
+        "url",
+        "available_models",
+        "model",
+    ]
+    connect_inputs = {field.name: field for field in connect_session_schema.inputs}
+    assert connect_inputs["url"].data_type == "string"
+    assert connect_inputs["available_models"].data_type == "combo"
+    assert connect_inputs["available_models"].options["options"] == []
+    assert connect_inputs["model"].data_type == "string"
+    assert connect_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     session_generate_class, session_generate_schema = registered[

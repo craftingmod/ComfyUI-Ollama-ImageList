@@ -15,6 +15,7 @@ from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativePresetNode
 from .llama_cpp_runtime import LlamaCppGemma4RuntimePresetNode
 from .llama_cpp_sampling import LlamaCppSamplingPresetNode
 from .llama_cpp_session import (
+    LlamaCppConnectSessionNode,
     LlamaCppCreateSessionNode,
     LlamaCppSessionGenerateNode,
     LlamaCppUnloadSessionNode,
@@ -31,6 +32,7 @@ __all__ = [
     "JinjaChatTemplatePresetNode",
     "LlamaCppHardwareRuntimeProfileNode",
     "LlamaCppCreateSessionNode",
+    "LlamaCppConnectSessionNode",
     "LlamaCppModelProfileNode",
     "LlamaCppNGramSpeculativeConfigNode",
     "LlamaCppProfiledGenerateNode",
