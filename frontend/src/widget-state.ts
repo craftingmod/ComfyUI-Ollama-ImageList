@@ -25,7 +25,7 @@ export const NATIVE_DRAFT_GENERAL_WIDGETS = [
   "draft_n_gpu_layers",
   "draft_backend_sampling",
 ]
-export const COMPACT_HARDWARE_CUSTOM_WIDGETS = [
+export const COMPACT_HARDWARE_WIDGETS = [
   "n_batch",
   "n_ubatch",
   "gpu_layers",
@@ -97,11 +97,10 @@ export function updateCompactModelProfileWidgets(node: ComfyNodeLike): void {
 }
 
 export function updateCompactHardwareProfileWidgets(node: ComfyNodeLike): void {
-  setWidgetsDisabled(
-    node,
-    COMPACT_HARDWARE_CUSTOM_WIDGETS,
-    getWidget(node, "profile")?.value !== "Custom",
-  )
+  const profile = getWidget(node, "profile")
+  if (profile) profile.value = "Custom"
+  setWidgetsDisabled(node, ["profile"], true)
+  setWidgetsDisabled(node, COMPACT_HARDWARE_WIDGETS, false)
 }
 
 export function updateReasoningConfigWidgets(node: ComfyNodeLike): void {

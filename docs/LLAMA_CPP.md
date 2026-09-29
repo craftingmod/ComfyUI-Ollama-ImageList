@@ -269,12 +269,12 @@ without applying them. The built-in values are:
 The Qwen 3 VL card does not prescribe `min_p`; its profile uses `0.0` so no additional
 minimum-probability filter is imposed. `presence_penalty` is forwarded directly to
 the targeted JamePeng llama-cpp-python fork as its API spelling `present_penalty`.
-Hardware Runtime Profile is
-optional: a disconnected Compact Generate uses Automatic Offload (`n_batch=512`, automatic GPU
-layer selection, main GPU 0, automatic CPU threads and flash attention, mmap enabled, and no explicit
-`n_ubatch` override). Connect it to override `n_batch`, `n_ubatch`, GPU offload, main GPU,
-CPU threads, flash attention, or mmap settings. Its `n_ubatch=0` means that no explicit
-override is sent to llama.cpp.
+Hardware Runtime Profile is fixed to `Custom`. It exposes `n_batch` and `n_ubatch` as regular
+inputs; GPU offload, main GPU, CPU threads, flash attention, and mmap remain under Advanced.
+Its defaults match Automatic Offload (`n_batch=512`, `n_ubatch=0`, automatic GPU layer selection,
+main GPU 0, automatic CPU threads and flash attention, mmap enabled). When disconnected, Compact
+Generate still uses Automatic Offload. `n_batch=0` is accepted and passed through to llama.cpp;
+`n_ubatch=0` means that no explicit override is sent.
 
 Thinking / Reasoning Profile has exactly `reasoning_mode`, `reasoning_effort`, and
 `max_reasoning_tokens`. `auto` or a disconnected socket leaves chat-template reasoning

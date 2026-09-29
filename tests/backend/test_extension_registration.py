@@ -827,30 +827,23 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "flash_attention",
         "use_mmap",
     ]
-    assert hardware_schema.inputs[0].options["options"] == [
-        "GPU Full Offload",
-        "GPU Vision 512",
-        "Qwen Vision 1024",
-        "Automatic Offload",
-        "CPU",
-        "Custom",
-    ]
-    assert hardware_schema.inputs[0].options["default"] == "Automatic Offload"
+    assert hardware_schema.inputs[0].options["options"] == ["Custom"]
+    assert hardware_schema.inputs[0].options["default"] == "Custom"
     assert hardware_schema.inputs[3].options["default"] == "auto"
     assert hardware_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
     )
-    default_hardware_profile = hardware_class.execute(
+    manual_hardware_profile = hardware_class.execute(
         "GPU Full Offload", 1, 1, "cpu", 3, 8, "disabled", False
     )[0]
-    assert default_hardware_profile == {
-        "n_batch": 512,
-        "n_ubatch": 0,
-        "gpu_layers": "all",
-        "main_gpu": 0,
-        "n_threads": 0,
-        "flash_attention": "auto",
-        "use_mmap": True,
+    assert manual_hardware_profile == {
+        "n_batch": 1,
+        "n_ubatch": 1,
+        "gpu_layers": "cpu",
+        "main_gpu": 3,
+        "n_threads": 8,
+        "flash_attention": "disabled",
+        "use_mmap": False,
     }
     custom_hardware_profile = hardware_class.execute(
         "Custom", 2048, 1024, "auto", 1, 12, "enabled", False

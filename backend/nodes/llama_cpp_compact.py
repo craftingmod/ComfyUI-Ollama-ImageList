@@ -212,7 +212,7 @@ def normalize_compact_hardware_profile(value: Any) -> dict[str, Any]:
         )
     normalized = {name: value[name] for name in _BASE_HARDWARE_PROFILE}
     integer_ranges = {
-        "n_batch": (1, 65_536),
+        "n_batch": (0, 65_536),
         "n_ubatch": (0, 65_536),
         "main_gpu": (0, 31),
         "n_threads": (0, 1_024),
@@ -509,11 +509,11 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
             inputs=[
                 io.Combo.Input(
                     "profile",
-                    options=[*COMPACT_HARDWARE_PROFILES, "Custom"],
-                    default="Automatic Offload",
+                    options=["Custom"],
+                    default="Custom",
                 ),
                 io.Int.Input(
-                    "n_batch", default=512, min=1, max=65_536, step=1, advanced=True
+                    "n_batch", default=512, min=0, max=65_536, step=1
                 ),
                 io.Int.Input(
                     "n_ubatch",
@@ -521,7 +521,6 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
                     min=0,
                     max=65_536,
                     step=1,
-                    advanced=True,
                     tooltip="0 uses the llama.cpp backend default.",
                 ),
                 io.Combo.Input(
@@ -563,23 +562,16 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
         flash_attention: str,
         use_mmap: bool,
     ) -> io.NodeOutput:
-        if profile == "Custom":
-            value = {
-                "n_batch": n_batch,
-                "n_ubatch": n_ubatch,
-                "gpu_layers": gpu_layers,
-                "main_gpu": main_gpu,
-                "n_threads": n_threads,
-                "flash_attention": flash_attention,
-                "use_mmap": use_mmap,
-            }
-        else:
-            try:
-                value = COMPACT_HARDWARE_PROFILES[profile]
-            except KeyError as exc:
-                raise InputNormalizationError(
-                    f"Unknown Llama.cpp Compact hardware profile: {profile}"
-                ) from exc
+        # Keep the widget slot for workflow layout; its value never selects a preset.
+        value = {
+            "n_batch": n_batch,
+            "n_ubatch": n_ubatch,
+            "gpu_layers": gpu_layers,
+            "main_gpu": main_gpu,
+            "n_threads": n_threads,
+            "flash_attention": flash_attention,
+            "use_mmap": use_mmap,
+        }
         return io.NodeOutput(normalize_compact_hardware_profile(value))
 
 
