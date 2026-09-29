@@ -1,5 +1,5 @@
 export const PROJECT_ID = "ollama-image-list"
-export const PROJECT_NAME = "Ollama-ImageList"
+export const PROJECT_NAME = "llama-multimodal"
 
 export const EXTENSION_NAMES = {
   CONNECTIVITY: `${PROJECT_ID}.connectivity`,

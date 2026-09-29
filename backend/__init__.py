@@ -1,5 +1,5 @@
 PROJECT_ID = "ollama-image-list"
-PROJECT_NAME = "Ollama-ImageList"
+PROJECT_NAME = "llama-multimodal"
 
 
 async def comfy_entrypoint():
