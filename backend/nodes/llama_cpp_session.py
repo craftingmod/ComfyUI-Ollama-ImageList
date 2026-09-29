@@ -42,6 +42,8 @@ from .llama_cpp_compact import (
     normalize_compact_model_profile,
     normalize_compact_speculative,
     normalize_reasoning_config,
+    _sequential_media_bundles,
+    _sequential_prompts,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_generate import (
@@ -51,6 +53,58 @@ from .llama_cpp_generate import (
 )
 
 LlamaCppSessionType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION")
+
+
+def _session_generate_inputs() -> list[Any]:
+    return [
+        LlamaCppSessionType.Input("session"),
+        io.String.Input("system", default="", multiline=True, dynamic_prompts=False),
+        io.String.Input("prompt", default="", multiline=True, dynamic_prompts=False),
+        io.Int.Input("max_tokens", default=512, min=1, max=131_072, step=1),
+        io.Int.Input("seed", default=-1, min=-1, max=0xFFFFFFFF, step=1),
+        io.String.Input("stop", default="", advanced=True),
+        io.Image.Input("images", optional=True),
+        io.Audio.Input("audio", optional=True),
+        io.Video.Input("video", optional=True),
+        io.Boolean.Input("video_with_audio", default=False),
+        io.Boolean.Input(
+            "session_unload",
+            default=False,
+            label_on="Unload",
+            label_off="Keep",
+            tooltip="Unload the session after generation completes.",
+        ),
+        LlamaCppModelProfileType.Input(
+            "model_profile",
+            optional=True,
+            tooltip=(
+                "Optional per-request sampling and reasoning override. The "
+                "session handler is selected at creation and is not changed."
+            ),
+        ),
+    ]
+
+
+def _session_generate_outputs(*, is_output_list: bool = False) -> list[Any]:
+    return [
+        io.String.Output(
+            "response", display_name="response", is_output_list=is_output_list
+        ),
+        io.String.Output(
+            "thinking", display_name="thinking", is_output_list=is_output_list
+        ),
+        io.String.Output(
+            "raw_json", display_name="raw JSON", is_output_list=is_output_list
+        ),
+        io.String.Output(
+            "metrics_json", display_name="metrics", is_output_list=is_output_list
+        ),
+        LlamaCppMediaDiagnosticsType.Output(
+            "media_diagnostics",
+            display_name="media diagnostics",
+            is_output_list=is_output_list,
+        ),
+    ]
 
 
 def _runtime_server_arguments(
@@ -549,46 +603,8 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
             is_input_list=True,
             not_idempotent=True,
             is_experimental=True,
-            inputs=[
-                LlamaCppSessionType.Input("session"),
-                io.String.Input(
-                    "system", default="", multiline=True, dynamic_prompts=False
-                ),
-                io.String.Input(
-                    "prompt", default="", multiline=True, dynamic_prompts=False
-                ),
-                io.Int.Input("max_tokens", default=512, min=1, max=131_072, step=1),
-                io.Int.Input("seed", default=-1, min=-1, max=0xFFFFFFFF, step=1),
-                io.String.Input("stop", default="", advanced=True),
-                io.Image.Input("images", optional=True),
-                io.Audio.Input("audio", optional=True),
-                io.Video.Input("video", optional=True),
-                io.Boolean.Input("video_with_audio", default=False),
-                io.Boolean.Input(
-                    "session_unload",
-                    default=False,
-                    label_on="Unload",
-                    label_off="Keep",
-                    tooltip="Unload the session after this request completes.",
-                ),
-                LlamaCppModelProfileType.Input(
-                    "model_profile",
-                    optional=True,
-                    tooltip=(
-                        "Optional per-request sampling and reasoning override. The "
-                        "session handler is selected at creation and is not changed."
-                    ),
-                ),
-            ],
-            outputs=[
-                io.String.Output("response", display_name="response"),
-                io.String.Output("thinking", display_name="thinking"),
-                io.String.Output("raw_json", display_name="raw JSON"),
-                io.String.Output("metrics_json", display_name="metrics"),
-                LlamaCppMediaDiagnosticsType.Output(
-                    "media_diagnostics", display_name="media diagnostics"
-                ),
-            ],
+            inputs=_session_generate_inputs(),
+            outputs=_session_generate_outputs(),
         )
 
     @classmethod
@@ -604,7 +620,7 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
         audio: Any = None,
         video: Any = None,
         video_with_audio: Any = False,
-        session_unload: Any = "Keep",
+        session_unload: Any = False,
         model_profile: Any = None,
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
@@ -648,6 +664,107 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
             json.dumps(result.raw, ensure_ascii=False, indent=2),
             json.dumps(result.metrics, ensure_ascii=False, indent=2),
             result.media_diagnostics,
+        )
+
+
+class LlamaCppSessionSequentialGenerateNode(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="OllamaImageList_LlamaCppSessionGenerateSequential",
+            display_name="[llama.cpp] Generate (Sequential)",
+            category=f"{BASE_CATEGORY}/generate",
+            description=(
+                "Runs one independent IMAGE, AUDIO, or VIDEO request at a time on "
+                "the connected llama.cpp session and returns parallel output lists. "
+                "A single prompt is shared across items; a prompt list pairs with them."
+            ),
+            is_input_list=True,
+            not_idempotent=True,
+            is_experimental=True,
+            inputs=_session_generate_inputs(),
+            outputs=_session_generate_outputs(is_output_list=True),
+        )
+
+    @classmethod
+    def execute(
+        cls,
+        session: Any,
+        system: Any,
+        prompt: Any,
+        max_tokens: Any,
+        seed: Any,
+        stop: Any,
+        images: Any = None,
+        audio: Any = None,
+        video: Any = None,
+        video_with_audio: Any = False,
+        session_unload: Any = False,
+        model_profile: Any = None,
+    ) -> io.NodeOutput:
+        resolved_session = unwrap_required_scalar("session", session)
+        if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
+            raise TypeError(
+                "session must be a Llama.cpp Create or Connect Session output."
+            )
+
+        bundles = _sequential_media_bundles(
+            images=images,
+            audio=audio,
+            video=video,
+            video_with_audio=bool(
+                unwrap_required_scalar("video_with_audio", video_with_audio)
+            ),
+        )
+        raw_prompts = prompt if isinstance(prompt, (list, tuple)) else [prompt]
+        if not any(bundle.items for bundle in bundles) and len(raw_prompts) > 1:
+            bundles *= len(raw_prompts)
+        prompts = _sequential_prompts(prompt, len(bundles))
+
+        profile_value = unwrap_optional_scalar("model_profile", model_profile, None)
+        profile = (
+            normalize_compact_model_profile(profile_value)
+            if profile_value is not None
+            else None
+        )
+        unload_after_sequence = bool(
+            unwrap_required_scalar("session_unload", session_unload)
+        )
+        common_request = {
+            "system": str(unwrap_required_scalar("system", system)),
+            "max_tokens": int(unwrap_required_scalar("max_tokens", max_tokens)),
+            "seed": int(unwrap_required_scalar("seed", seed)),
+            "stop": str(unwrap_required_scalar("stop", stop)),
+        }
+        if profile is not None:
+            common_request["model_profile"] = profile
+
+        results = [
+            resolved_session.generate(
+                **common_request,
+                prompt=item_prompt,
+                media=bundle,
+            )
+            for bundle, item_prompt in zip(bundles, prompts, strict=True)
+        ]
+        if unload_after_sequence:
+            resolved_session.close()
+            results[-1].metrics["model_unloaded"] = True
+            results[-1].metrics["session"]["unload_required"] = False
+            results[-1].media_diagnostics["model_unloaded_after_response"] = True
+
+        return io.NodeOutput(
+            [result.response for result in results],
+            [result.thinking for result in results],
+            [
+                json.dumps(result.raw, ensure_ascii=False, indent=2)
+                for result in results
+            ],
+            [
+                json.dumps(result.metrics, ensure_ascii=False, indent=2)
+                for result in results
+            ],
+            [result.media_diagnostics for result in results],
         )
 
 

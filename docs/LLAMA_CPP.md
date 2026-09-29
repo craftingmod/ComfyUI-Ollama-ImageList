@@ -85,11 +85,13 @@ When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shu
 
 ## Workflow-owned runtime sessions
 
-`[llama.cpp] Create Native Session`, `[llama.cpp] Create Runtime Session`, `[llama.cpp] Connect Session`, and `[llama.cpp] Unload Session` are in `llama_cpp/session`; `[llama.cpp] Generate (Session)` is in `llama_cpp/generate`.
+`[llama.cpp] Create Native Session`, `[llama.cpp] Create Runtime Session`, `[llama.cpp] Connect Session`, and `[llama.cpp] Unload Session` are in `llama_cpp/session`; `[llama.cpp] Generate (Session)` and `[llama.cpp] Generate (Sequential)` are in `llama_cpp/generate`.
 
 **[llama.cpp] Create Native Session** takes its handler from the connected Model Profile and owns the optional `custom_chat_template` setting. A Generate (Session) Model Profile can override sampling and reasoning per request, but its handler is ignored because the session model and handler are initialized at creation.
 
 **[llama.cpp] Generate (Session)** and **[llama.cpp] Decide (Session)** also accept an optional `model_profile`. On Native Sessions, Generate uses it for per-request sampling and reasoning; the handler remains the one selected when the session was created. Server-backed sessions apply the profile's sampling values and explicit `on`/`off` reasoning mode per request; the server handler and custom Jinja template remain fixed at server startup.
+
+**[llama.cpp] Generate (Sequential)** has the same inputs as **Generate (Session)**. It sends one request per IMAGE, AUDIO, or VIDEO item through the connected session, in modality order. A single `prompt` is shared across items; a prompt list must have one entry per item. Its five outputs are parallel lists. `session_unload` closes the session after the whole sequence.
 
 `[llama.cpp] Create Runtime Session` starts a local `llama server` only when the workflow executes the node. It uses the existing `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` socket, so connect it to the existing **Generate (Session)** and **Unload Session** nodes. This path does not require `llama-cpp-python` or enable the always-on Internal runtime. It leaves the daemon's saved settings and running process alone.
 
@@ -141,7 +143,7 @@ Generate declares ComfyUI V3 `is_input_list=True`. IMAGE batches, ComfyUI data l
 system + prompt + IMAGE items + AUDIO items + VIDEO items -> one completion
 ```
 
-Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each group is preserved. For Generate, a list becomes one multimodal request; Sequential Generate instead creates one independent request per IMAGE, AUDIO, or VIDEO item. Scalar fields such as model, handler, system, prompt, and runtime settings must resolve to one value.
+Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each group is preserved. For Generate, a list becomes one multimodal request; Sequential Generate instead creates one independent request per IMAGE, AUDIO, or VIDEO item. Scalar fields such as model, handler, system, and runtime settings resolve to one value. Sequential prompts accept one shared value or one value per execution item.
 
 ## Media transport
 
@@ -151,7 +153,7 @@ Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each gro
 | AUDIO | Lossless PCM16 WAV data URI in an `input_audio` part | Requires an audio-capable model/projector/template. |
 | VIDEO | Original encoded ComfyUI stream in an internal `video` part | Native `libmtmd` decoding requires `MTMD_VIDEO` in the wheel build. `video_with_audio` optionally extracts the first embedded audio track with PyAV and adds it as an `input_audio` part. |
 
-The compact Generate and Sequential Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. In Sequential Generate, the extracted audio is paired with its VIDEO item in the same independent request; explicitly connected AUDIO items remain separate execution items.
+Generate (Session) and the compact Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. In either sequential node, the extracted audio is paired with its VIDEO item in the same request; explicitly connected AUDIO items remain separate execution items.
 
 ## Generate inputs
 
@@ -456,7 +458,7 @@ Use a Gemma 4 Runtime Preset or ensure that explicit `image_min_tokens` and `ima
 
 ### VIDEO fails before generation
 
-Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. Both Llama.cpp Generate nodes can use `video_with_audio`; in Sequential Generate, enable it to include each VIDEO item's embedded soundtrack in that item's request.
+Confirm that the installed fork wheel was built with `MTMD_VIDEO` support and that Media Diagnostics reports Video availability. No separate FFmpeg executable is required by this node. Generate and both sequential nodes can use `video_with_audio`; in either sequential node, enable it to include each VIDEO item's embedded soundtrack in that item's request.
 
 ### Console output is unexpectedly long
 

@@ -24,6 +24,7 @@ from .llama_cpp_session import (
     LlamaCppCreateRuntimeSessionNode,
     LlamaCppCreateSessionNode,
     LlamaCppSessionGenerateNode,
+    LlamaCppSessionSequentialGenerateNode,
     LlamaCppUnloadSessionNode,
 )
 from .llama_cpp_speculative_generate import LlamaCppSpeculativeGenerateNode
@@ -55,6 +56,7 @@ __all__ = [
     "LlamaCppGemma4RuntimePresetNode",
     "LlamaCppSamplingPresetNode",
     "LlamaCppSessionGenerateNode",
+    "LlamaCppSessionSequentialGenerateNode",
     "LlamaCppSpeculativeGenerateNode",
     "LlamaCppUnloadSessionNode",
     "MuseGlimmerResponseParserNode",

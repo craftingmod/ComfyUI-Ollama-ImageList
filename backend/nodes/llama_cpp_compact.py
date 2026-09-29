@@ -925,7 +925,7 @@ def _sequential_prompts(prompt: Any, item_count: int) -> list[str]:
         raise InputNormalizationError(
             "Sequential Generate requires at least one prompt."
         )
-    if item_count > 1 and len(prompts) not in (1, item_count):
+    if len(prompts) not in (1, item_count):
         raise InputNormalizationError(
             "When sequential media is connected, prompt must contain exactly one "
             "prompt or one prompt for each execution item "
