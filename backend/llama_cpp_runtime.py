@@ -33,6 +33,7 @@ from .llm_model_paths import (
     get_llm_model_directories,
     resolve_llm_model_directory,
 )
+from .scoped_process import ScopedProcess
 
 RUNTIME_ROUTE = "/ollama_image_list/llama_cpp/runtime"
 RUNTIME_RESTART_ROUTE = f"{RUNTIME_ROUTE}/restart"
@@ -161,7 +162,7 @@ _model_dir: str | None = None
 _active_port: int | None = None
 _state = "stopped"
 _start_attempted = False
-_process: subprocess.Popen[bytes] | None = None
+_process: ScopedProcess | None = None
 _last_error: str | None = None
 _routes_registered = False
 _version_probe_executable: str | None = None
@@ -182,26 +183,25 @@ class _RestartDisabled(RuntimeError):
     pass
 
 
+def _start_supervisor(
+    command: list[str], environment: dict[str, str]
+) -> ScopedProcess:
+    supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
+    return ScopedProcess.start(
+        [sys.executable, str(supervisor_path), "--", *command],
+        stdin=subprocess.PIPE,
+        close_fds=True,
+        env=environment,
+    )
+
+
 @dataclass
 class OwnedLlamaServer:
     url: str
-    _process: subprocess.Popen[bytes]
+    _process: ScopedProcess
 
     def close(self) -> None:
-        owner_pipe = self._process.stdin
-        if owner_pipe is not None and not owner_pipe.closed:
-            try:
-                owner_pipe.close()
-            except OSError:
-                _logger.debug(
-                    "Could not close owned llama supervisor pipe", exc_info=True
-                )
-        try:
-            self._process.wait(timeout=_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                "Owned llama supervisor did not stop before the shutdown timeout."
-            ) from exc
+        self._process.close(graceful_timeout=_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS)
 
 
 def _ephemeral_loopback_port() -> int:
@@ -211,7 +211,7 @@ def _ephemeral_loopback_port() -> int:
 
 
 def _wait_for_owned_server_ready(
-    process: subprocess.Popen[bytes], port: int
+    process: ScopedProcess, port: int
 ) -> None:
     deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
@@ -255,16 +255,10 @@ def start_owned_llama_server(
         "localhost",
         *server_args,
     ]
-    supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
     environment = _llama_child_environment(Path(executable), internal=internal)
     if api_key is not None:
         environment["LLAMA_API_KEY"] = api_key
-    process = subprocess.Popen(
-        [sys.executable, str(supervisor_path), "--", *command],
-        stdin=subprocess.PIPE,
-        close_fds=True,
-        env=environment,
-    )
+    process = _start_supervisor(command, environment)
     handle = OwnedLlamaServer(f"http://127.0.0.1:{port}", process)
     try:
         _wait_for_owned_server_ready(process, port)
@@ -911,13 +905,11 @@ def _observe_process_exit_locked() -> None:
     exit_code = process.poll()
     if exit_code is None:
         return
-    if process.stdin is not None and not process.stdin.closed:
-        try:
-            process.stdin.close()
-        except OSError:
-            _logger.debug(
-                "Could not close exited llama supervisor pipe", exc_info=True
-            )
+    try:
+        process.close()
+    except (OSError, subprocess.TimeoutExpired):
+        _logger.exception("Could not release the exited llama supervisor scope")
+        return
     _process = None
     _active_port = None
     _start_attempted = True
@@ -940,15 +932,8 @@ def _stop_locked(*, clear_error: bool = True) -> bool:
             _last_error = None
         return True
 
-    if process.stdin is not None and not process.stdin.closed:
-        try:
-            process.stdin.close()
-        except OSError:
-            _logger.debug(
-                "Could not close llama supervisor lifetime pipe", exc_info=True
-            )
     try:
-        process.wait(timeout=_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS)
+        process.close(graceful_timeout=_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         _state = "failed"
         _last_error = "llama supervisor did not stop before the shutdown timeout."
@@ -981,7 +966,7 @@ def _server_ready(port: int) -> bool:
     return isinstance(health, dict) and health.get("status") == "ok"
 
 
-def _wait_for_server_ready(process: subprocess.Popen[bytes], port: int) -> bool:
+def _wait_for_server_ready(process: ScopedProcess, port: int) -> bool:
     deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -1051,16 +1036,10 @@ def _start_locked(*, repair_model_dir: bool = True) -> None:
             "--log-verbosity",
             "3",
         ]
-        supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
         child_environment = _llama_child_environment(
             Path(executable), internal=executable_source == "internal"
         )
-        process = subprocess.Popen(
-            [sys.executable, str(supervisor_path), "--", *command],
-            stdin=subprocess.PIPE,
-            close_fds=True,
-            env=child_environment,
-        )
+        process = _start_supervisor(command, child_environment)
         _process = process
         if not _wait_for_server_ready(process, _port):
             startup_error = _last_error or (

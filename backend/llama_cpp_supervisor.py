@@ -89,7 +89,10 @@ def _supervise(command: list[str], owner_pipe: BinaryIO) -> int:
     stdout_thread.start()
     Thread(target=_watch_owner, args=(owner_pipe, stop_requested), daemon=True).start()
     handlers = {}
-    for signum in (signal.SIGINT, signal.SIGTERM):
+    stop_signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        stop_signals.append(signal.SIGBREAK)
+    for signum in stop_signals:
         handlers[signum] = signal.signal(
             signum, lambda _signum, frame: _request_stop(stop_requested, frame)
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import logging
 from threading import RLock
 from typing import Protocol
@@ -32,7 +33,10 @@ def close_tracked_sessions() -> None:
         try:
             session.close()
         except Exception:
-            _logger.exception("Could not unload a Llama.cpp session at prompt end")
+            _logger.exception("Could not close a Llama.cpp session")
+
+
+atexit.register(close_tracked_sessions)
 
 
 __all__ = [
