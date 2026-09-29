@@ -80,11 +80,18 @@ def _http_error_message(status: int, body: bytes) -> str:
 
 
 def _default_transport(
-    url: str, method: str, body: bytes | None, timeout: float
+    url: str,
+    method: str,
+    body: bytes | None,
+    timeout: float,
+    *,
+    api_key: str | None = None,
 ) -> tuple[int, bytes]:
     headers = {"Accept": "application/json"}
     if body is not None:
         headers["Content-Type"] = "application/json"
+    if api_key is not None:
+        headers["Authorization"] = f"Bearer {api_key}"
     request = Request(url, data=body, headers=headers, method=method)
     try:
         with urlopen(request, timeout=timeout) as response:
@@ -104,13 +111,17 @@ def _request(
     method: str,
     body: bytes | None = None,
     timeout_seconds: float,
+    api_key: str | None = None,
     transport: Transport | None = None,
 ) -> bytes:
     if timeout_seconds <= 0:
         raise InputNormalizationError("timeout_seconds must be greater than zero.")
-    status, response_body = (transport or _default_transport)(
-        url, method, body, float(timeout_seconds)
-    )
+    if transport is None:
+        status, response_body = _default_transport(
+            url, method, body, float(timeout_seconds), api_key=api_key
+        )
+    else:
+        status, response_body = transport(url, method, body, float(timeout_seconds))
     if status < 200 or status >= 300:
         raise BackendError(_http_error_message(status, response_body))
     return response_body
@@ -145,6 +156,7 @@ def parse_models_response(response_body: bytes) -> list[str]:
 def list_server_models(
     *,
     url: str,
+    api_key: str | None = None,
     timeout_seconds: float = 10.0,
     transport: Transport | None = None,
 ) -> list[str]:
@@ -152,6 +164,7 @@ def list_server_models(
         url=_endpoint_url(url, "/models"),
         method="GET",
         timeout_seconds=timeout_seconds,
+        api_key=api_key,
         transport=transport,
     )
     return parse_models_response(body)
@@ -204,6 +217,7 @@ class LlamaCppServerSession:
         *,
         url: str,
         model: str,
+        api_key: str | None = None,
         transport: Transport | None = None,
     ) -> None:
         _endpoint_url(url, "/v1/chat/completions")
@@ -214,6 +228,7 @@ class LlamaCppServerSession:
             url=_endpoint_url(url, "/health"),
             method="GET",
             timeout_seconds=10.0,
+            api_key=api_key,
             transport=transport,
         )
         try:
@@ -231,6 +246,7 @@ class LlamaCppServerSession:
 
         self.url = url.strip()
         self.model = model
+        self._api_key = api_key
         self._transport = transport
         self._closed = False
         self._close_lock = Lock()
@@ -278,6 +294,7 @@ class LlamaCppServerSession:
             method="POST",
             body=body,
             timeout_seconds=_REQUEST_TIMEOUT_SECONDS,
+            api_key=self._api_key,
             transport=self._transport,
         )
         elapsed = time.perf_counter() - started
@@ -358,6 +375,7 @@ class LlamaCppServerSession:
                     method="POST",
                     body=body,
                     timeout_seconds=30.0,
+                    api_key=self._api_key,
                     transport=self._transport,
                 )
                 if response_body:
@@ -392,6 +410,7 @@ class OwnedLlamaCppServerSession(LlamaCppServerSession):
         *,
         url: str,
         model: str,
+        api_key: str | None = None,
         process: _ClosableProcess,
         cleanup: Callable[[], None] | None = None,
         transport: Transport | None = None,
@@ -401,7 +420,7 @@ class OwnedLlamaCppServerSession(LlamaCppServerSession):
         self._process = process
         self._process_closed = False
         self._cleanup = cleanup
-        super().__init__(url=url, model=model, transport=transport)
+        super().__init__(url=url, model=model, api_key=api_key, transport=transport)
 
     def close(self) -> None:
         with self._close_lock:

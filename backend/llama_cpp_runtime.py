@@ -236,7 +236,11 @@ def _wait_for_owned_server_ready(
 
 
 def start_owned_llama_server(
-    executable: str, server_args: list[str], *, internal: bool
+    executable: str,
+    server_args: list[str],
+    *,
+    internal: bool,
+    api_key: str | None = None,
 ) -> OwnedLlamaServer:
     """Start a local server; server_args are options after the ``server`` command."""
     port = _ephemeral_loopback_port()
@@ -252,11 +256,14 @@ def start_owned_llama_server(
         *server_args,
     ]
     supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
+    environment = _llama_child_environment(Path(executable), internal=internal)
+    if api_key is not None:
+        environment["LLAMA_API_KEY"] = api_key
     process = subprocess.Popen(
         [sys.executable, str(supervisor_path), "--", *command],
         stdin=subprocess.PIPE,
         close_fds=True,
-        env=_llama_child_environment(Path(executable), internal=internal),
+        env=environment,
     )
     handle = OwnedLlamaServer(f"http://127.0.0.1:{port}", process)
     try:

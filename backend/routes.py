@@ -50,11 +50,15 @@ async def fetch_llama_cpp_models_endpoint(request: Any):
         )
     if not isinstance(data, dict) or not isinstance(data.get("url"), str):
         return web.json_response({"error": "url must be a string."}, status=400)
+    api_key = data.get("api_key", "")
+    if not isinstance(api_key, str):
+        return web.json_response({"error": "api_key must be a string."}, status=400)
 
     try:
         models = await asyncio.to_thread(
             list_server_models,
             url=data["url"],
+            api_key=api_key or None,
             timeout_seconds=10,
         )
     except InputNormalizationError as exc:

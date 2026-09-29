@@ -38,11 +38,15 @@ function parseModels(payload: unknown): string[] {
   return payload.models
 }
 
-async function requestModels(api: ComfyApi, url: string): Promise<string[]> {
+async function requestModels(
+  api: ComfyApi,
+  url: string,
+  apiKey: string,
+): Promise<string[]> {
   const response = await api.fetchApi(MODELS_ROUTE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, api_key: apiKey }),
   })
 
   let payload: unknown
@@ -79,6 +83,7 @@ async function connect(
   connectWidget: ComfyWidget,
 ): Promise<void> {
   const urlWidget = getWidget(node, "url")
+  const apiKeyWidget = getWidget(node, "api_key")
   const availableWidget = getWidget(node, "available_models")
   const modelWidget = getWidget(node, "model")
   if (!urlWidget || !availableWidget || !modelWidget) return
@@ -90,7 +95,11 @@ async function connect(
   node.setDirtyCanvas(true, true)
 
   try {
-    const models = await requestModels(api, String(urlWidget.value ?? ""))
+    const models = await requestModels(
+      api,
+      String(urlWidget.value ?? ""),
+      String(apiKeyWidget?.value ?? ""),
+    )
     if (node[requestSequence] !== sequence) return
     availableWidget.options ??= {}
     availableWidget.options.values = models

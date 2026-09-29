@@ -81,11 +81,13 @@ Turning the setting off stops the owned server. Changing its context size, port,
 
 Use **Restart internal daemon** in the same Settings section to retry a failed or stopped daemon with the saved configuration. The action does not write settings. Runtime activation must be enabled; if it is off, the button explains how to enable it. Restarting can interrupt requests using the internal server; it does not stop external llama.cpp servers or affect **Llama.cpp Connect Session**.
 
-When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shuts down its server. The separate **Llama.cpp Connect Session** node only connects to a server supplied by the workflow; it does not own or stop that external server.
+When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shuts down its server. The separate **Llama.cpp Connect Session** node only connects to a server supplied by the workflow; its optional `api_key` input is used for model discovery and generation. It does not own or stop that external server.
 
 ## Workflow-owned runtime sessions
 
 `[llama.cpp] Create Runtime Session` starts a local `llama server` only when the workflow executes the node. It uses the existing `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` socket, so connect it to the existing **Generate (Session)** and **Unload Session** nodes. This path does not require `llama-cpp-python` or enable the always-on Internal runtime. It leaves the daemon's saved settings and running process alone.
+
+Each runtime session assigns its own random API key to the server and keeps that key inside the session handle. Model-list and Generate requests include it automatically, so direct requests to protected server endpoints without the session's key are rejected.
 
 The node resolves the executable the same way as the Internal runtime: a `llama` executable on ComfyUI's `PATH` takes priority, followed by a completed Internal runtime installation. If neither is available, creation fails before returning a session. Each execution starts its own supervised server on an OS-assigned free `127.0.0.1` port; a bind/start conflict fails that execution and does not stop another process. The session is returned only after the server process is alive and `/health` reports `ok`. Startup failure or timeout cleans up the process started by that node.
 

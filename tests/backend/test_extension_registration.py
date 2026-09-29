@@ -1141,6 +1141,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "url",
         "available_models",
         "model",
+        "api_key",
     ]
     connect_inputs = {field.name: field for field in connect_session_schema.inputs}
     assert connect_inputs["url"].data_type == "string"
@@ -2296,7 +2297,7 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
     process = Process()
     captured_arguments = []
 
-    def start_server(_executable, arguments, *, internal):
+    def start_server(_executable, arguments, *, internal, api_key=None):
         assert internal is False
         captured_arguments.append(arguments)
         return process
@@ -2307,7 +2308,7 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
     monkeypatch.setattr(
         session_module,
         "list_server_models",
-        lambda *, url: ["stub-model"],
+        lambda *, url, api_key=None: ["stub-model"],
     )
 
     values = {
@@ -2348,7 +2349,7 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
     assert process.closed is True
     assert os.path.exists(template_path) is False
 
-    def fail_start(_executable, arguments, *, internal):
+    def fail_start(_executable, arguments, *, internal, api_key=None):
         assert internal is False
         captured_arguments.append(arguments)
         raise RuntimeError("server start failed")

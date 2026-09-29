@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import subprocess
 import tempfile
 import time
@@ -321,6 +322,12 @@ class LlamaCppConnectSessionNode(io.ComfyNode):
                         "copies its ID here."
                     ),
                 ),
+                io.String.Input(
+                    "api_key",
+                    display_name="API Key",
+                    default="",
+                    tooltip="Optional API key for the configured llama.cpp server.",
+                ),
             ],
             outputs=[LlamaCppSessionType.Output("session", display_name="session")],
         )
@@ -335,14 +342,20 @@ class LlamaCppConnectSessionNode(io.ComfyNode):
         return True
 
     @classmethod
-    def execute(cls, url: Any, available_models: Any, model: Any) -> io.NodeOutput:
+    def execute(
+        cls, url: Any, available_models: Any, model: Any, api_key: Any = ""
+    ) -> io.NodeOutput:
         resolved_url = unwrap_required_scalar("url", url)
         resolved_model = unwrap_required_scalar("model", model)
+        resolved_api_key = unwrap_optional_scalar("api_key", api_key, "")
+        if not isinstance(resolved_api_key, str):
+            raise InputNormalizationError("api_key must be a string.")
         del available_models
         return io.NodeOutput(
             LlamaCppServerSession(
                 url=str(resolved_url),
                 model=str(resolved_model),
+                api_key=resolved_api_key or None,
             )
         )
 
@@ -403,7 +416,8 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
             category=f"{COMPACT_CATEGORY}/session",
             description=(
                 "Starts a workflow-owned local llama.cpp server and keeps its model "
-                "loaded until Unload Session or prompt-end cleanup."
+                "loaded until Unload Session or prompt-end cleanup. The session "
+                "owns its server API key."
             ),
             is_input_list=True,
             not_idempotent=True,
@@ -449,6 +463,7 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
                 executable, internal=internal
             ),
         )
+        api_key = secrets.token_urlsafe(32)
         template_path: Path | None = None
         if custom_chat_template:
             with tempfile.NamedTemporaryFile(
@@ -468,11 +483,12 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
         process = None
         try:
             process = start_owned_llama_server(
-                executable, arguments, internal=internal
+                executable, arguments, internal=internal, api_key=api_key
             )
             session = OwnedLlamaCppServerSession(
                 url=process.url,
                 model=model,
+                api_key=api_key,
                 process=process,
                 cleanup=cleanup_template,
             )
@@ -483,7 +499,7 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
             raise
 
         try:
-            models = list_server_models(url=process.url)
+            models = list_server_models(url=process.url, api_key=api_key)
             if len(models) != 1:
                 raise RuntimeError(
                     "The workflow-owned llama.cpp server must report exactly one model."
