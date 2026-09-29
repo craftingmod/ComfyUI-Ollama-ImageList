@@ -1030,6 +1030,12 @@ def _runtime_status_locked() -> dict[str, Any]:
     )
     if model_dir is None:
         model_dir = default_model_dir
+    llama_version = _probe_llama_version(executable)
+    version = llama_version
+    if version and version.lower().startswith("version:"):
+        version = version.partition(":")[2].strip()
+        version = version.split(maxsplit=1)[0] if version else None
+    running = _state == "running"
     with _download_lock:
         download_state = _download_state
         download_error = _download_error
@@ -1054,7 +1060,7 @@ def _runtime_status_locked() -> dict[str, Any]:
         "llama_executable": executable,
         "llama_source": llama_source,
         "llama_path_executable": path_executable,
-        "llama_version": _probe_llama_version(executable),
+        "llama_version": llama_version,
         "download_supported": selection is not None,
         "download_support_error": download_support_error,
         "download_state": download_state,
@@ -1062,7 +1068,13 @@ def _runtime_status_locked() -> dict[str, Any]:
         "download_bytes_received": download_bytes_received,
         "download_bytes_total": download_bytes_total,
         "download_error": download_error,
-        "running": _state == "running",
+        "running": running,
+        "base_url": (
+            f"http://127.0.0.1:{_active_port}"
+            if running and _active_port is not None
+            else None
+        ),
+        "version": version,
         "error": _last_error,
     }
 
