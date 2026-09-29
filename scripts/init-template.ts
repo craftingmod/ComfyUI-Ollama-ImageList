@@ -30,10 +30,14 @@ export function validateProjectId(value: string): string {
 
 export function validateProjectName(value: string): string {
   const projectName = value.trim()
-  const hasControlCharacter = [...projectName].some((character) => {
-    const codePoint = character.codePointAt(0)!
-    return codePoint < 32 || codePoint === 127
-  })
+  let hasControlCharacter = false
+  for (const character of projectName) {
+    const codeUnit = character.charCodeAt(0)
+    if (codeUnit < 32 || codeUnit === 127) {
+      hasControlCharacter = true
+      break
+    }
+  }
   if (projectName.length === 0 || projectName.length > 100 || hasControlCharacter) {
     throw new Error(
       "Project Name must be a non-empty display name without control characters and at most 100 characters long.",

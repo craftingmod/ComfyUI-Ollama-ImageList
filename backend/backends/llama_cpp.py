@@ -6,6 +6,7 @@ import logging
 import time
 from dataclasses import dataclass
 from functools import partial
+from importlib import import_module
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -577,7 +578,7 @@ class LlamaCppSession:
 
 def _import_bindings() -> LlamaCppBindings:
     try:
-        import llama_cpp
+        import_module("llama_cpp")
     except (ImportError, OSError) as exc:
         raise BackendError(
             "llama-cpp-python could not be imported. Install a wheel compatible with "

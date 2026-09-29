@@ -88,13 +88,16 @@ async function refreshModels(
   node.setDirtyCanvas(true, true)
 
   try {
-    const models = await requestModels(api, String(urlWidget.value ?? ""))
+    const models = await requestModels(
+      api,
+      typeof urlWidget.value === "string" ? urlWidget.value : "",
+    )
     if (node[requestSequence] !== sequence) return
 
     availableWidget.options ??= {}
     availableWidget.options.values = models
 
-    const currentModel = String(modelWidget.value ?? "")
+    const currentModel = typeof modelWidget.value === "string" ? modelWidget.value : ""
     if (currentModel) {
       availableWidget.value = currentModel
     } else if (models.length > 0) {

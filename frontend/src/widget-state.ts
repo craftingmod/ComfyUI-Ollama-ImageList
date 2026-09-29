@@ -76,7 +76,8 @@ export function updateNgramPresetWidgets(node: ComfyNodeLike): void {
 }
 
 export function updateNativeSpeculativeConfigWidgets(node: ComfyNodeLike): void {
-  const preset = String(getWidget(node, "preset")?.value ?? "Off")
+  const presetValue = getWidget(node, "preset")?.value
+  const preset = typeof presetValue === "string" ? presetValue : "Off"
   const isOff = preset === "Off"
   setWidgetsDisabled(node, ["draft_model"], isOff || !NATIVE_DRAFT_MODEL_PRESETS.includes(preset))
   setWidgetsDisabled(

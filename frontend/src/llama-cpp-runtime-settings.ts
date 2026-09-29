@@ -102,7 +102,7 @@ async function setSettingFromBackend(
 ): Promise<void> {
   syncingSettings.set(id, (syncingSettings.get(id) ?? 0) + 1)
   try {
-    await app.extensionManager.setting.set(id, value)
+    await Promise.resolve(app.extensionManager.setting.set(id, value))
   } finally {
     const pending = (syncingSettings.get(id) ?? 1) - 1
     if (pending > 0) syncingSettings.set(id, pending)
@@ -129,11 +129,11 @@ async function updatePathStatus(
   ) {
     await setSettingFromBackend(app, MODEL_DIR_SETTING, status.model_dir)
   }
-  await app.extensionManager.setting.set(
+  app.extensionManager.setting.set(
     SERVICE_STATE_SETTING,
     status.state,
   )
-  await app.extensionManager.setting.set(
+  app.extensionManager.setting.set(
     PATH_STATUS_SETTING,
     status.llama_source === "path"
       ? messages.pathAvailable
@@ -141,11 +141,11 @@ async function updatePathStatus(
         ? messages.internalInstallAvailable
         : messages.pathUnavailable,
   )
-  await app.extensionManager.setting.set(
+  app.extensionManager.setting.set(
     EXECUTABLE_PATH_SETTING,
     status.llama_executable ?? "—",
   )
-  await app.extensionManager.setting.set(
+  app.extensionManager.setting.set(
     LLAMA_VERSION_SETTING,
     status.llama_version ?? "—",
   )
@@ -946,7 +946,7 @@ export function registerLlamaCppRuntimeSettings(
         const messages = getRuntimeMessages(
           app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
         )
-        await app.extensionManager.setting.set(
+        app.extensionManager.setting.set(
           PATH_STATUS_SETTING,
           messages.statusLoadFailure,
         )

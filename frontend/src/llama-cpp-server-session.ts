@@ -97,13 +97,13 @@ async function connect(
   try {
     const models = await requestModels(
       api,
-      String(urlWidget.value ?? ""),
-      String(apiKeyWidget?.value ?? ""),
+      typeof urlWidget.value === "string" ? urlWidget.value : "",
+      typeof apiKeyWidget?.value === "string" ? apiKeyWidget.value : "",
     )
     if (node[requestSequence] !== sequence) return
     availableWidget.options ??= {}
     availableWidget.options.values = models
-    const currentModel = String(modelWidget.value ?? "")
+    const currentModel = typeof modelWidget.value === "string" ? modelWidget.value : ""
     availableWidget.value = models.includes(currentModel) ? currentModel : ""
     node.setDirtyCanvas(true, true)
   } catch (error) {
