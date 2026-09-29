@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import atexit
 import asyncio
+import atexit
 import hashlib
 import ipaddress
 import json
@@ -18,8 +18,7 @@ import tempfile
 import time
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from threading import Lock, Thread
 from typing import Any
 from urllib.error import HTTPError

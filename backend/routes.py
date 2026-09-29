@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from .backends.ollama import list_models
 from .backends.llama_cpp_server import list_server_models
+from .backends.ollama import list_models
 from .core.errors import BackendError, InputNormalizationError
 
 MODELS_ROUTE = "/ollama_image_list/models"

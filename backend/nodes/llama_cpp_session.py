@@ -37,13 +37,13 @@ from .llama_cpp_compact import (
     LlamaCppModelProfileType,
     LlamaCppReasoningConfigType,
     LlamaCppSpeculativeConfigType,
+    _sequential_media_bundles,
+    _sequential_prompts,
     build_compact_session_kwargs,
     normalize_compact_hardware_profile,
     normalize_compact_model_profile,
     normalize_compact_speculative,
     normalize_reasoning_config,
-    _sequential_media_bundles,
-    _sequential_prompts,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_generate import (
