@@ -7,10 +7,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 
 [project.optional-dependencies]
-llama = [
-  "llama-cpp-python",
-  "makoto-decision",
-]
+llama = ["llama-cpp-python", "makoto-decision"]
 
 [dependency-groups]
 dev = ["av>=16.0.0", "pytest>=9.1.1", "pytest-xdist>=3.8.0", "ruff>=0.16.3"]

@@ -30,11 +30,9 @@ const messages: Record<string, RuntimeMessages> = {
   en: {
     checking: "Checking...",
     statusLoadFailure: "Could not load runtime status",
-    startFailureSummary: (projectName) =>
-      `${projectName} could not start the llama.cpp server`,
+    startFailureSummary: (projectName) => `${projectName} could not start the llama.cpp server`,
     startFailureFallback: "The llama server process is not running.",
-    saveFailureSummary: (projectName) =>
-      `${projectName} could not save the llama.cpp setting`,
+    saveFailureSummary: (projectName) => `${projectName} could not save the llama.cpp setting`,
     unknownError: "Unknown error.",
     restartButton: "Restart internal daemon",
     restarting: "Restarting…",
@@ -63,11 +61,9 @@ const messages: Record<string, RuntimeMessages> = {
   ko: {
     checking: "확인 중...",
     statusLoadFailure: "런타임 상태를 불러오지 못했습니다",
-    startFailureSummary: (projectName) =>
-      `${projectName} llama.cpp 서버를 시작하지 못했습니다`,
+    startFailureSummary: (projectName) => `${projectName} llama.cpp 서버를 시작하지 못했습니다`,
     startFailureFallback: "llama server 프로세스가 실행 중이 아닙니다.",
-    saveFailureSummary: (projectName) =>
-      `${projectName} llama.cpp 설정을 저장하지 못했습니다`,
+    saveFailureSummary: (projectName) => `${projectName} llama.cpp 설정을 저장하지 못했습니다`,
     unknownError: "알 수 없는 오류입니다.",
     restartButton: "내부 daemon 재시작",
     restarting: "재시작 중…",
@@ -75,8 +71,7 @@ const messages: Record<string, RuntimeMessages> = {
       "재시작하면 실행 중인 요청이 중단될 수 있습니다. 이 ComfyUI 프로세스가 소유한 내부 daemon만 재시작하며, 외부 서버와 Connect Session에는 영향이 없습니다.",
     restartRequiresAutoStart:
       "daemon을 재시작하려면 Internal llama.cpp runtime activation을 먼저 켜세요.",
-    restartSuccessSummary: (projectName) =>
-      `${projectName} 내부 llama.cpp daemon을 재시작했습니다`,
+    restartSuccessSummary: (projectName) => `${projectName} 내부 llama.cpp daemon을 재시작했습니다`,
     restartSuccessDetail: "헬스 체크를 통과해 daemon이 실행 중입니다.",
     restartFailureSummary: (projectName) =>
       `${projectName} 내부 llama.cpp daemon을 재시작하지 못했습니다`,

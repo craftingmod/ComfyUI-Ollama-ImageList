@@ -88,7 +88,9 @@ def _load_model_profiles() -> dict[str, dict[str, Any]]:
             raise ValueError(f"Model profile preset must contain a JSON object: {path}")
         name = profile.pop("name", path.stem)
         if not isinstance(name, str) or not name.strip() or name in profiles:
-            raise ValueError(f"Model profile preset has an invalid or duplicate name: {path}")
+            raise ValueError(
+                f"Model profile preset has an invalid or duplicate name: {path}"
+            )
         profiles[name] = {**_BASE_MODEL_PROFILE, **profile}
     return profiles
 
@@ -146,11 +148,7 @@ def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
             "model_profile must be a [llama.cpp] Model Profile object."
         )
 
-    missing = [
-        name
-        for name in _BASE_MODEL_PROFILE
-        if name not in value
-    ]
+    missing = [name for name in _BASE_MODEL_PROFILE if name not in value]
     if missing:
         raise InputNormalizationError(
             f"model_profile is missing required field(s): {', '.join(missing)}."

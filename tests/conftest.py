@@ -11,6 +11,7 @@ MISSING = object()
 try:
     import aiohttp  # noqa: F401
 except ModuleNotFoundError:
+
     class JsonResponse:
         def __init__(self, payload, *, status=200):
             self.status = status

@@ -12,9 +12,7 @@ def test_server_stdout_suppresses_bracketed_numeric_lines(monkeypatch):
     output = io.BytesIO()
     monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(output))
 
-    _forward_server_stdout(
-        io.BytesIO(b"[ 12]\nvisible\n[\t3]\r\n[4] trailing\nlast")
-    )
+    _forward_server_stdout(io.BytesIO(b"[ 12]\nvisible\n[\t3]\r\n[4] trailing\nlast"))
 
     assert output.getvalue() == b"visible\n[4] trailing\nlast"
 

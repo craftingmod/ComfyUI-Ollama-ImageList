@@ -14,9 +14,10 @@ def get_default_llm_model_directory(folder_paths: Any) -> str:
 
 def get_llm_model_directories(folder_paths: Any) -> list[str]:
     source_paths: list[str] = []
-    for folder_name, (paths, _extensions) in (
-        folder_paths.folder_names_and_paths.items()
-    ):
+    for folder_name, (
+        paths,
+        _extensions,
+    ) in folder_paths.folder_names_and_paths.items():
         if folder_name.casefold() == "llm":
             source_paths.extend(paths)
     source_paths.append(get_default_llm_model_directory(folder_paths))

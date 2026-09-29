@@ -1,9 +1,6 @@
 import type { ComfyApi, ComfyApp } from "@comfyorg/comfyui-frontend-types"
 
-import type {
-  ComfyNodeLike,
-  ComfyWidget,
-} from "./comfy-types.ts"
+import type { ComfyNodeLike, ComfyWidget } from "./comfy-types.ts"
 import { getWidget } from "./comfy-types.ts"
 import { EXTENSION_NAMES, PROJECT_NAME } from "./constants.ts"
 
@@ -38,11 +35,7 @@ function parseModels(payload: unknown): string[] {
   return payload.models
 }
 
-async function requestModels(
-  api: ComfyApi,
-  url: string,
-  apiKey: string,
-): Promise<string[]> {
+async function requestModels(api: ComfyApi, url: string, apiKey: string): Promise<string[]> {
   const response = await api.fetchApi(MODELS_ROUTE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

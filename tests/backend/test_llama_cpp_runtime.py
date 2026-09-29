@@ -229,9 +229,7 @@ def test_restart_does_not_start_if_supervisor_will_not_stop(monkeypatch):
     monkeypatch.setattr(
         runtime,
         "_start_locked",
-        lambda **_kwargs: pytest.fail(
-            "must not start before the old supervisor stops"
-        ),
+        lambda **_kwargs: pytest.fail("must not start before the old supervisor stops"),
     )
 
     status = runtime.restart_runtime()
@@ -306,9 +304,7 @@ def test_runtime_status_recognizes_persisted_install_after_restart(
     )
     model_dir = str(tmp_path / "models")
     monkeypatch.setattr(runtime, "_current_release_selection", lambda: selection)
-    monkeypatch.setattr(
-        runtime, "_artifacts_directory", lambda: tmp_path / "artifacts"
-    )
+    monkeypatch.setattr(runtime, "_artifacts_directory", lambda: tmp_path / "artifacts")
     monkeypatch.setattr(runtime, "_path_llama_executable", lambda: None)
     monkeypatch.setattr(
         runtime, "_model_directory_options", lambda: ([model_dir], model_dir)

@@ -138,9 +138,7 @@ class FakeLlama:
 
     def detokenize(self, tokens, *, special=False):
         assert special is True
-        return b"".join(
-            type(self).token_pieces.get(token, b"") for token in tokens
-        )
+        return b"".join(type(self).token_pieces.get(token, b"") for token in tokens)
 
     def close(self):
         self.close_count += 1
@@ -1310,9 +1308,10 @@ def test_retained_session_decides_with_prefill_then_reuses_model_for_generate(tm
         instance = FakeLlama.instances[0]
         assert instance.reset_count == 3
         assert instance.prefill_count == 2
-        assert "Context: Keep the answer concise." in instance.prefill_messages[0][0][
-            "content"
-        ]
+        assert (
+            "Context: Keep the answer concise."
+            in instance.prefill_messages[0][0]["content"]
+        )
         assert instance.closed is False
     finally:
         session.close()

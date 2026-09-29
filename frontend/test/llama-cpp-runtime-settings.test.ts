@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test"
+
 import type { ComfyApi, ComfyApp } from "@comfyorg/comfyui-frontend-types"
 
 import { registerLlamaCppRuntimeSettings } from "../src/llama-cpp-runtime-settings.ts"
@@ -79,12 +80,8 @@ function setupRuntime(
   } as unknown as ComfyApp
 
   registerLlamaCppRuntimeSettings(app, { fetchApi } as unknown as ComfyApi)
-  const restartSetting = extension?.settings?.find(
-    ({ id }) => id === RESTART_SETTING,
-  )
-  const downloadSetting = extension?.settings?.find(
-    ({ id }) => id === DOWNLOAD_SETTING,
-  )
+  const restartSetting = extension?.settings?.find(({ id }) => id === RESTART_SETTING)
+  const downloadSetting = extension?.settings?.find(({ id }) => id === DOWNLOAD_SETTING)
   const render = restartSetting?.type as (
     name: string,
     setter: (value: unknown) => void,
@@ -202,8 +199,7 @@ describe("llama.cpp runtime restart setting", () => {
               : statusReads === 3
                 ? {
                     llama_source: "internal",
-                    llama_executable:
-                      "C:/ComfyUI/user/__llama_cpp/artifacts/llama.exe",
+                    llama_executable: "C:/ComfyUI/user/__llama_cpp/artifacts/llama.exe",
                     llama_version: "b11146",
                     download_state: "installed",
                   }
@@ -234,21 +230,15 @@ describe("llama.cpp runtime restart setting", () => {
     // expect(runtime.values.get("OllamaImageList.LlamaCpp.PathStatus")).toBe(
     //   "Not found on PATH (internal install available)",
     // )
-    expect(runtime.values.get("OllamaImageList.LlamaCpp.Version")).toBe(
-      "b11146",
-    )
+    expect(runtime.values.get("OllamaImageList.LlamaCpp.Version")).toBe("b11146")
     expect(download.message.textContent).toContain("Installed")
     expect(download.button.disabled).toBe(true)
 
     const reopened = runtime.renderDownload()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(calls.filter(([route]) => route === RUNTIME_ROUTE)).toHaveLength(4)
-    expect(runtime.values.get("OllamaImageList.LlamaCpp.PathStatus")).toBe(
-      "Available on PATH",
-    )
-    expect(runtime.values.get("OllamaImageList.LlamaCpp.Version")).toBe(
-      "external",
-    )
+    expect(runtime.values.get("OllamaImageList.LlamaCpp.PathStatus")).toBe("Available on PATH")
+    expect(runtime.values.get("OllamaImageList.LlamaCpp.Version")).toBe("external")
     expect(reopened.button.disabled).toBe(true)
   })
 
@@ -327,8 +317,6 @@ describe("llama.cpp runtime restart setting", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(download.button.disabled).toBe(true)
-    expect(download.message.textContent).toContain(
-      "Linux arm64 ROCm is not supported.",
-    )
+    expect(download.message.textContent).toContain("Linux arm64 ROCm is not supported.")
   })
 })

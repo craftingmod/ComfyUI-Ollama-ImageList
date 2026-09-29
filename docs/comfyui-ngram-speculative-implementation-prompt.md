@@ -35,9 +35,7 @@ from llama_cpp.llama_speculative import SpecConfig, SpeculativeType
 
 ```python
 spec_type = (
-    SpeculativeType.NGRAM_MAP_K
-    if ngram_mode == "k"
-    else SpeculativeType.NGRAM_MAP_K4V
+    SpeculativeType.NGRAM_MAP_K if ngram_mode == "k" else SpeculativeType.NGRAM_MAP_K4V
 )
 
 llm = Llama(
@@ -144,7 +142,6 @@ if ngram_mode not in {"k", "k4v"}:
 
 if ngram_min_hits < 1:
     raise ValueError("ngram_min_hits must be at least 1")
-
 ```
 
 지원하는 실제 constructor signature를 현재 설치된 `llama-cpp-python` 소스에서 확인한다.

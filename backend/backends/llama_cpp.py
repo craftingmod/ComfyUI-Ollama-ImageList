@@ -343,8 +343,7 @@ class LlamaCppSession:
                     "answers must contain between 2 and 26 items."
                 )
             if any(
-                not isinstance(answer, str) or not answer.strip()
-                for answer in answers
+                not isinstance(answer, str) or not answer.strip() for answer in answers
             ):
                 raise InputNormalizationError("answers must be non-empty strings.")
             if len(set(answers)) != len(answers):
@@ -427,9 +426,7 @@ class LlamaCppSession:
     def _initialize_for_decision(
         self, configuration: dict[str, Any] | None = None
     ) -> None:
-        configuration = (
-            self._configuration if configuration is None else configuration
-        )
+        configuration = self._configuration if configuration is None else configuration
         model_path = _resolve_file(
             str(configuration.get("model_path", "")),
             label="model_path",
@@ -792,9 +789,7 @@ def _normalize_native_speculative(
             "draft-mtp requires mtp_provider external or internal."
         )
     if spec_type not in _SPECULATIVE_TYPES:
-        raise InputNormalizationError(
-            "spec_type must be draft-dflash or draft-dspark."
-        )
+        raise InputNormalizationError("spec_type must be draft-dflash or draft-dspark.")
     if resolved_draft is None:
         raise InputNormalizationError(
             f"{spec_type} requires a compatible draft GGUF in draft_model."
@@ -1211,9 +1206,9 @@ def _native_model_kwargs(
                 "force_reasoning": bool(thinking),
             }
             if effective_reasoning_strength is not None:
-                handler_kwargs["extra_template_arguments"][
-                    "reasoning_strength"
-                ] = effective_reasoning_strength
+                handler_kwargs["extra_template_arguments"]["reasoning_strength"] = (
+                    effective_reasoning_strength
+                )
         if image_min_tokens_override is not None:
             handler_kwargs["image_min_tokens"] = image_min_tokens_override
         if image_max_tokens_override is not None:

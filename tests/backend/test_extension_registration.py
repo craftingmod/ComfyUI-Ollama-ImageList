@@ -1151,9 +1151,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert create_runtime_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
-    _, connect_session_schema = registered[
-        "OllamaImageList_LlamaCppConnectSession"
-    ]
+    _, connect_session_schema = registered["OllamaImageList_LlamaCppConnectSession"]
     assert connect_session_schema.is_input_list is True
     assert connect_session_schema.not_idempotent is True
     assert connect_session_schema.is_experimental is True
@@ -1205,9 +1203,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
     )
     assert decide_schema.inputs[-1].options["optional"] is True
-    assert decide_schema.inputs[3].data_type == (
-        "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
-    )
+    assert decide_schema.inputs[3].data_type == ("OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION")
     assert decide_schema.outputs[-1].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
@@ -2323,9 +2319,7 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
                     }
                 ],
             }
-            arguments, _, _ = session_module._runtime_server_arguments(
-                **ngram_values
-            )
+            arguments, _, _ = session_module._runtime_server_arguments(**ngram_values)
             prefix = f"--spec-ngram-map-{mode}"
             assert option_value(arguments, "--spec-type") == f"ngram-map-{mode}"
             assert option_value(arguments, f"{prefix}-size-n") == "4"
@@ -2378,9 +2372,7 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
         captured_arguments.append(arguments)
         return process
 
-    monkeypatch.setattr(
-        session_module, "start_owned_llama_server", start_server
-    )
+    monkeypatch.setattr(session_module, "start_owned_llama_server", start_server)
     monkeypatch.setattr(
         session_module,
         "list_server_models",

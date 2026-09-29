@@ -23,20 +23,8 @@ const MAX_CTX_SIZE = 1048576
 const DEFAULT_PORT = 18582
 const MIN_PORT = 1024
 const MAX_PORT = 65535
-const SERVICE_STATES = [
-  "stopped",
-  "starting",
-  "running",
-  "stopping",
-  "failed",
-] as const
-const DOWNLOAD_STATES = [
-  "idle",
-  "downloading",
-  "installing",
-  "installed",
-  "error",
-] as const
+const SERVICE_STATES = ["stopped", "starting", "running", "stopping", "failed"] as const
+const DOWNLOAD_STATES = ["idle", "downloading", "installing", "installed", "error"] as const
 const DOWNLOAD_POLL_INTERVAL_MS = 1000
 
 type RuntimeSettingsUpdate = {
@@ -91,15 +79,9 @@ let downloadView:
       message: HTMLElement
     }
   | undefined
-let serverLinkView:
-  | { link: HTMLAnchorElement; message: HTMLSpanElement }
-  | undefined
+let serverLinkView: { link: HTMLAnchorElement; message: HTMLSpanElement } | undefined
 
-async function setSettingFromBackend(
-  app: ComfyApp,
-  id: string,
-  value: unknown,
-): Promise<void> {
+async function setSettingFromBackend(app: ComfyApp, id: string, value: unknown): Promise<void> {
   syncingSettings.set(id, (syncingSettings.get(id) ?? 0) + 1)
   try {
     await Promise.resolve(app.extensionManager.setting.set(id, value))
@@ -110,10 +92,7 @@ async function setSettingFromBackend(
   }
 }
 
-async function updatePathStatus(
-  app: ComfyApp,
-  status: RuntimeStatus,
-): Promise<void> {
+async function updatePathStatus(app: ComfyApp, status: RuntimeStatus): Promise<void> {
   latestStatus = status
   const messages = getRuntimeMessages(
     app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
@@ -123,16 +102,10 @@ async function updatePathStatus(
   if (modelDirSetting) {
     modelDirSetting.options = status.model_dirs
   }
-  if (
-    app.extensionManager.setting.get<string>(MODEL_DIR_SETTING) !==
-    status.model_dir
-  ) {
+  if (app.extensionManager.setting.get<string>(MODEL_DIR_SETTING) !== status.model_dir) {
     await setSettingFromBackend(app, MODEL_DIR_SETTING, status.model_dir)
   }
-  app.extensionManager.setting.set(
-    SERVICE_STATE_SETTING,
-    status.state,
-  )
+  app.extensionManager.setting.set(SERVICE_STATE_SETTING, status.state)
   app.extensionManager.setting.set(
     PATH_STATUS_SETTING,
     status.llama_source === "path"
@@ -141,16 +114,9 @@ async function updatePathStatus(
         ? messages.internalInstallAvailable
         : messages.pathUnavailable,
   )
-  app.extensionManager.setting.set(
-    EXECUTABLE_PATH_SETTING,
-    status.llama_executable ?? "—",
-  )
-  app.extensionManager.setting.set(
-    LLAMA_VERSION_SETTING,
-    status.llama_version ?? "—",
-  )
-  downloadInProgress =
-    downloadStartPending || isDownloadActive(status.download_state)
+  app.extensionManager.setting.set(EXECUTABLE_PATH_SETTING, status.llama_executable ?? "—")
+  app.extensionManager.setting.set(LLAMA_VERSION_SETTING, status.llama_version ?? "—")
+  downloadInProgress = downloadStartPending || isDownloadActive(status.download_state)
   renderDownloadView()
   renderServerLink()
 }
@@ -179,8 +145,7 @@ function renderDownloadView(): void {
     app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
   )
   const state = status?.download_state
-  const active =
-    downloadInProgress || (state !== undefined && isDownloadActive(state))
+  const active = downloadInProgress || (state !== undefined && isDownloadActive(state))
   const installed = state === "installed"
   const target = status?.download_target ?? "llama.cpp"
   progress.setAttribute("aria-label", messages.downloadProgressLabel)
@@ -198,11 +163,7 @@ function renderDownloadView(): void {
         : messages.downloadStarting
     : messages.downloadButton
   button.disabled =
-    !status ||
-    status.llama_available ||
-    !status.download_supported ||
-    installed ||
-    active
+    !status || status.llama_available || !status.download_supported || installed || active
 
   progress.hidden = state !== "downloading"
   if (state === "downloading" && status) {
@@ -228,12 +189,9 @@ function renderDownloadView(): void {
   } else if (state === "installed") {
     message.textContent = messages.installed(target)
   } else if (state === "error") {
-    message.textContent = messages.downloadFailed(
-      status?.download_error ?? messages.unknownError,
-    )
+    message.textContent = messages.downloadFailed(status?.download_error ?? messages.unknownError)
   } else if (status && !status.llama_available && !status.download_supported) {
-    message.textContent =
-      status.download_support_error ?? messages.downloadUnsupported
+    message.textContent = status.download_support_error ?? messages.downloadUnsupported
   } else {
     message.textContent = ""
   }
@@ -274,9 +232,7 @@ async function refreshDownloadStatus(
   } catch (error) {
     downloadInProgress = true
     downloadRequestError =
-      error instanceof Error
-        ? error.message
-        : "Could not refresh download status."
+      error instanceof Error ? error.message : "Could not refresh download status."
     renderDownloadView()
     scheduleDownloadStatusPoll(app, api)
   }
@@ -315,8 +271,7 @@ async function startDownload(app: ComfyApp, api: ComfyApi): Promise<void> {
     await refreshDownloadStatus(app, api)
   } catch (error) {
     downloadStartPending = false
-    downloadRequestError =
-      error instanceof Error ? error.message : "Unknown error."
+    downloadRequestError = error instanceof Error ? error.message : "Unknown error."
     await refreshDownloadStatus(app, api, true)
   }
 }
@@ -447,20 +402,16 @@ async function requestStatus(
       payload.llama_source !== "internal" &&
       payload.llama_source !== null) ||
     !("llama_executable" in payload) ||
-    (typeof payload.llama_executable !== "string" &&
-      payload.llama_executable !== null) ||
+    (typeof payload.llama_executable !== "string" && payload.llama_executable !== null) ||
     !("llama_version" in payload) ||
-    (typeof payload.llama_version !== "string" &&
-      payload.llama_version !== null) ||
+    (typeof payload.llama_version !== "string" && payload.llama_version !== null) ||
     !("running" in payload) ||
     typeof payload.running !== "boolean" ||
     !("error" in payload) ||
     (typeof payload.error !== "string" && payload.error !== null) ||
     !("download_state" in payload) ||
     typeof payload.download_state !== "string" ||
-    !DOWNLOAD_STATES.includes(
-      payload.download_state as RuntimeStatus["download_state"],
-    ) ||
+    !DOWNLOAD_STATES.includes(payload.download_state as RuntimeStatus["download_state"]) ||
     !("download_target" in payload) ||
     (typeof payload.download_target !== "string" && payload.download_target !== null) ||
     !("download_supported" in payload) ||
@@ -473,11 +424,9 @@ async function requestStatus(
     !Number.isInteger(payload.download_bytes_received) ||
     payload.download_bytes_received < 0 ||
     !("download_bytes_total" in payload) ||
-    (typeof payload.download_bytes_total !== "number" &&
-      payload.download_bytes_total !== null) ||
+    (typeof payload.download_bytes_total !== "number" && payload.download_bytes_total !== null) ||
     (typeof payload.download_bytes_total === "number" &&
-      (!Number.isInteger(payload.download_bytes_total) ||
-        payload.download_bytes_total < 0)) ||
+      (!Number.isInteger(payload.download_bytes_total) || payload.download_bytes_total < 0)) ||
     !("download_error" in payload) ||
     (typeof payload.download_error !== "string" && payload.download_error !== null)
   ) {
@@ -518,9 +467,7 @@ function createRestartButton(app: ComfyApp, api: ComfyApi): HTMLButtonElement {
     button.textContent = messages.restarting
 
     const restart = settingUpdateQueue.then(async () => {
-      if (
-        app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !== true
-      ) {
+      if (app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !== true) {
         app.extensionManager.toast.add({
           severity: "info",
           summary: messages.restartRequiresAutoStart,
@@ -551,8 +498,7 @@ function createRestartButton(app: ComfyApp, api: ComfyApi): HTMLButtonElement {
         app.extensionManager.toast.add({
           severity: "error",
           summary: messages.restartFailureSummary(PROJECT_NAME),
-          detail:
-            error instanceof Error ? error.message : messages.unknownError,
+          detail: error instanceof Error ? error.message : messages.unknownError,
           life: 7000,
         })
       })
@@ -565,10 +511,7 @@ function createRestartButton(app: ComfyApp, api: ComfyApi): HTMLButtonElement {
   return button
 }
 
-export function registerLlamaCppRuntimeSettings(
-  app: ComfyApp,
-  api: ComfyApi,
-): void {
+export function registerLlamaCppRuntimeSettings(app: ComfyApp, api: ComfyApi): void {
   app.registerExtension({
     name: "ollama-image-list.llama-cpp-runtime-settings",
     settings: [
@@ -591,9 +534,7 @@ export function registerLlamaCppRuntimeSettings(
           const revision = ++autoStartRevision
           setupRevision += 1
           try {
-            const update = settingUpdateQueue.then(() =>
-              requestStatus(api, { auto_start: value }),
-            )
+            const update = settingUpdateQueue.then(() => requestStatus(api, { auto_start: value }))
             settingUpdateQueue = update.then(
               () => undefined,
               () => undefined,
@@ -610,10 +551,7 @@ export function registerLlamaCppRuntimeSettings(
             app.extensionManager.toast.add({
               severity: "error",
               summary: messages.saveFailureSummary(PROJECT_NAME),
-              detail:
-                error instanceof Error
-                  ? error.message
-                  : messages.unknownError,
+              detail: error instanceof Error ? error.message : messages.unknownError,
               life: 5000,
             })
             if (typeof oldValue === "boolean") {
@@ -662,8 +600,7 @@ export function registerLlamaCppRuntimeSettings(
         id: PATH_STATUS_SETTING as any,
         category: [PROJECT_NAME, "llama.cpp Daemon", "PathStatus"],
         name: "llama executable availability",
-        tooltip:
-          "Shows whether llama is available on PATH or provided by the internal install.",
+        tooltip: "Shows whether llama is available on PATH or provided by the internal install.",
         type: "text",
         attrs: { readonly: true, style: { width: "auto" } },
         defaultValue: getRuntimeMessages(
@@ -698,9 +635,8 @@ export function registerLlamaCppRuntimeSettings(
         id: RESTART_SETTING as any,
         category: [PROJECT_NAME, "llama.cpp Daemon", "RestartActor"],
         name: "Restart internal daemon",
-        tooltip: getRuntimeMessages(
-          app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
-        ).restartTooltip,
+        tooltip: getRuntimeMessages(app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING))
+          .restartTooltip,
         type: () => createRestartButton(app, api),
         defaultValue: null,
         sortOrder: 30,
@@ -724,8 +660,7 @@ export function registerLlamaCppRuntimeSettings(
         sortOrder: 0,
         telemetry: { trackChanges: false },
         async onChange(value, oldValue) {
-          if (syncingSettings.has(CTX_SIZE_SETTING) || oldValue === undefined)
-            return
+          if (syncingSettings.has(CTX_SIZE_SETTING) || oldValue === undefined) return
           if (
             typeof value !== "number" ||
             !Number.isInteger(value) ||
@@ -740,9 +675,7 @@ export function registerLlamaCppRuntimeSettings(
           const revision = ++ctxSizeRevision
           setupRevision += 1
           try {
-            const update = settingUpdateQueue.then(() =>
-              requestStatus(api, { ctx_size: value }),
-            )
+            const update = settingUpdateQueue.then(() => requestStatus(api, { ctx_size: value }))
             settingUpdateQueue = update.then(
               () => undefined,
               () => undefined,
@@ -758,10 +691,7 @@ export function registerLlamaCppRuntimeSettings(
             app.extensionManager.toast.add({
               severity: "error",
               summary: messages.saveFailureSummary(PROJECT_NAME),
-              detail:
-                error instanceof Error
-                  ? error.message
-                  : messages.unknownError,
+              detail: error instanceof Error ? error.message : messages.unknownError,
               life: 5000,
             })
             if (typeof oldValue === "number") {
@@ -778,8 +708,7 @@ export function registerLlamaCppRuntimeSettings(
         id: PORT_SETTING as any,
         category: [PROJECT_NAME, "llama.cpp Daemon Config", "Port"],
         name: "Internal server port",
-        tooltip:
-          "Changing this while the internal server is running restarts it on the new port.",
+        tooltip: "Changing this while the internal server is running restarts it on the new port.",
         type: "number",
         attrs: {
           min: MIN_PORT,
@@ -791,8 +720,7 @@ export function registerLlamaCppRuntimeSettings(
         sortOrder: -10,
         telemetry: { trackChanges: false },
         async onChange(value, oldValue) {
-          if (syncingSettings.has(PORT_SETTING) || oldValue === undefined)
-            return
+          if (syncingSettings.has(PORT_SETTING) || oldValue === undefined) return
           if (
             typeof value !== "number" ||
             !Number.isInteger(value) ||
@@ -807,9 +735,7 @@ export function registerLlamaCppRuntimeSettings(
           const revision = ++portRevision
           setupRevision += 1
           try {
-            const update = settingUpdateQueue.then(() =>
-              requestStatus(api, { port: value }),
-            )
+            const update = settingUpdateQueue.then(() => requestStatus(api, { port: value }))
             settingUpdateQueue = update.then(
               () => undefined,
               () => undefined,
@@ -825,10 +751,7 @@ export function registerLlamaCppRuntimeSettings(
             app.extensionManager.toast.add({
               severity: "error",
               summary: messages.saveFailureSummary(PROJECT_NAME),
-              detail:
-                error instanceof Error
-                  ? error.message
-                  : messages.unknownError,
+              detail: error instanceof Error ? error.message : messages.unknownError,
               life: 5000,
             })
             if (typeof oldValue === "number") {
@@ -853,11 +776,10 @@ export function registerLlamaCppRuntimeSettings(
         sortOrder: -20,
         telemetry: { trackChanges: false },
         attrs: {
-          style: { width: "20rem" }
+          style: { width: "20rem" },
         },
         async onChange(value, oldValue) {
-          if (syncingSettings.has(MODEL_DIR_SETTING) || oldValue === undefined)
-            return
+          if (syncingSettings.has(MODEL_DIR_SETTING) || oldValue === undefined) return
           if (
             typeof value !== "string" ||
             (latestStatus && !latestStatus.model_dirs.includes(value))
@@ -870,9 +792,7 @@ export function registerLlamaCppRuntimeSettings(
           const revision = ++modelDirRevision
           setupRevision += 1
           try {
-            const update = settingUpdateQueue.then(() =>
-              requestStatus(api, { model_dir: value }),
-            )
+            const update = settingUpdateQueue.then(() => requestStatus(api, { model_dir: value }))
             settingUpdateQueue = update.then(
               () => undefined,
               () => undefined,
@@ -888,10 +808,7 @@ export function registerLlamaCppRuntimeSettings(
             app.extensionManager.toast.add({
               severity: "error",
               summary: messages.saveFailureSummary(PROJECT_NAME),
-              detail:
-                error instanceof Error
-                  ? error.message
-                  : messages.unknownError,
+              detail: error instanceof Error ? error.message : messages.unknownError,
               life: 5000,
             })
             if (typeof oldValue === "string") {
@@ -906,16 +823,13 @@ export function registerLlamaCppRuntimeSettings(
       },
     ],
     async setup() {
-      app.ui.settings.addEventListener(
-        `${COMFY_LOCALE_SETTING}.change`,
-        () => {
-          if (latestStatus) {
-            void updatePathStatus(app, latestStatus).catch(() => undefined)
-          } else {
-            renderDownloadView()
-          }
-        },
-      )
+      app.ui.settings.addEventListener(`${COMFY_LOCALE_SETTING}.change`, () => {
+        if (latestStatus) {
+          void updatePathStatus(app, latestStatus).catch(() => undefined)
+        } else {
+          renderDownloadView()
+        }
+      })
       try {
         const revision = setupRevision
         const status = await requestLatestStatus(api)
@@ -924,21 +838,13 @@ export function registerLlamaCppRuntimeSettings(
         if (isDownloadActive(status.download_state)) {
           void refreshDownloadStatus(app, api)
         }
-        if (
-          app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !==
-          status.auto_start
-        ) {
+        if (app.extensionManager.setting.get<boolean>(AUTO_START_SETTING) !== status.auto_start) {
           await setSettingFromBackend(app, AUTO_START_SETTING, status.auto_start)
         }
-        if (
-          app.extensionManager.setting.get<number>(CTX_SIZE_SETTING) !==
-          status.ctx_size
-        ) {
+        if (app.extensionManager.setting.get<number>(CTX_SIZE_SETTING) !== status.ctx_size) {
           await setSettingFromBackend(app, CTX_SIZE_SETTING, status.ctx_size)
         }
-        if (
-          app.extensionManager.setting.get<number>(PORT_SETTING) !== status.port
-        ) {
+        if (app.extensionManager.setting.get<number>(PORT_SETTING) !== status.port) {
           await setSettingFromBackend(app, PORT_SETTING, status.port)
         }
         showStartWarning(app, status)
@@ -946,10 +852,7 @@ export function registerLlamaCppRuntimeSettings(
         const messages = getRuntimeMessages(
           app.extensionManager.setting.get<string>(COMFY_LOCALE_SETTING),
         )
-        app.extensionManager.setting.set(
-          PATH_STATUS_SETTING,
-          messages.statusLoadFailure,
-        )
+        app.extensionManager.setting.set(PATH_STATUS_SETTING, messages.statusLoadFailure)
       }
     },
   })

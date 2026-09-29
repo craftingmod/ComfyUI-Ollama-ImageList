@@ -229,9 +229,7 @@ def _runtime_server_arguments(
     arguments.extend(("--batch-size", str(hardware["n_batch"])))
     if hardware["n_ubatch"] > 0:
         arguments.extend(("--ubatch-size", str(hardware["n_ubatch"])))
-    gpu_layers = {"all": "all", "auto": "auto", "cpu": "0"}[
-        hardware["gpu_layers"]
-    ]
+    gpu_layers = {"all": "all", "auto": "auto", "cpu": "0"}[hardware["gpu_layers"]]
     arguments.extend(
         (
             "--gpu-layers",
@@ -625,7 +623,9 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
         if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
-            raise TypeError("session must be a Llama.cpp Create or Connect Session output.")
+            raise TypeError(
+                "session must be a Llama.cpp Create or Connect Session output."
+            )
         profile_value = unwrap_optional_scalar("model_profile", model_profile, None)
         profile = (
             normalize_compact_model_profile(profile_value)
@@ -799,7 +799,9 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
         del timing
         resolved_session = unwrap_required_scalar("session", session)
         if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
-            raise TypeError("session must be a Llama.cpp Create or Connect Session output.")
+            raise TypeError(
+                "session must be a Llama.cpp Create or Connect Session output."
+            )
         resolved_session.close()
         return io.NodeOutput()
 

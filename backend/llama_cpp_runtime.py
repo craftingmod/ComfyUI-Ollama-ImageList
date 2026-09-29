@@ -182,9 +182,7 @@ class _RestartDisabled(RuntimeError):
     pass
 
 
-def _start_supervisor(
-    command: list[str], environment: dict[str, str]
-) -> ScopedProcess:
+def _start_supervisor(command: list[str], environment: dict[str, str]) -> ScopedProcess:
     supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
     return ScopedProcess.start(
         [sys.executable, str(supervisor_path), "--", *command],
@@ -209,9 +207,7 @@ def _ephemeral_loopback_port() -> int:
         return int(port_probe.getsockname()[1])
 
 
-def _wait_for_owned_server_ready(
-    process: ScopedProcess, port: int
-) -> None:
+def _wait_for_owned_server_ready(process: ScopedProcess, port: int) -> None:
     deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -275,9 +271,7 @@ def start_owned_llama_server(
 def _config_path() -> Path:
     import folder_paths
 
-    get_system_user_directory = getattr(
-        folder_paths, "get_system_user_directory", None
-    )
+    get_system_user_directory = getattr(folder_paths, "get_system_user_directory", None)
     if callable(get_system_user_directory):
         return Path(get_system_user_directory("llama_cpp")) / _CONFIG_NAME
     raise RuntimeError(_CONFIG_DIRECTORY_ERROR)
@@ -320,9 +314,7 @@ def _select_release_asset(
         "cuda": "CUDA 13.4",
         "rocm": "ROCm 10.0",
     }[backend]
-    os_label = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}[
-        os_name
-    ]
+    os_label = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}[os_name]
     label = (
         f"{os_label} {arch}"
         if os_name == "macos"
@@ -348,11 +340,7 @@ def _current_release_selection() -> dict[str, Any]:
 
         torch_version = torch.version
         backend = (
-            "rocm"
-            if torch_version.hip
-            else "cuda"
-            if torch_version.cuda
-            else "cpu"
+            "rocm" if torch_version.hip else "cuda" if torch_version.cuda else "cpu"
         )
     except Exception as exc:
         raise RuntimeError(
@@ -533,9 +521,7 @@ def _probe_llama_version(executable: str | None) -> str | None:
             ),
             next((line.strip() for line in lines if line.strip()), None),
         )
-        _llama_version = (
-            version_line[:_VERSION_DISPLAY_LIMIT] if version_line else None
-        )
+        _llama_version = version_line[:_VERSION_DISPLAY_LIMIT] if version_line else None
     except (OSError, subprocess.SubprocessError) as exc:
         _logger.warning("Could not probe llama version: %s", exc)
     return _llama_version
@@ -606,9 +592,8 @@ def _safe_archive_path(root: Path, member_name: str) -> Path:
     relative_path = PurePosixPath(name)
     if name in {"", "."}:
         return root
-    if (
-        relative_path.is_absolute()
-        or any(part in {"..", "."} or ":" in part for part in relative_path.parts)
+    if relative_path.is_absolute() or any(
+        part in {"..", "."} or ":" in part for part in relative_path.parts
     ):
         raise RuntimeError(f"Archive contains an unsafe path: {member_name!r}.")
     resolved_root = root.resolve()
@@ -694,9 +679,7 @@ def _is_runtime_library(path: Path) -> bool:
     return name.endswith((".dll", ".dylib")) or ".so" in name
 
 
-def _copy_runtime_files(
-    source_root: Path, destination: Path, executable: Path
-) -> Path:
+def _copy_runtime_files(source_root: Path, destination: Path, executable: Path) -> Path:
     executable_relative = executable.relative_to(source_root)
     runtime_files = [
         path
@@ -744,11 +727,7 @@ def _probe_downloaded_executable(
     )
     lines = (result.stdout + "\n" + result.stderr).splitlines()
     version_line = next(
-        (
-            line.strip()
-            for line in lines
-            if line.strip().lower().startswith("version:")
-        ),
+        (line.strip() for line in lines if line.strip().lower().startswith("version:")),
         next((line.strip() for line in lines if line.strip()), None),
     )
     return version_line[:_VERSION_DISPLAY_LIMIT] if version_line else None
@@ -1005,9 +984,7 @@ def _start_locked(*, repair_model_dir: bool = True) -> None:
             port_probe.bind(("127.0.0.1", _port))
         model_dirs, default_model_dir = _model_directory_options()
         models_dir_path = (
-            resolve_llm_model_directory(_model_dir, model_dirs)
-            if _model_dir
-            else None
+            resolve_llm_model_directory(_model_dir, model_dirs) if _model_dir else None
         )
         if models_dir_path is None:
             if not repair_model_dir:
@@ -1283,10 +1260,7 @@ async def update_runtime_endpoint(request: Any):
         not isinstance(data, dict)
         or not data
         or data.keys() - {"auto_start", "ctx_size", "port", "model_dir"}
-        or (
-            "auto_start" in data
-            and not isinstance(data["auto_start"], bool)
-        )
+        or ("auto_start" in data and not isinstance(data["auto_start"], bool))
         or ("ctx_size" in data and not _valid_ctx_size(data["ctx_size"]))
         or ("port" in data and not _valid_port(data["port"]))
         or ("model_dir" in data and not isinstance(data["model_dir"], str))
@@ -1357,9 +1331,7 @@ def register_runtime_routes() -> None:
 
     PromptServer.instance.routes.get(RUNTIME_ROUTE)(runtime_status_endpoint)
     PromptServer.instance.routes.post(RUNTIME_ROUTE)(update_runtime_endpoint)
-    PromptServer.instance.routes.post(RUNTIME_RESTART_ROUTE)(
-        restart_runtime_endpoint
-    )
+    PromptServer.instance.routes.post(RUNTIME_RESTART_ROUTE)(restart_runtime_endpoint)
     PromptServer.instance.routes.post(RUNTIME_DOWNLOAD_ROUTE)(download_runtime_endpoint)
     _routes_registered = True
 

@@ -66,9 +66,7 @@ def _stop_server(server: subprocess.Popen[bytes]) -> None:
 
 def _supervise(command: list[str], owner_pipe: BinaryIO) -> int:
     stop_requested = Event()
-    creationflags = (
-        subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-    )
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     try:
         server = subprocess.Popen(
             command,

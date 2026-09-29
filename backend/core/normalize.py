@@ -559,7 +559,9 @@ def _extract_video_audio(video_item: MediaItem) -> dict[str, Any]:
         ) from exc
 
     if not samples:
-        raise InputNormalizationError(f"Video input {source_path} has an empty audio track.")
+        raise InputNormalizationError(
+            f"Video input {source_path} has an empty audio track."
+        )
     return {
         "waveform": _Waveform([samples]),
         "sample_rate": 16_000,

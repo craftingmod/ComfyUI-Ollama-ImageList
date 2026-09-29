@@ -1,7 +1,14 @@
 import { defineConfig } from "oxfmt"
 
 export default defineConfig({
-  ignorePatterns: [".agents/**", ".vscode/**", "**/*.md", "presets/**", "workflows/**", "package.json"],
+  ignorePatterns: [
+    ".agents/**",
+    ".vscode/**",
+    "**/*.md",
+    "presets/**",
+    "workflows/**",
+    "package.json",
+  ],
   tabWidth: 2,
   semi: false,
   singleQuote: false,

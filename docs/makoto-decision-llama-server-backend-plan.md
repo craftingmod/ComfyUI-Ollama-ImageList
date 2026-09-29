@@ -92,8 +92,7 @@ class CandidateEvaluator(Protocol):
         self,
         prompt: str,
         candidates: Sequence[str],
-    ) -> Mapping[str, float]:
-        ...
+    ) -> Mapping[str, float]: ...
 ```
 
 This gives all higher-level decision APIs one common contract.
@@ -171,8 +170,7 @@ class LlamaServerEvaluator:
         self,
         prompt: str,
         candidates: Sequence[str],
-    ) -> Mapping[str, float]:
-        ...
+    ) -> Mapping[str, float]: ...
 ```
 
 The evaluator performs the following steps.
@@ -319,8 +317,7 @@ Recommended helper:
 def map_label_probabilities(
     labels: Mapping[str, str],
     returned: Mapping[str, float],
-) -> dict[str, float]:
-    ...
+) -> dict[str, float]: ...
 ```
 
 Where:
@@ -348,10 +345,7 @@ def normalize(
     if total <= 0.0:
         raise ValueError("Candidate probabilities contain no positive mass")
 
-    return {
-        key: value / total
-        for key, value in values.items()
-    }
+    return {key: value / total for key, value in values.items()}
 ```
 
 This makes the public decision result consistently represent:
@@ -488,8 +482,7 @@ Then optionally compute an expected score:
 
 ```python
 expected_score = sum(
-    float(score) * probability
-    for score, probability in distribution.items()
+    float(score) * probability for score, probability in distribution.items()
 )
 ```
 
@@ -584,9 +577,7 @@ Z
 If the candidate count exceeds the supported single-token label pool, fail explicitly:
 
 ```python
-raise ValueError(
-    "Too many candidates for the current single-token label strategy"
-)
+raise ValueError("Too many candidates for the current single-token label strategy")
 ```
 
 Do not silently switch to:

@@ -51,9 +51,7 @@ def _question_from_input_lists(question: Any, answers: Any) -> dict[str, Any]:
     if not isinstance(answers, list) or any(
         isinstance(value, (list, tuple)) for value in answers
     ):
-        raise InputNormalizationError(
-            "answer must be one flat ComfyUI STRING list."
-        )
+        raise InputNormalizationError("answer must be one flat ComfyUI STRING list.")
     return make_question_payload(question[0], answers)
 
 
@@ -122,7 +120,9 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
             ],
             outputs=[
                 io.String.Output("selected"),
-                io.String.Output("probabilities_json", display_name="probabilities JSON"),
+                io.String.Output(
+                    "probabilities_json", display_name="probabilities JSON"
+                ),
                 LlamaCppSessionType.Output("session", display_name="session"),
             ],
         )
@@ -152,7 +152,9 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
         validated = make_question_payload(payload["question"], payload["answer"])
         resolved_system = unwrap_required_scalar("system", system)
         resolved_context = unwrap_required_scalar("context", context)
-        if not isinstance(resolved_system, str) or not isinstance(resolved_context, str):
+        if not isinstance(resolved_system, str) or not isinstance(
+            resolved_context, str
+        ):
             raise InputNormalizationError("system and context must be strings.")
         profile_value = unwrap_optional_scalar("model_profile", model_profile, None)
         profile = (

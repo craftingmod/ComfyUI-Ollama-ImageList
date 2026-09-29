@@ -17,7 +17,9 @@ from ..llama_cpp_session_cleanup import track_session, untrack_session
 from .llama_cpp import LlamaCppResult, _data_uri, _extract_response
 
 Transport = Callable[[str, str, bytes | None, float], tuple[int, bytes]]
-_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])")
+_BASE64_RUN = re.compile(
+    r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])"
+)
 _REQUEST_TIMEOUT_SECONDS = 300.0
 
 
@@ -42,7 +44,9 @@ def _validated_url(value: str) -> SplitResult:
     if not hostname:
         raise InputNormalizationError("llama.cpp server URL must include a hostname.")
     if parsed.username is not None or parsed.password is not None:
-        raise InputNormalizationError("llama.cpp server URL cannot include credentials.")
+        raise InputNormalizationError(
+            "llama.cpp server URL cannot include credentials."
+        )
     if parsed.query or parsed.fragment:
         raise InputNormalizationError(
             "llama.cpp server URL cannot include a query string or fragment."
@@ -132,7 +136,9 @@ def parse_models_response(response_body: bytes) -> list[str]:
     try:
         parsed = json.loads(response_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BackendError("llama.cpp returned an invalid model-list response.") from exc
+        raise BackendError(
+            "llama.cpp returned an invalid model-list response."
+        ) from exc
     if not isinstance(parsed, dict) or not isinstance(parsed.get("data"), list):
         raise BackendError(
             "llama.cpp model-list response did not contain a data array."
@@ -142,9 +148,7 @@ def parse_models_response(response_body: bytes) -> list[str]:
     seen: set[str] = set()
     for item in parsed["data"]:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
-            raise BackendError(
-                "llama.cpp model-list entries must contain a string id."
-            )
+            raise BackendError("llama.cpp model-list entries must contain a string id.")
         model = item["id"].strip()
         if not model:
             raise BackendError("llama.cpp model-list entries cannot have an empty id.")
@@ -171,7 +175,9 @@ def list_server_models(
     return parse_models_response(body)
 
 
-def _build_messages(system: str, prompt: str, media: MediaBundle) -> list[dict[str, Any]]:
+def _build_messages(
+    system: str, prompt: str, media: MediaBundle
+) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -197,9 +203,7 @@ def _build_messages(system: str, prompt: str, media: MediaBundle) -> list[dict[s
         elif item.kind == "video":
             part = {
                 "type": "input_video",
-                "input_video": {
-                    "data": base64.b64encode(item.payload).decode("ascii")
-                },
+                "input_video": {"data": base64.b64encode(item.payload).decode("ascii")},
             }
         else:
             raise InputNormalizationError(
@@ -271,7 +275,9 @@ class LlamaCppServerSession:
         model_profile: dict[str, Any] | None = None,
     ) -> LlamaCppResult:
         if self._closed:
-            raise BackendError("The llama.cpp server session has already been unloaded.")
+            raise BackendError(
+                "The llama.cpp server session has already been unloaded."
+            )
         if not self.model.strip():
             raise InputNormalizationError("model cannot be empty.")
         if max_tokens <= 0:
@@ -389,7 +395,9 @@ class LlamaCppServerSession:
         model_profile: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, float]]:
         if self._closed:
-            raise BackendError("The llama.cpp server session has already been unloaded.")
+            raise BackendError(
+                "The llama.cpp server session has already been unloaded."
+            )
         if not isinstance(question, str) or not question.strip():
             raise InputNormalizationError("question must be a non-empty string.")
         if not isinstance(context, str):
@@ -398,9 +406,7 @@ class LlamaCppServerSession:
             raise InputNormalizationError(
                 "answers must contain between 2 and 26 items."
             )
-        if any(
-            not isinstance(answer, str) or not answer.strip() for answer in answers
-        ):
+        if any(not isinstance(answer, str) or not answer.strip() for answer in answers):
             raise InputNormalizationError("answers must be non-empty strings.")
         if len(set(answers)) != len(answers):
             raise InputNormalizationError("answers must be unique.")
@@ -632,9 +638,9 @@ class LlamaCppServerSession:
             if self._closed:
                 return
             try:
-                body = json.dumps(
-                    {"model": self.model}, separators=(",", ":")
-                ).encode("utf-8")
+                body = json.dumps({"model": self.model}, separators=(",", ":")).encode(
+                    "utf-8"
+                )
                 response_body = _request(
                     url=_endpoint_url(self.url, "/models/unload"),
                     method="POST",

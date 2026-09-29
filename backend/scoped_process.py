@@ -110,8 +110,7 @@ class ScopedProcess:
                     exc,
                 )
             kwargs["creationflags"] = (
-                kwargs.get("creationflags", 0)
-                | subprocess.CREATE_NEW_PROCESS_GROUP
+                kwargs.get("creationflags", 0) | subprocess.CREATE_NEW_PROCESS_GROUP
             )
         else:
             kwargs["start_new_session"] = True
