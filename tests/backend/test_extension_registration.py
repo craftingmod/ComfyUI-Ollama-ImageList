@@ -222,6 +222,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
         "OllamaImageList_LlamaCppNativeSpeculativeConfig",
         "OllamaImageList_LlamaCppCreateSession",
+        "OllamaImageList_LlamaCppCreateRuntimeSession",
         "OllamaImageList_LlamaCppConnectSession",
         "OllamaImageList_LlamaCppSessionGenerate",
         "OllamaImageList_LlamaCppUnloadSession",
@@ -247,6 +248,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] N-gram Speculative Config",
         "[llama.cpp] Native Speculative Profile",
         "[llama.cpp] Create Session",
+        "[llama.cpp] Create Runtime Session",
         "[llama.cpp] Connect Session",
         "[llama.cpp] Generate (Session)",
         "[llama.cpp] Unload Session",
@@ -271,6 +273,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/profile",
         "llama_cpp/compact",
         "llama_cpp/profile",
+        "llama_cpp/compact/session",
         "llama_cpp/compact/session",
         "llama_cpp/compact/session",
         "llama_cpp/compact/session",
@@ -814,6 +817,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "CPU",
         "Custom",
     ]
+    assert hardware_schema.inputs[0].options["default"] == "Automatic Offload"
+    assert hardware_schema.inputs[3].options["default"] == "auto"
     assert hardware_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
     )
@@ -1091,6 +1096,39 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "verbose",
     ]
     assert create_session_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    )
+    _, create_runtime_session_schema = registered[
+        "OllamaImageList_LlamaCppCreateRuntimeSession"
+    ]
+    assert create_runtime_session_schema.node_id == (
+        "OllamaImageList_LlamaCppCreateRuntimeSession"
+    )
+    assert create_runtime_session_schema.is_input_list is True
+    assert create_runtime_session_schema.not_idempotent is True
+    assert create_runtime_session_schema.is_experimental is True
+    assert [field.name for field in create_runtime_session_schema.inputs] == [
+        "model_path",
+        "mmproj_path",
+        "model_profile",
+        "hardware_profile",
+        "reasoning",
+        "speculative",
+        "n_ctx",
+        "image_min_tokens",
+        "image_max_tokens",
+        "verbose",
+    ]
+    runtime_session_inputs = {
+        field.name: field for field in create_runtime_session_schema.inputs
+    }
+    assert runtime_session_inputs["hardware_profile"].options["optional"] is True
+    assert runtime_session_inputs["reasoning"].options["optional"] is True
+    assert runtime_session_inputs["speculative"].options["optional"] is True
+    assert [field.name for field in create_runtime_session_schema.outputs] == [
+        "session"
+    ]
+    assert create_runtime_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     _, connect_session_schema = registered[
@@ -1451,6 +1489,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     captured_session_configuration.clear()
     create_session_class.execute(**default_session_values)
     assert captured_session_configuration["n_batch"] == 512
+    assert captured_session_configuration["gpu_layers"] == "auto"
     assert captured_session_configuration["reasoning_budget"] == 0
     assert "ngram_speculative" not in captured_session_configuration
 
@@ -1532,7 +1571,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["temperature"] == 1.0
     assert captured_speculative_call["presence_penalty"] == 0.0
     assert captured_speculative_call["n_batch"] == 512
-    assert captured_speculative_call["gpu_layers"] == "all"
+    assert captured_speculative_call["gpu_layers"] == "auto"
     assert captured_speculative_call["main_gpu"] == 0
     assert captured_speculative_call["n_threads"] == 0
     assert captured_speculative_call["flash_attention"] == "auto"
@@ -2015,3 +2054,309 @@ def test_compact_sequential_outputs_include_typed_sequence(monkeypatch):
             "response": "video-4",
         },
     ]
+
+
+def test_runtime_session_server_arguments_convert_profiles_without_native_api(
+    monkeypatch,
+):
+    install_comfy_api_stub(monkeypatch)
+    session_module = importlib.import_module("backend.nodes.llama_cpp_session")
+    compact_module = importlib.import_module("backend.nodes.llama_cpp_compact")
+    llama_module = importlib.import_module("backend.backends.llama_cpp")
+
+    monkeypatch.setattr(
+        session_module,
+        "_resolve_file",
+        lambda value, **_kwargs: value or None,
+    )
+
+    def unexpected_native_speculative_dependency():
+        raise AssertionError("runtime server arguments must not load llama_cpp_python")
+
+    for module in (session_module, compact_module, llama_module):
+        monkeypatch.setattr(
+            module,
+            "require_native_speculative",
+            unexpected_native_speculative_dependency,
+            raising=False,
+        )
+
+    model_profile = {
+        "handler": "gemma4",
+        "recommended_reasoning_mode": "auto",
+        "temperature": 0.65,
+        "top_p": 0.87,
+        "top_k": 37,
+        "min_p": 0.13,
+        "presence_penalty": 0.4,
+        "repeat_penalty": 1.17,
+        "custom_chat_template": "{% custom template %}",
+    }
+    hardware_profile = {
+        "n_batch": 1024,
+        "n_ubatch": 512,
+        "gpu_layers": "cpu",
+        "main_gpu": 2,
+        "n_threads": 7,
+        "flash_attention": "disabled",
+        "use_mmap": False,
+    }
+    base_values = {
+        "model_path": ["external/model-a.gguf"],
+        "mmproj_path": ["external/mmproj-model-a-f16.gguf"],
+        "model_profile": [model_profile],
+        "hardware_profile": [hardware_profile],
+        "reasoning": [
+            {
+                "reasoning_mode": "on",
+                "reasoning_effort": "high",
+                "max_reasoning_tokens": 321,
+                "preserve_thinking": True,
+            }
+        ],
+        "n_ctx": [4096],
+        "image_min_tokens": [64],
+        "image_max_tokens": [128],
+        "verbose": [True],
+        "reasoning_preserve_supported": True,
+    }
+
+    def option_value(arguments, option):
+        return arguments[arguments.index(option) + 1]
+
+    native_values = {
+        **base_values,
+        "speculative": [
+            {
+                "kind": "native",
+                "config": {
+                    "spec_type": "draft-dflash",
+                    "mtp_provider": "off",
+                    "draft_model": "external/mtp-model-a.gguf",
+                    "draft_n_max": 7,
+                    "draft_p_min": 0.2,
+                    "draft_n_gpu_layers": "all",
+                    "draft_backend_sampling": False,
+                },
+            }
+        ],
+    }
+    arguments, custom_template, model = session_module._runtime_server_arguments(
+        **native_values
+    )
+    assert custom_template == "{% custom template %}"
+    assert model.endswith("external/model-a.gguf")
+    assert option_value(arguments, "--model") == model
+    assert option_value(arguments, "--mmproj").endswith(
+        "external/mmproj-model-a-f16.gguf"
+    )
+    assert option_value(arguments, "--ctx-size") == "4096"
+    assert option_value(arguments, "--temp") == "0.65"
+    assert option_value(arguments, "--top-p") == "0.87"
+    assert option_value(arguments, "--top-k") == "37"
+    assert option_value(arguments, "--min-p") == "0.13"
+    assert option_value(arguments, "--presence-penalty") == "0.4"
+    assert option_value(arguments, "--repeat-penalty") == "1.17"
+    assert option_value(arguments, "--batch-size") == "1024"
+    assert option_value(arguments, "--ubatch-size") == "512"
+    assert option_value(arguments, "--gpu-layers") == "0"
+    assert option_value(arguments, "--main-gpu") == "2"
+    assert option_value(arguments, "--flash-attn") == "off"
+    assert option_value(arguments, "--load-mode") == "none"
+    assert option_value(arguments, "--threads") == "7"
+    assert option_value(arguments, "--reasoning") == "on"
+    assert option_value(arguments, "--reasoning-effort") == "high"
+    assert option_value(arguments, "--reasoning-budget") == "321"
+    assert "--reasoning-preserve" in arguments
+    assert option_value(arguments, "--image-min-tokens") == "64"
+    assert option_value(arguments, "--image-max-tokens") == "128"
+    assert option_value(arguments, "--spec-type") == "draft-dflash"
+    assert option_value(arguments, "--spec-draft-n-max") == "7"
+    assert option_value(arguments, "--spec-draft-p-min") == "0.2"
+    assert option_value(arguments, "--spec-draft-ngl") == "all"
+    assert "--no-spec-draft-backend-sampling" in arguments
+    assert option_value(arguments, "--spec-draft-model").endswith(
+        "external/mtp-model-a.gguf"
+    )
+    assert "--handler" not in arguments
+    assert "--verbose" in arguments
+
+    zero_values = {
+        **base_values,
+        "hardware_profile": None,
+        "reasoning": [
+            {
+                "reasoning_mode": "on",
+                "reasoning_effort": "auto",
+                "max_reasoning_tokens": 0,
+                "preserve_thinking": False,
+            }
+        ],
+        "image_min_tokens": [0],
+        "image_max_tokens": [0],
+        "verbose": [False],
+        "reasoning_preserve_supported": False,
+        "speculative": [{"kind": "off"}],
+    }
+    zero_arguments, _, _ = session_module._runtime_server_arguments(**zero_values)
+    assert option_value(zero_arguments, "--batch-size") == "512"
+    assert option_value(zero_arguments, "--gpu-layers") == "auto"
+    assert option_value(zero_arguments, "--flash-attn") == "auto"
+    assert option_value(zero_arguments, "--load-mode") == "mmap"
+    assert option_value(zero_arguments, "--reasoning") == "on"
+    assert not {
+        "--ubatch-size",
+        "--threads",
+        "--reasoning-effort",
+        "--reasoning-budget",
+        "--reasoning-preserve",
+        "--no-reasoning-preserve",
+        "--image-min-tokens",
+        "--image-max-tokens",
+        "--spec-type",
+        "--verbose",
+    }.intersection(zero_arguments)
+
+    off_values = {
+        **zero_values,
+        "reasoning": [
+            {
+                "reasoning_mode": "off",
+                "reasoning_effort": "high",
+                "max_reasoning_tokens": 321,
+                "preserve_thinking": False,
+            }
+        ],
+    }
+    off_arguments, _, _ = session_module._runtime_server_arguments(**off_values)
+    assert option_value(off_arguments, "--reasoning") == "off"
+    assert "--reasoning-effort" not in off_arguments
+    assert "--reasoning-budget" not in off_arguments
+
+    for mode in ("k", "k4v"):
+        mode_arguments = []
+        for max_entries in (1, 99):
+            ngram_values = {
+                **zero_values,
+                "speculative": [
+                    {
+                        "kind": "ngram",
+                        "config": {
+                            "speculative_mode": "ngram",
+                            "ngram_size": 4,
+                            "num_pred_tokens": 12,
+                            "ngram_mode": mode,
+                            "ngram_min_hits": 3,
+                            "ngram_max_entries_per_key": max_entries,
+                        },
+                    }
+                ],
+            }
+            arguments, _, _ = session_module._runtime_server_arguments(
+                **ngram_values
+            )
+            prefix = f"--spec-ngram-map-{mode}"
+            assert option_value(arguments, "--spec-type") == f"ngram-map-{mode}"
+            assert option_value(arguments, f"{prefix}-size-n") == "4"
+            assert option_value(arguments, f"{prefix}-size-m") == "12"
+            assert option_value(arguments, f"{prefix}-min-hits") == "3"
+            assert not any("entries-per-key" in value for value in arguments)
+            mode_arguments.append(arguments)
+        assert mode_arguments[0] == mode_arguments[1]
+
+
+def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
+    monkeypatch,
+):
+    install_comfy_api_stub(monkeypatch)
+    session_module = importlib.import_module("backend.nodes.llama_cpp_session")
+    monkeypatch.setattr(
+        session_module,
+        "_resolve_llama_executable",
+        lambda: ("llama.exe", "path"),
+    )
+    monkeypatch.setattr(
+        session_module,
+        "_supports_reasoning_preserve",
+        lambda _executable, *, internal: True,
+    )
+    monkeypatch.setattr(
+        session_module,
+        "_resolve_file",
+        lambda value, **_kwargs: value or None,
+    )
+
+    class Process:
+        url = "http://127.0.0.1:45678"
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    process = Process()
+    captured_arguments = []
+
+    def start_server(_executable, arguments, *, internal):
+        assert internal is False
+        captured_arguments.append(arguments)
+        return process
+
+    monkeypatch.setattr(
+        session_module, "start_owned_llama_server", start_server
+    )
+    monkeypatch.setattr(
+        session_module,
+        "list_server_models",
+        lambda *, url: ["stub-model"],
+    )
+
+    values = {
+        "model_path": ["external/model-a.gguf"],
+        "mmproj_path": ["[none]"],
+        "model_profile": [
+            {
+                "handler": "auto",
+                "recommended_reasoning_mode": "auto",
+                "temperature": 0.2,
+                "top_p": 0.95,
+                "top_k": 40,
+                "min_p": 0.05,
+                "presence_penalty": 0.0,
+                "repeat_penalty": 1.0,
+                "custom_chat_template": "{% set custom = true %}",
+            }
+        ],
+        "hardware_profile": None,
+        "reasoning": None,
+        "speculative": None,
+        "n_ctx": [4096],
+        "image_min_tokens": [0],
+        "image_max_tokens": [0],
+        "verbose": [False],
+    }
+    node_class = session_module.LlamaCppCreateRuntimeSessionNode
+    session = node_class.execute(**values)[0]
+    template_path = captured_arguments[0][
+        captured_arguments[0].index("--chat-template-file") + 1
+    ]
+    assert os.path.isfile(template_path)
+    with open(template_path, encoding="utf-8") as template_file:
+        assert template_file.read() == "{% set custom = true %}"
+    assert session.model == "stub-model"
+
+    session.close()
+    assert process.closed is True
+    assert os.path.exists(template_path) is False
+
+    def fail_start(_executable, arguments, *, internal):
+        assert internal is False
+        captured_arguments.append(arguments)
+        raise RuntimeError("server start failed")
+
+    monkeypatch.setattr(session_module, "start_owned_llama_server", fail_start)
+    with pytest.raises(RuntimeError, match="server start failed"):
+        node_class.execute(**values)
+    failed_template_path = captured_arguments[1][
+        captured_arguments[1].index("--chat-template-file") + 1
+    ]
+    assert os.path.exists(failed_template_path) is False

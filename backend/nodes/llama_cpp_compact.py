@@ -556,7 +556,7 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
                 io.Combo.Input(
                     "profile",
                     options=[*COMPACT_HARDWARE_PROFILES, "Custom"],
-                    default="GPU Full Offload",
+                    default="Automatic Offload",
                 ),
                 io.Int.Input(
                     "n_batch", default=512, min=1, max=65_536, step=1, advanced=True
@@ -573,7 +573,7 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
                 io.Combo.Input(
                     "gpu_layers",
                     options=["all", "auto", "cpu"],
-                    default="all",
+                    default="auto",
                     advanced=True,
                 ),
                 io.Int.Input(
@@ -1026,7 +1026,7 @@ def _compact_common_inputs(*, include_video_with_audio: bool = True) -> list[Any
             optional=True,
             tooltip=(
                 "Optional output from [llama.cpp] Hardware Runtime Profile. "
-                "Disconnected uses GPU Full Offload."
+                "Disconnected uses Automatic Offload."
             ),
         ),
         io.String.Input("system", default="", multiline=True, dynamic_prompts=False),
@@ -1125,7 +1125,7 @@ def build_compact_session_kwargs(
     )
     profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
     compact_hardware_profile = normalize_compact_hardware_profile(
-        COMPACT_HARDWARE_PROFILES["GPU Full Offload"]
+        COMPACT_HARDWARE_PROFILES["Automatic Offload"]
         if hardware_profile is None
         else unwrap_required_scalar("hardware_profile", hardware_profile)
     )
@@ -1265,7 +1265,7 @@ def _execute_compact(
     )
     profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
     compact_hardware_profile = normalize_compact_hardware_profile(
-        COMPACT_HARDWARE_PROFILES["GPU Full Offload"]
+        COMPACT_HARDWARE_PROFILES["Automatic Offload"]
         if hardware_profile is None
         else unwrap_required_scalar("hardware_profile", hardware_profile)
     )

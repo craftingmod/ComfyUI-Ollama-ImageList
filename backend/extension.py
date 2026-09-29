@@ -16,6 +16,7 @@ from .llama_cpp_runtime import (
 from .nodes import (
     ClipImageListGenerateNode,
     JinjaChatTemplatePresetNode,
+    LlamaCppCreateRuntimeSessionNode,
     LlamaCppCreateSessionNode,
     LlamaCppConnectSessionNode,
     LlamaCppGemma4RuntimePresetNode,
@@ -75,6 +76,7 @@ class OllamaImageListExtension(ComfyExtension):
             LlamaCppNGramSpeculativeConfigNode,
             LlamaCppNativeSpeculativeConfigNode,
             LlamaCppCreateSessionNode,
+            LlamaCppCreateRuntimeSessionNode,
             LlamaCppConnectSessionNode,
             LlamaCppSessionGenerateNode,
             LlamaCppUnloadSessionNode,

@@ -5,6 +5,7 @@ import pytest
 
 from backend.backends.llama_cpp_server import (
     LlamaCppServerSession,
+    OwnedLlamaCppServerSession,
     list_server_models,
     parse_models_response,
 )
@@ -113,4 +114,94 @@ def test_server_session_parses_models_generates_multimodal_and_retries_unload(
     assert session.closed is True
     session.close()
     assert unload_attempts == 2
+    assert session not in tracked
+
+
+def test_owned_server_session_retries_shutdown_and_cleanup_idempotently(monkeypatch):
+    import backend.llama_cpp_session_cleanup as cleanup_module
+
+    tracked = set()
+    monkeypatch.setattr(cleanup_module, "_sessions", tracked)
+    monkeypatch.setattr(cleanup_module, "_sessions_lock", RLock())
+
+    events = []
+    requests = []
+
+    class Process:
+        close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+            events.append("process")
+            if self.close_calls == 1:
+                raise RuntimeError("shutdown failed")
+
+    process = Process()
+    cleanup_calls = 0
+
+    def cleanup():
+        nonlocal cleanup_calls
+        cleanup_calls += 1
+        events.append("cleanup")
+        if cleanup_calls == 1:
+            raise RuntimeError("cleanup failed")
+
+    def transport(url, method, body, timeout):
+        requests.append((url, method))
+        assert url.endswith("/health")
+        return 200, b'{"status":"ok"}'
+
+    session = OwnedLlamaCppServerSession(
+        url="http://localhost:8080",
+        model="model-a",
+        process=process,
+        cleanup=cleanup,
+        transport=transport,
+    )
+
+    with pytest.raises(RuntimeError, match="shutdown failed"):
+        session.close()
+    assert session in tracked
+    assert cleanup_calls == 0
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        session.close()
+    assert session in tracked
+    assert session.closed is False
+
+    session.close()
+    assert session.closed is True
+    assert session not in tracked
+    session.close()
+
+    assert process.close_calls == 2
+    assert cleanup_calls == 2
+    assert events == ["process", "process", "cleanup", "cleanup"]
+    assert requests == [("http://localhost:8080/health", "GET")]
+
+
+def test_owned_server_session_closes_at_prompt_end(monkeypatch):
+    import backend.llama_cpp_session_cleanup as cleanup_module
+
+    tracked = set()
+    monkeypatch.setattr(cleanup_module, "_sessions", tracked)
+    monkeypatch.setattr(cleanup_module, "_sessions_lock", RLock())
+
+    class Process:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    process = Process()
+    session = OwnedLlamaCppServerSession(
+        url="http://localhost:8080",
+        model="model-a",
+        process=process,
+    )
+
+    assert session in tracked
+    close_tracked_sessions()
+    assert process.closed is True
+    assert session.closed is True
     assert session not in tracked

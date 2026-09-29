@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 try:
@@ -9,21 +12,279 @@ try:
 except ImportError:  # pragma: no cover - compatibility with newer ComfyUI builds
     from comfy_api.latest import io
 
-from ..backends.llama_cpp import LlamaCppSession
-from ..backends.llama_cpp_server import LlamaCppServerSession
-from ..core import normalize_media, unwrap_required_scalar
+from ..backends.llama_cpp import LlamaCppSession, _resolve_file
+from ..backends.llama_cpp_server import (
+    LlamaCppServerSession,
+    OwnedLlamaCppServerSession,
+    list_server_models,
+)
+from ..core import (
+    InputNormalizationError,
+    normalize_media,
+    unwrap_optional_scalar,
+    unwrap_required_scalar,
+)
+from ..llama_cpp_runtime import (
+    _llama_child_environment,
+    _resolve_llama_executable,
+    start_owned_llama_server,
+)
 from .llama_cpp_compact import (
     COMPACT_CATEGORY,
+    COMPACT_HARDWARE_PROFILES,
     LlamaCppHardwareRuntimeProfileType,
     LlamaCppModelProfileType,
     LlamaCppReasoningConfigType,
     LlamaCppSpeculativeConfigType,
     build_compact_session_kwargs,
+    normalize_compact_hardware_profile,
+    normalize_compact_model_profile,
+    normalize_compact_speculative,
+    normalize_reasoning_config,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
-from .llama_cpp_generate import NO_MMPROJ_OPTION, _gguf_options
+from .llama_cpp_generate import (
+    NO_MMPROJ_OPTION,
+    _gguf_options,
+    _resolve_gguf_selection,
+)
 
 LlamaCppSessionType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION")
+
+
+def _runtime_server_arguments(
+    *,
+    model_path: Any,
+    mmproj_path: Any,
+    model_profile: Any,
+    hardware_profile: Any = None,
+    reasoning: Any = None,
+    speculative: Any = None,
+    n_ctx: Any,
+    image_min_tokens: Any,
+    image_max_tokens: Any,
+    verbose: Any,
+    reasoning_preserve_supported: bool,
+) -> tuple[list[str], str | None, str]:
+    model = _resolve_file(
+        _resolve_gguf_selection(
+            str(unwrap_required_scalar("model_path", model_path)),
+            label="model GGUF",
+            required=True,
+        ),
+        label="model GGUF",
+        required=True,
+    )
+    mmproj_selection = unwrap_optional_scalar(
+        "mmproj_path", mmproj_path, NO_MMPROJ_OPTION
+    )
+    mmproj = _resolve_file(
+        _resolve_gguf_selection(
+            str(mmproj_selection), label="mmproj GGUF", required=False
+        ),
+        label="mmproj GGUF",
+        required=False,
+    )
+    if model is None:
+        raise InputNormalizationError("model GGUF is required.")
+
+    profile = normalize_compact_model_profile(
+        unwrap_required_scalar("model_profile", model_profile)
+    )
+    profile_reasoning_mode = profile.pop("recommended_reasoning_mode")
+    profile.pop("handler")
+    custom_chat_template = profile.pop("custom_chat_template")
+
+    hardware = normalize_compact_hardware_profile(
+        COMPACT_HARDWARE_PROFILES["Automatic Offload"]
+        if hardware_profile is None
+        else unwrap_required_scalar("hardware_profile", hardware_profile)
+    )
+    reasoning_config = normalize_reasoning_config(
+        {
+            "reasoning_mode": "auto",
+            "reasoning_effort": "auto",
+            "max_reasoning_tokens": 0,
+            "preserve_thinking": False,
+        }
+        if reasoning is None
+        else unwrap_required_scalar("reasoning", reasoning)
+    )
+    reasoning_mode = reasoning_config["reasoning_mode"]
+    if (
+        profile_reasoning_mode != "auto"
+        and reasoning_mode != "auto"
+        and reasoning_mode != profile_reasoning_mode
+    ):
+        raise InputNormalizationError(
+            "The selected [llama.cpp] Model Profile requires reasoning_mode="
+            f"{profile_reasoning_mode}, but [llama.cpp] Thinking / Reasoning Profile "
+            f"requests reasoning_mode={reasoning_mode}."
+        )
+    if reasoning_mode == "auto":
+        reasoning_mode = profile_reasoning_mode
+
+    speculative_config = normalize_compact_speculative(
+        {"kind": "off"}
+        if speculative is None
+        else unwrap_required_scalar("speculative", speculative)
+    )
+    resolved_ctx = unwrap_required_scalar("n_ctx", n_ctx)
+    if type(resolved_ctx) is not int or not 512 <= resolved_ctx <= 1_048_576:
+        raise InputNormalizationError(
+            "n_ctx must be an integer between 512 and 1048576."
+        )
+    token_limits = []
+    for name, value in (
+        ("image_min_tokens", image_min_tokens),
+        ("image_max_tokens", image_max_tokens),
+    ):
+        resolved = unwrap_optional_scalar(name, value, 0)
+        if type(resolved) is not int or not 0 <= resolved <= 65_536:
+            raise InputNormalizationError(
+                f"{name} must be an integer between 0 and 65536."
+            )
+        token_limits.append(resolved)
+    image_min, image_max = token_limits
+    if image_min > 0 and image_max > 0 and image_min > image_max:
+        raise InputNormalizationError(
+            "image_min_tokens cannot exceed image_max_tokens."
+        )
+    verbose_value = unwrap_optional_scalar("verbose", verbose, False)
+    if not isinstance(verbose_value, bool):
+        raise InputNormalizationError("verbose must be a boolean.")
+
+    arguments = ["--model", model, "--ctx-size", str(resolved_ctx)]
+    if mmproj:
+        arguments.extend(("--mmproj", mmproj))
+    for name, option in (
+        ("temperature", "--temp"),
+        ("top_p", "--top-p"),
+        ("top_k", "--top-k"),
+        ("min_p", "--min-p"),
+        ("presence_penalty", "--presence-penalty"),
+        ("repeat_penalty", "--repeat-penalty"),
+    ):
+        arguments.extend((option, str(profile[name])))
+    arguments.extend(("--batch-size", str(hardware["n_batch"])))
+    if hardware["n_ubatch"] > 0:
+        arguments.extend(("--ubatch-size", str(hardware["n_ubatch"])))
+    gpu_layers = {"all": "all", "auto": "auto", "cpu": "0"}[
+        hardware["gpu_layers"]
+    ]
+    arguments.extend(
+        (
+            "--gpu-layers",
+            gpu_layers,
+            "--main-gpu",
+            str(hardware["main_gpu"]),
+            "--flash-attn",
+            {"auto": "auto", "enabled": "on", "disabled": "off"}[
+                hardware["flash_attention"]
+            ],
+            "--load-mode",
+            "mmap" if hardware["use_mmap"] else "none",
+            "--reasoning",
+            reasoning_mode,
+        )
+    )
+    if hardware["n_threads"] > 0:
+        arguments.extend(("--threads", str(hardware["n_threads"])))
+    if reasoning_mode != "off":
+        if reasoning_config["reasoning_effort"] != "auto":
+            arguments.extend(
+                ("--reasoning-effort", reasoning_config["reasoning_effort"])
+            )
+        if reasoning_config["max_reasoning_tokens"] > 0:
+            arguments.extend(
+                ("--reasoning-budget", str(reasoning_config["max_reasoning_tokens"]))
+            )
+    if reasoning_preserve_supported:
+        arguments.append(
+            "--reasoning-preserve"
+            if reasoning_config["preserve_thinking"]
+            else "--no-reasoning-preserve"
+        )
+    for name, value in (
+        ("image_min_tokens", image_min),
+        ("image_max_tokens", image_max),
+    ):
+        if value > 0:
+            option = (
+                "--image-min-tokens"
+                if name == "image_min_tokens"
+                else "--image-max-tokens"
+            )
+            arguments.extend((option, str(value)))
+
+    if speculative_config["kind"] == "native":
+        config = speculative_config["config"]
+        spec_type = config["spec_type"]
+        if spec_type != "none":
+            arguments.extend(
+                (
+                    "--spec-type",
+                    spec_type,
+                    "--spec-draft-n-max",
+                    str(config["draft_n_max"]),
+                    "--spec-draft-p-min",
+                    str(config["draft_p_min"]),
+                    "--spec-draft-ngl",
+                    str(config["draft_n_gpu_layers"]),
+                    "--spec-draft-backend-sampling"
+                    if config["draft_backend_sampling"]
+                    else "--no-spec-draft-backend-sampling",
+                )
+            )
+            draft_required = spec_type in {"draft-dflash", "draft-dspark"} or (
+                spec_type == "draft-mtp" and config["mtp_provider"] == "external"
+            )
+            if draft_required:
+                draft = _resolve_file(
+                    _resolve_gguf_selection(
+                        config["draft_model"], label="draft model GGUF", required=True
+                    ),
+                    label="draft model GGUF",
+                    required=True,
+                )
+                if draft is None:
+                    raise InputNormalizationError("draft model GGUF is required.")
+                arguments.extend(("--spec-draft-model", draft))
+    elif speculative_config["kind"] == "ngram":
+        config = speculative_config["config"]
+        ngram_mode = f"ngram-map-{config['ngram_mode']}"
+        option_prefix = f"--spec-{ngram_mode}"
+        arguments.extend(
+            (
+                "--spec-type",
+                ngram_mode,
+                f"{option_prefix}-size-n",
+                str(config["ngram_size"]),
+                f"{option_prefix}-size-m",
+                str(config["num_pred_tokens"]),
+                f"{option_prefix}-min-hits",
+                str(config["ngram_min_hits"]),
+            )
+        )
+
+    if verbose_value:
+        arguments.append("--verbose")
+    return arguments, custom_chat_template or None, model
+
+
+def _supports_reasoning_preserve(executable: str, *, internal: bool) -> bool:
+    try:
+        result = subprocess.run(
+            [executable, "server", "--help"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=5,
+            check=False,
+            env=_llama_child_environment(Path(executable), internal=internal),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return b"--reasoning-preserve" in (result.stdout or b"")
 
 
 class LlamaCppConnectSessionNode(io.ComfyNode):
@@ -130,6 +391,108 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
     @classmethod
     def execute(cls, **values: Any) -> io.NodeOutput:
         return io.NodeOutput(LlamaCppSession(**build_compact_session_kwargs(**values)))
+
+
+class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        model_options, mmproj_options = _gguf_options()
+        return io.Schema(
+            node_id="OllamaImageList_LlamaCppCreateRuntimeSession",
+            display_name="[llama.cpp] Create Runtime Session",
+            category=f"{COMPACT_CATEGORY}/session",
+            description=(
+                "Starts a workflow-owned local llama.cpp server and keeps its model "
+                "loaded until Unload Session or prompt-end cleanup."
+            ),
+            is_input_list=True,
+            not_idempotent=True,
+            is_experimental=True,
+            inputs=[
+                io.Combo.Input(
+                    "model_path", options=model_options, default=model_options[0]
+                ),
+                io.Combo.Input(
+                    "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
+                ),
+                LlamaCppModelProfileType.Input("model_profile"),
+                LlamaCppHardwareRuntimeProfileType.Input(
+                    "hardware_profile", optional=True
+                ),
+                LlamaCppReasoningConfigType.Input("reasoning", optional=True),
+                LlamaCppSpeculativeConfigType.Input("speculative", optional=True),
+                io.Int.Input("n_ctx", default=8_192, min=512, max=1_048_576, step=512),
+                io.Int.Input("image_min_tokens", default=0, min=0, max=65_536),
+                io.Int.Input("image_max_tokens", default=0, min=0, max=65_536),
+                io.Boolean.Input("verbose", default=False, advanced=True),
+            ],
+            outputs=[LlamaCppSessionType.Output("session", display_name="session")],
+        )
+
+    @classmethod
+    def fingerprint_inputs(cls, **_kwargs: Any) -> int:
+        return time.monotonic_ns()
+
+    @classmethod
+    def execute(cls, **values: Any) -> io.NodeOutput:
+        executable, source = _resolve_llama_executable()
+        if executable is None:
+            raise RuntimeError(
+                "Could not find a 'llama' executable on PATH or in the completed "
+                "Internal llama.cpp runtime installation."
+            )
+
+        internal = source == "internal"
+        arguments, custom_chat_template, model = _runtime_server_arguments(
+            **values,
+            reasoning_preserve_supported=_supports_reasoning_preserve(
+                executable, internal=internal
+            ),
+        )
+        template_path: Path | None = None
+        if custom_chat_template:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".jinja",
+                delete=False,
+            ) as template_file:
+                template_file.write(custom_chat_template)
+                template_path = Path(template_file.name)
+            arguments.extend(("--jinja", "--chat-template-file", str(template_path)))
+
+        def cleanup_template() -> None:
+            if template_path is not None:
+                template_path.unlink(missing_ok=True)
+
+        process = None
+        try:
+            process = start_owned_llama_server(
+                executable, arguments, internal=internal
+            )
+            session = OwnedLlamaCppServerSession(
+                url=process.url,
+                model=model,
+                process=process,
+                cleanup=cleanup_template,
+            )
+        except BaseException:
+            if process is not None:
+                process.close()
+            cleanup_template()
+            raise
+
+        try:
+            models = list_server_models(url=process.url)
+            if len(models) != 1:
+                raise RuntimeError(
+                    "The workflow-owned llama.cpp server must report exactly one model."
+                )
+            session.model = models[0]
+        except BaseException:
+            session.close()
+            raise
+        return io.NodeOutput(session)
 
 
 class LlamaCppSessionGenerateNode(io.ComfyNode):
@@ -258,6 +621,7 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
 __all__ = [
     "LlamaCppConnectSessionNode",
     "LlamaCppCreateSessionNode",
+    "LlamaCppCreateRuntimeSessionNode",
     "LlamaCppSessionGenerateNode",
     "LlamaCppSessionType",
     "LlamaCppUnloadSessionNode",

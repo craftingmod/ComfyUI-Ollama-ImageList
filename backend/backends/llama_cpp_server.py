@@ -6,7 +6,7 @@ import re
 import socket
 import time
 from threading import Lock
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -18,6 +18,10 @@ from .llama_cpp import LlamaCppResult, _data_uri, _extract_response
 Transport = Callable[[str, str, bytes | None, float], tuple[int, bytes]]
 _BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])")
 _REQUEST_TIMEOUT_SECONDS = 300.0
+
+
+class _ClosableProcess(Protocol):
+    def close(self) -> None: ...
 
 
 def _validated_url(value: str) -> SplitResult:
@@ -380,4 +384,46 @@ class LlamaCppServerSession:
             untrack_session(self)
 
 
-__all__ = ["LlamaCppServerSession", "list_server_models", "parse_models_response"]
+class OwnedLlamaCppServerSession(LlamaCppServerSession):
+    """A server session whose process lifetime is owned by this handle."""
+
+    def __init__(
+        self,
+        *,
+        url: str,
+        model: str,
+        process: _ClosableProcess,
+        cleanup: Callable[[], None] | None = None,
+        transport: Transport | None = None,
+    ) -> None:
+        if not callable(getattr(process, "close", None)):
+            raise InputNormalizationError("process must provide a close() method.")
+        self._process = process
+        self._process_closed = False
+        self._cleanup = cleanup
+        super().__init__(url=url, model=model, transport=transport)
+
+    def close(self) -> None:
+        with self._close_lock:
+            if self._closed:
+                return
+            try:
+                if not self._process_closed:
+                    self._process.close()
+                    self._process_closed = True
+                if self._cleanup is not None:
+                    self._cleanup()
+                    self._cleanup = None
+            except Exception:
+                track_session(self)
+                raise
+            self._closed = True
+            untrack_session(self)
+
+
+__all__ = [
+    "LlamaCppServerSession",
+    "OwnedLlamaCppServerSession",
+    "list_server_models",
+    "parse_models_response",
+]

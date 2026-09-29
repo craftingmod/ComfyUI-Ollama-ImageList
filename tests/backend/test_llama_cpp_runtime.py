@@ -388,3 +388,78 @@ def test_download_endpoint_requires_local_request(monkeypatch):
     response = asyncio.run(runtime.download_runtime_endpoint(remote_request))
 
     assert response.status == 403
+
+
+def test_owned_server_startup_failure_closes_only_its_supervisor(monkeypatch):
+    ephemeral_port = 49173
+    server_args = ["--model", "C:/models/test.gguf", "--ctx-size", "4096"]
+    daemon_globals = (
+        runtime._auto_start,
+        runtime._ctx_size,
+        runtime._port,
+        runtime._model_dir,
+        runtime._active_port,
+        runtime._state,
+        runtime._start_attempted,
+        runtime._process,
+        runtime._last_error,
+    )
+    monkeypatch.setattr(runtime, "_ephemeral_loopback_port", lambda: ephemeral_port)
+    monkeypatch.setattr(runtime, "_STARTUP_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(runtime, "_HEALTH_POLL_INTERVAL_SECONDS", 0.001)
+    health_checks = []
+    monkeypatch.setattr(
+        runtime,
+        "_server_ready",
+        lambda port: health_checks.append(port) or False,
+    )
+    supervisor = FakeProcess()
+
+    class FakePipe:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    supervisor.stdin = FakePipe()
+    launches = []
+
+    def popen(command, **kwargs):
+        launches.append((command, kwargs))
+        return supervisor
+
+    monkeypatch.setattr(runtime.subprocess, "Popen", popen)
+
+    with pytest.raises(RuntimeError, match="did not become ready"):
+        runtime.start_owned_llama_server(
+            "C:/llama/llama.exe", server_args, internal=True
+        )
+
+    command, options = launches[0]
+    assert command[0] == runtime.sys.executable
+    assert command[1].endswith("llama_cpp_supervisor.py")
+    assert command[2] == "--"
+    assert command[3:7] == [
+        "C:/llama/llama.exe",
+        "server",
+        "--host",
+        "127.0.0.1",
+    ]
+    assert command[7:9] == ["--port", str(ephemeral_port)]
+    assert command[9:] == server_args
+    assert options["stdin"] == subprocess.PIPE
+    assert options["close_fds"] is True
+    assert health_checks and set(health_checks) == {ephemeral_port}
+    assert supervisor.stdin.closed
+    assert supervisor.waited
+    assert daemon_globals == (
+        runtime._auto_start,
+        runtime._ctx_size,
+        runtime._port,
+        runtime._model_dir,
+        runtime._active_port,
+        runtime._state,
+        runtime._start_attempted,
+        runtime._process,
+        runtime._last_error,
+    )

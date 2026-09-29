@@ -17,6 +17,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 from threading import Lock, Thread
@@ -179,6 +180,94 @@ _CONFIG_DIRECTORY_ERROR = (
 
 class _RestartDisabled(RuntimeError):
     pass
+
+
+@dataclass
+class OwnedLlamaServer:
+    url: str
+    _process: subprocess.Popen[bytes]
+
+    def close(self) -> None:
+        owner_pipe = self._process.stdin
+        if owner_pipe is not None and not owner_pipe.closed:
+            try:
+                owner_pipe.close()
+            except OSError:
+                _logger.debug(
+                    "Could not close owned llama supervisor pipe", exc_info=True
+                )
+        try:
+            self._process.wait(timeout=_SUPERVISOR_SHUTDOWN_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "Owned llama supervisor did not stop before the shutdown timeout."
+            ) from exc
+
+
+def _ephemeral_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as port_probe:
+        port_probe.bind(("127.0.0.1", 0))
+        return int(port_probe.getsockname()[1])
+
+
+def _wait_for_owned_server_ready(
+    process: subprocess.Popen[bytes], port: int
+) -> None:
+    deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"llama supervisor exited before the server became ready "
+                f"(code {process.returncode})."
+            )
+        if _server_ready(port):
+            time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
+            if (
+                process.poll() is None
+                and _server_ready(port)
+                and process.poll() is None
+            ):
+                return
+        time.sleep(_HEALTH_POLL_INTERVAL_SECONDS)
+    raise RuntimeError(
+        f"llama server did not become ready on port {port} within "
+        f"{_STARTUP_TIMEOUT_SECONDS} seconds."
+    )
+
+
+def start_owned_llama_server(
+    executable: str, server_args: list[str], *, internal: bool
+) -> OwnedLlamaServer:
+    """Start a local server; server_args are options after the ``server`` command."""
+    port = _ephemeral_loopback_port()
+    command = [
+        executable,
+        "server",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--cors-origins",
+        "localhost",
+        *server_args,
+    ]
+    supervisor_path = Path(__file__).with_name("llama_cpp_supervisor.py")
+    process = subprocess.Popen(
+        [sys.executable, str(supervisor_path), "--", *command],
+        stdin=subprocess.PIPE,
+        close_fds=True,
+        env=_llama_child_environment(Path(executable), internal=internal),
+    )
+    handle = OwnedLlamaServer(f"http://127.0.0.1:{port}", process)
+    try:
+        _wait_for_owned_server_ready(process, port)
+    except BaseException:
+        try:
+            handle.close()
+        except (OSError, RuntimeError):
+            _logger.exception("Could not clean up failed owned llama server startup.")
+        raise
+    return handle
 
 
 def _config_path() -> Path:
@@ -1300,6 +1389,7 @@ __all__ = [
     "RUNTIME_ROUTE",
     "RUNTIME_RESTART_ROUTE",
     "RUNTIME_DOWNLOAD_ROUTE",
+    "OwnedLlamaServer",
     "download_runtime_endpoint",
     "get_runtime_status",
     "initialize_llama_cpp_runtime",
@@ -1307,6 +1397,7 @@ __all__ = [
     "restart_runtime",
     "restart_runtime_endpoint",
     "runtime_status_endpoint",
+    "start_owned_llama_server",
     "update_runtime_endpoint",
     "update_runtime_settings",
 ]

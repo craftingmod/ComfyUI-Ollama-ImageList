@@ -1,6 +1,6 @@
 # Native llama.cpp backend
 
-The nodes under `llama_cpp` run a GGUF model directly inside the ComfyUI process through `llama-cpp-python`. They are intended for one stateless text or multimodal chat completion. No model object, context, KV cache, or projector is exposed to the workflow or retained after execution.
+The Generate nodes under `llama_cpp` run a GGUF model directly inside the ComfyUI process through `llama-cpp-python`. They are intended for stateless text or multimodal chat completion. The workflow-owned Runtime Session nodes instead launch a local `llama server` process and keep its model loaded until the session closes; they do not require `llama-cpp-python`.
 
 ## Optional dependency
 
@@ -82,6 +82,20 @@ Turning the setting off stops the owned server. Changing its context size, port,
 Use **Restart internal daemon** in the same Settings section to retry a failed or stopped daemon with the saved configuration. The action does not write settings. Runtime activation must be enabled; if it is off, the button explains how to enable it. Restarting can interrupt requests using the internal server; it does not stop external llama.cpp servers or affect **Llama.cpp Connect Session**.
 
 When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shuts down its server. The separate **Llama.cpp Connect Session** node only connects to a server supplied by the workflow; it does not own or stop that external server.
+
+## Workflow-owned runtime sessions
+
+`[llama.cpp] Create Runtime Session` starts a local `llama server` only when the workflow executes the node. It uses the existing `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` socket, so connect it to the existing **Generate (Session)** and **Unload Session** nodes. This path does not require `llama-cpp-python` or enable the always-on Internal runtime. It leaves the daemon's saved settings and running process alone.
+
+The node resolves the executable the same way as the Internal runtime: a `llama` executable on ComfyUI's `PATH` takes priority, followed by a completed Internal runtime installation. If neither is available, creation fails before returning a session. Each execution starts its own supervised server on an OS-assigned free `127.0.0.1` port; a bind/start conflict fails that execution and does not stop another process. The session is returned only after the server process is alive and `/health` reports `ok`. Startup failure or timeout cleans up the process started by that node.
+
+The node accepts the same model, projector, and typed profiles as **Create Session**. The model and optional projector are resolved GGUF paths and become `--model` and `--mmproj`; `n_ctx` becomes `--ctx-size`. A disconnected `hardware_profile` uses **Automatic Offload**, allowing llama.cpp to choose the GPU layer count to fit available device memory. The profile's handler is accepted but ignored because the server handles chat templates. Profile sampling values (`temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, and `repeat_penalty`) are fixed for the session. `custom_chat_template`, when non-empty, is written to a temporary Jinja file and passed using `--jinja --chat-template-file`; the file is removed after the server exits. `recommended_reasoning_mode` supplies the default when reasoning is disconnected or `auto`; an explicitly conflicting mode fails before launch.
+
+Hardware settings map to server options as follows: `n_batch` to `--batch-size`, positive `n_ubatch` to `--ubatch-size`, `gpu_layers` to `--gpu-layers` (`cpu` becomes `0`), `main_gpu` to `--main-gpu`, positive `n_threads` to `--threads`, and `flash_attention` to `--flash-attn` (`enabled`/`disabled` become `on`/`off`). `use_mmap` maps to `--load-mode mmap` or `--load-mode none`. Zero `n_ubatch` and `n_threads` omit those options. Positive `image_min_tokens` and `image_max_tokens` map to `--image-min-tokens` and `--image-max-tokens`; zero omits the option, and when both are positive, minimum may not exceed maximum. `reasoning_mode` and non-`auto` `reasoning_effort` map to `--reasoning` and `--reasoning-effort`. A positive `max_reasoning_tokens` maps to `--reasoning-budget`; zero omits the option. With reasoning off, effort and budget are omitted. `preserve_thinking` is passed only when the selected executable advertises its corresponding option; otherwise that field is ignored.
+
+Native speculative settings map to `--spec-type` (`draft-mtp`, `draft-dflash`, or `draft-dspark`), `--spec-draft-model`, `--spec-draft-n-max`, `--spec-draft-p-min`, `--spec-draft-ngl`, and the `--spec-draft-backend-sampling` / `--no-spec-draft-backend-sampling` pair. External MTP requires a draft GGUF, while internal MTP does not. N-gram `k` uses `ngram-map-k` with `--spec-ngram-map-k-size-n`, `--spec-ngram-map-k-size-m`, and `--spec-ngram-map-k-min-hits`; `k4v` uses `ngram-map-k4v` with `--spec-ngram-map-k4v-size-n`, `--spec-ngram-map-k4v-size-m`, and `--spec-ngram-map-k4v-min-hits`. Those options receive `ngram_size`, `num_pred_tokens`, and `ngram_min_hits`. `ngram_max_entries_per_key` is accepted but ignored. Off omits speculative options. The session's sampling, hardware, reasoning, and speculative settings remain fixed; Generate's existing request inputs such as `max_tokens`, `seed`, and `stop` still apply per request. `verbose` enables `--verbose`. See the [llama.cpp server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) for the server option reference.
+
+Connect **Unload Session** to the session and connect the loop's final `timing` result to its `timing` input so unload runs after the last Generate. Unload closes the owned server; an interrupted workflow also closes tracked sessions at prompt end. If ComfyUI exits abnormally, the supervisor's lifetime pipe detects process exit and shuts down its child. These ownership rules apply only to Runtime Session handles: **Connect Session** retains its existing external-server `/models/unload` behavior and never owns or stops that server.
 
 ## Supported files and handlers
 
@@ -233,8 +247,8 @@ The Qwen 3 VL card does not prescribe `min_p`; its profile uses `0.0` so no addi
 minimum-probability filter is imposed. `presence_penalty` is forwarded directly to
 the targeted JamePeng llama-cpp-python fork as its API spelling `present_penalty`.
 Hardware Runtime Profile is
-optional: a disconnected Compact Generate uses GPU Full Offload (`n_batch=512`, all GPU
-layers, main GPU 0, automatic CPU threads and flash attention, mmap enabled, and no explicit
+optional: a disconnected Compact Generate uses Automatic Offload (`n_batch=512`, automatic GPU
+layer selection, main GPU 0, automatic CPU threads and flash attention, mmap enabled, and no explicit
 `n_ubatch` override). Connect it to override `n_batch`, `n_ubatch`, GPU offload, main GPU,
 CPU threads, flash attention, or mmap settings. Its `n_ubatch=0` means that no explicit
 override is sent to llama.cpp.
