@@ -26,7 +26,7 @@ def test_release_identity_and_archive_defaults_are_stable():
         "Analyze ComfyUI image, audio, and video lists with Ollama, llama.cpp GGUF, "
         "or native generative CLIP backends"
     )
-    assert metadata["tool"]["comfy"]["includes"] == ["dist"]
+    assert metadata["tool"]["comfy"]["includes"] == ["dist", "locales"]
 
     package = (REPO_ROOT / "package.json").read_text(encoding="utf-8")
     assert '"name": "ollama-image-list"' in package

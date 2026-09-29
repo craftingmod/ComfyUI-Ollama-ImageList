@@ -157,13 +157,18 @@ def test_video_audio_selects_first_audio_stream_not_container_stream_index(monke
     monkeypatch.setattr(av, "open", lambda *_args, **_kwargs: FakeContainer())
 
     bundle = normalize_media(
+        audio={"waveform": silent_audio(1, 1, 16), "sample_rate": 16_000},
         video=VideoInputStub(b"video-with-audio"),
         video_with_audio=True,
         audio_sample_rate=16_000,
         audio_channels=1,
     )
 
-    assert [item.kind for item in bundle.items] == ["audio", "video"]
+    assert [item.kind for item in bundle.items] == ["audio", "audio", "video"]
+    assert [item.metadata["duration_seconds"] for item in bundle.items[:2]] == [
+        0.001,
+        0.000125,
+    ]
 
 
 def test_scalar_unwrapping_never_silently_selects_from_a_data_list():

@@ -25,6 +25,9 @@ class FakeProcess:
         self.waited = True
         return 0
 
+    def close(self, graceful_timeout=8):
+        self.wait(timeout=graceful_timeout)
+
 
 class FreePortProbe:
     def __enter__(self):
@@ -446,7 +449,13 @@ def test_owned_server_startup_failure_closes_only_its_supervisor(monkeypatch):
         "127.0.0.1",
     ]
     assert command[7:9] == ["--port", str(ephemeral_port)]
-    assert command[9:] == server_args
+    assert command[9:] == [
+        "--cors-origins",
+        "localhost",
+        "--models-max",
+        "1",
+        *server_args,
+    ]
     assert options["stdin"] == subprocess.PIPE
     assert options["close_fds"] is True
     assert health_checks and set(health_checks) == {ephemeral_port}

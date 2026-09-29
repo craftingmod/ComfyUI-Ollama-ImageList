@@ -27,11 +27,11 @@ def test_only_enabled_options_are_emitted_in_documented_priority_order():
         seed=42,
     )
 
-    assert build_ollama_options(values) == {
-        "num_ctx": 32768,
-        "top_p": 0.85,
-        "seed": 42,
-    }
+    assert list(build_ollama_options(values).items()) == [
+        ("num_ctx", 32768),
+        ("top_p", 0.85),
+        ("seed", 42),
+    ]
 
 
 def test_stop_string_is_converted_to_the_ollama_api_array_shape():

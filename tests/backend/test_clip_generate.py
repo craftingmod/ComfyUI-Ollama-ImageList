@@ -35,6 +35,11 @@ class Qwen3VLTokenizer:
         return text, images, kwargs
 
 
+class Qwen3_5Tokenizer:
+    def tokenize_with_weights(self, text, images=None, **kwargs):
+        return text, images, kwargs
+
+
 class Gemma4Tokenizer:
     def tokenize_with_weights(self, text, images=None, **kwargs):
         return text, images, kwargs
@@ -104,6 +109,21 @@ def test_qwen_system_role_and_image_list_use_one_generate_call(clip_module):
     assert kwargs["thinking"] is True
     assert kwargs["skip_template"] is False
     assert clip.generate_call[1]["seed"] == 7
+
+
+def test_qwen3_5_auto_detection_uses_qwen_system_template(clip_module):
+    clip = FakeClip(Qwen3_5Tokenizer())
+    execute_defaults(
+        clip_module,
+        clip,
+        system=["Answer {briefly}."],
+        images=[solid_image(1, 8, 8, 3, 0.1)],
+    )
+
+    _, kwargs = clip.tokenize_call
+    assert len(kwargs["images"]) == 1
+    assert "<|im_start|>system\nAnswer {{briefly}}." in kwargs["llama_template"]
+    assert kwargs["llama_template"].count("<|image_pad|>") == 1
 
 
 def test_gemma4_named_images_supports_different_resolutions(clip_module):

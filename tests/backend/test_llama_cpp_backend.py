@@ -291,7 +291,7 @@ def test_missing_optional_dependency_points_to_supported_fork(monkeypatch):
     assert "https://github.com/JamePeng/llama-cpp-python/releases/" in message
 
 
-def test_missing_experimental_speculative_api_has_actionable_error(monkeypatch):
+def test_missing_native_speculative_api_has_actionable_error(monkeypatch):
     llama_cpp_package = ModuleType("llama_cpp")
     llama_cpp_package.__path__ = []
     monkeypatch.setitem(sys.modules, "llama_cpp", llama_cpp_package)
@@ -1039,7 +1039,7 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
     result = run_chat(
         model_path=str(model),
         mmproj_path=str(mmproj),
-        handler="auto",
+        handler="generic",
         system="system",
         prompt="compare",
         media=bundle,
@@ -1049,19 +1049,21 @@ def test_run_chat_sends_all_images_once_and_unloads_model(tmp_path):
         presence_penalty=1.5,
         seed=7,
         stop="END",
-        bindings=make_bindings(),
+        bindings=make_bindings(generic=FakeHandler),
     )
 
     assert len(FakeLlama.instances) == 1
     instance = FakeLlama.instances[0]
     assert instance.kwargs["model_path"] == str(model.resolve())
-    assert instance.kwargs["mmproj_path"] == str(mmproj.resolve())
-    assert instance.kwargs["chat_handler_kwargs"] == {
+    assert instance.kwargs["chat_handler"] is FakeHandler.instances[0]
+    assert FakeHandler.instances[0].kwargs == {
+        "mmproj_path": str(mmproj.resolve()),
         "verbose": False,
         "extra_template_arguments": {
             "enable_thinking": False,
             "force_reasoning": False,
         },
+        "chat_format": None,
     }
     assert instance.kwargs["n_gpu_layers"] == "all"
     assert instance.kwargs["flash_attn_type"] == 1
@@ -1356,11 +1358,11 @@ def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):
     result = run_chat(
         model_path=str(model),
         mmproj_path=str(mmproj),
-        handler="auto",
+        handler="generic",
         system="system",
         prompt="analyze both",
         media=bundle,
-        bindings=make_bindings(),
+        bindings=make_bindings(generic=FakeHandler),
     )
 
     content = FakeLlama.instances[0].completion_kwargs["messages"][-1]["content"]
@@ -1473,9 +1475,7 @@ def test_qwen3_asr_handler_is_available_for_audio_models(tmp_path):
     assert FakeLlama.instances[0].closed is True
 
 
-# @TODO fix this
-"""
-def test_auto_handler_inherits_enabled_verbose_setting(tmp_path):
+def test_auto_multimodal_handler_passes_verbose_to_llama(tmp_path):
     model, mmproj = gguf_files(tmp_path)
 
     run_chat(
@@ -1491,16 +1491,8 @@ def test_auto_handler_inherits_enabled_verbose_setting(tmp_path):
 
     model_kwargs = FakeLlama.instances[0].kwargs
     assert model_kwargs["verbose"] is True
-    assert model_kwargs["chat_handler_kwargs"] == {
-        "verbose": True,
-        "preserve_thinking": False,
-        "extra_template_arguments": {
-            "enable_thinking": False,
-            "force_reasoning": False,
-            "preserve_thinking": False,
-        },
-    }
-"""
+    assert model_kwargs["chat_handler"] is None
+    assert FakeHandler.instances == []
 
 
 def test_thinking_and_multimodal_overrides_reach_specific_handler(tmp_path):
@@ -1566,56 +1558,15 @@ def test_qwen3_vl_thinking_maps_to_force_reasoning(tmp_path):
     assert "extra_template_arguments" not in FakeHandler.instances[0].kwargs
 
 
-# @TODO fix this
-"""
-def test_auto_handler_receives_thinking_and_image_token_overrides(tmp_path):
-    model, mmproj = gguf_files(tmp_path)
-
-    run_chat(
-        model_path=str(model),
-        mmproj_path=str(mmproj),
-        handler="auto",
-        system="",
-        prompt="describe",
-        media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
-        thinking=True,
-        reasoning_strength="xhigh",
-        n_batch=1120,
-        override_n_ubatch=True,
-        n_ubatch=1120,
-        override_image_min_tokens=True,
-        image_min_tokens=1024,
-        override_image_max_tokens=True,
-        image_max_tokens=1120,
-        bindings=make_bindings(),
-    )
-
-    assert FakeLlama.instances[0].kwargs["chat_handler_kwargs"] == {
-        "verbose": False,
-        "preserve_thinking": False,
-        "extra_template_arguments": {
-            "enable_thinking": True,
-            "force_reasoning": True,
-            "preserve_thinking": False,
-            "reasoning_strength": "xhigh",
-        },
-        "image_min_tokens": 1024,
-        "image_max_tokens": 1120,
-        "reasoning_effort": "xhigh",
-    }
-"""
-
-
 def test_disabled_thinking_ignores_selected_reasoning_strength(tmp_path):
-    model, mmproj = gguf_files(tmp_path)
+    model, _ = gguf_files(tmp_path)
 
     result = run_chat(
         model_path=str(model),
-        mmproj_path=str(mmproj),
         handler="auto",
         system="",
         prompt="describe",
-        media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
+        media=normalize_media(),
         thinking=False,
         reasoning_strength="xhigh",
         bindings=make_bindings(),
@@ -1742,20 +1693,22 @@ def test_disabled_overrides_do_not_pass_integer_values(tmp_path):
     run_chat(
         model_path=str(model),
         mmproj_path=str(mmproj),
-        handler="auto",
+        handler="generic",
         system="",
         prompt="describe",
         media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
         n_ubatch=2048,
         image_min_tokens=2048,
         image_max_tokens=2048,
-        bindings=make_bindings(),
+        bindings=make_bindings(generic=FakeHandler),
     )
 
     model_kwargs = FakeLlama.instances[0].kwargs
+    handler_kwargs = FakeHandler.instances[0].kwargs
     assert "n_ubatch" not in model_kwargs
-    assert "image_min_tokens" not in model_kwargs["chat_handler_kwargs"]
-    assert "image_max_tokens" not in model_kwargs["chat_handler_kwargs"]
+    assert model_kwargs["chat_handler"] is FakeHandler.instances[0]
+    assert "image_min_tokens" not in handler_kwargs
+    assert "image_max_tokens" not in handler_kwargs
 
 
 def test_image_token_override_rejects_unsafe_physical_batch(tmp_path):
@@ -2029,60 +1982,32 @@ def test_custom_chat_template_with_thinking_controls(tmp_path):
     assert result.metrics["configuration"]["custom_chat_template"] is True
 
 
-# @TODO FIX... WHEN?
-"""
-def test_compact_model_profile_custom_chat_template_execution(tmp_path, monkeypatch):
-    import backend.nodes.llama_cpp_compact as compact_nodes
-
-    model_dir = tmp_path / "LLM"
-    model_dir.mkdir(parents=True, exist_ok=True)
-    model = model_dir / "test.gguf"
-    model.write_bytes(b"GGUF_MODEL")
-    monkeypatch.setattr(
-        compact_nodes,
-        "_resolve_gguf_selection",
-        lambda selection, **kwargs: str(model),
-    )
-    FakeLlama.metadata = {"tokenizer.chat_template": "{{ gguf_default }}"}
-    configured_formatters = []
-
-    def to_handler(formatter):
-        configured_formatters.append(formatter)
-        return formatter
-
-    bindings = make_bindings(
-        jinja_formatter_class=FakeJinjaFormatter,
-        chat_formatter_to_handler=to_handler,
-    )
-    monkeypatch.setattr(compact_nodes, "run_chat", partial(run_chat, bindings=bindings))
-
+def test_retained_session_uses_custom_chat_template(tmp_path):
+    model, _ = gguf_files(tmp_path)
     custom_template = "CUSTOM_TEMPLATE_JINJA"
-    profile_out = compact_nodes.LlamaCppModelProfileNode.execute(
-        profile="General",
-        custom_handler="auto",
-        temperature=0.2,
-        top_p=0.95,
-        top_k=40,
-        min_p=0.05,
-        repeat_penalty=1.0,
-        presence_penalty=0.0,
-        custom_chat_template=custom_template,
-    )[0]
-    assert profile_out["custom_chat_template"] == custom_template
-
-    output = compact_nodes.LlamaCppProfiledGenerateNode.execute(
+    FakeLlama.metadata = {"tokenizer.chat_template": "{{ gguf_default }}"}
+    session = LlamaCppSession(
         model_path=str(model),
-        mmproj_path="[none]",
-        model_profile=profile_out,
-        system="",
-        prompt="test prompt",
-        n_ctx=8192,
-        max_tokens=512,
-        image_max_tokens=1120,
-        seed=-1,
-        stop="",
-        verbose=False,
+        handler="auto",
+        custom_chat_template=custom_template,
+        bindings=make_bindings(
+            jinja_formatter_class=FakeJinjaFormatter,
+            chat_formatter_to_handler=lambda formatter: formatter,
+        ),
     )
+
+    try:
+        result = session.generate(
+            system="",
+            prompt="test prompt",
+            media=normalize_media(),
+            max_tokens=8,
+            seed=-1,
+            stop="",
+        )
+    finally:
+        session.close()
+
     assert len(FakeJinjaFormatter.instances) == 1
     assert FakeJinjaFormatter.instances[0].kwargs["template"] == custom_template
-"""
+    assert result.metrics["configuration"]["custom_chat_template"] is True

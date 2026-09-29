@@ -1,3 +1,4 @@
+import inspect
 from pathlib import Path
 
 from conftest import load_package_from_path
@@ -14,6 +15,6 @@ def test_v3_entrypoint_exports_loader_and_frontend_directory():
         repo_root=REPO_ROOT,
     )
 
-    assert callable(module.comfy_entrypoint)
+    assert inspect.iscoroutinefunction(module.comfy_entrypoint)
     assert module.WEB_DIRECTORY == "./dist"
     assert module.__all__ == ["WEB_DIRECTORY", "comfy_entrypoint"]

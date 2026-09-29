@@ -198,6 +198,7 @@ def test_owned_server_session_closes_at_prompt_end(monkeypatch):
         url="http://localhost:8080",
         model="model-a",
         process=process,
+        transport=lambda *_args: (200, b'{"status":"ok"}'),
     )
 
     assert session in tracked

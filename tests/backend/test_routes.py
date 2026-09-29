@@ -29,11 +29,13 @@ def install_aiohttp_stub(monkeypatch):
 
 def test_models_route_returns_model_names(monkeypatch):
     install_aiohttp_stub(monkeypatch)
-    monkeypatch.setattr(
-        routes,
-        "list_models",
-        lambda **kwargs: ["gemma3:latest", "qwen3:8b"],
-    )
+    calls = []
+
+    def list_models(**kwargs):
+        calls.append(kwargs)
+        return ["gemma3:latest", "qwen3:8b"]
+
+    monkeypatch.setattr(routes, "list_models", list_models)
 
     response = asyncio.run(
         routes.fetch_models_endpoint(Request({"url": "http://127.0.0.1:11434"}))
@@ -41,6 +43,40 @@ def test_models_route_returns_model_names(monkeypatch):
 
     assert response.status == 200
     assert response.payload == {"models": ["gemma3:latest", "qwen3:8b"]}
+    assert calls == [
+        {"url": "http://127.0.0.1:11434", "timeout_seconds": 10},
+    ]
+
+
+def test_llama_cpp_models_route_forwards_api_key(monkeypatch):
+    install_aiohttp_stub(monkeypatch)
+    calls = []
+
+    def list_server_models(**kwargs):
+        calls.append(kwargs)
+        return ["model.gguf"]
+
+    monkeypatch.setattr(routes, "list_server_models", list_server_models)
+    response = asyncio.run(
+        routes.fetch_llama_cpp_models_endpoint(
+            Request(
+                {
+                    "url": "http://127.0.0.1:8080",
+                    "api_key": "secret-token",
+                }
+            )
+        )
+    )
+
+    assert response.status == 200
+    assert response.payload == {"models": ["model.gguf"]}
+    assert calls == [
+        {
+            "url": "http://127.0.0.1:8080",
+            "api_key": "secret-token",
+            "timeout_seconds": 10,
+        },
+    ]
 
 
 def test_models_route_maps_backend_failure_without_exposing_request_body(monkeypatch):

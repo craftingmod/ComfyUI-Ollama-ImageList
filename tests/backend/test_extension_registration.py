@@ -230,6 +230,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppUnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
         "OllamaImageList_LlamaCppSequentialGenerate",
+        "OllamaImageList_LlamaCppSessionGenerateSequential",
         "OllamaImageList_LlamaCppGenerate",
         "OllamaImageList_LlamaCppMediaDiagnostics",
         "OllamaImageList_MuseGlimmerResponseParser",
@@ -258,6 +259,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Unload Session",
         "[llama.cpp] Generate",
         "[llama.cpp] Sequential Generate",
+        "[llama.cpp] Generate (Sequential)",
         "[llama.cpp] Generate (Multimodal)",
         "[llama.cpp] Media Diagnostics",
         "Muse Glimmer Response Parser",
@@ -286,6 +288,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/session",
         "llama_cpp/compact",
         "llama_cpp/compact",
+        "llama_cpp/generate",
         "llama_cpp/legacy",
         "llama_cpp/utils",
         "llama_cpp/utils",
@@ -737,11 +740,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert compact_profile_schema.inputs[0].options["options"] == [
         "General",
+        "Gemma 4",
         "Gemma 4 Vision",
+        "General Vision",
         "Muse Glimmer",
-        "Qwen 3.5+ Thinking",
-        "Qwen 3.5+ Non-thinking",
         "Qwen 3 VL",
+        "Qwen 3.5+ Non-thinking",
+        "Qwen 3.5+ Thinking",
+        "Qwen 3.8 Non-Thinking",
+        "Qwen 3.8 Thinking",
         "Custom",
     ]
     assert all(
@@ -778,7 +785,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert qwen35_thinking_profile["top_p"] == 0.95
     assert qwen35_thinking_profile["top_k"] == 20
     assert qwen35_thinking_profile["min_p"] == 0.0
-    assert qwen35_thinking_profile["presence_penalty"] == 0.0
+    assert qwen35_thinking_profile["presence_penalty"] == 1.5
     qwen35_non_thinking_profile = compact_profile_class.execute(
         **{**model_profile_defaults, "profile": "Qwen 3.5+ Non-thinking"}
     )[0]
@@ -1123,6 +1130,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "model_path",
         "mmproj_path",
         "model_profile",
+        "custom_chat_template",
         "hardware_profile",
         "reasoning",
         "speculative",
@@ -1218,11 +1226,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "audio",
         "video",
         "video_with_audio",
+        "session_unload",
         "model_profile",
     ]
     session_generate_inputs = {
         field.name: field for field in session_generate_schema.inputs
     }
+    assert session_generate_inputs["session_unload"].data_type == "boolean"
+    assert session_generate_inputs["session_unload"].options["default"] is False
     assert session_generate_inputs["model_profile"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
     )
@@ -1233,10 +1244,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "raw_json",
         "metrics_json",
         "media_diagnostics",
-        "session",
     ]
     assert session_generate_schema.outputs[-1].data_type == (
-        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
     )
     unload_session_class, unload_session_schema = registered[
         "OllamaImageList_LlamaCppUnloadSession"
@@ -1537,7 +1547,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         [False],
     )
     assert session_generate_output[0] == "session done"
-    assert session_generate_output[-1] is created_session
+    assert session_generate_output[-1] == {"model_unloaded_after_response": False}
     assert created_session.requests[0]["prompt"] == "prompt"
     unload_session_class.execute([created_session], ["after loop"])
     assert created_session.closed is True
@@ -1622,7 +1632,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     )
     compact_output = compact_class.execute(**compact_values)
     assert compact_output[0] == "done"
-    assert captured_speculative_call["handler"] == "auto"
+    assert captured_speculative_call["handler"] == "generic"
     assert captured_speculative_call["reasoning_strength"] == "high"
     assert captured_speculative_call["n_ctx"] == 32768
     assert captured_speculative_call["max_tokens"] == 4096
@@ -1664,7 +1674,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert captured_speculative_call["top_p"] == 0.95
     assert captured_speculative_call["top_k"] == 20
     assert captured_speculative_call["min_p"] == 0.0
-    assert captured_speculative_call["presence_penalty"] == 0.0
+    assert captured_speculative_call["presence_penalty"] == 1.5
 
     captured_speculative_call.clear()
     compact_qwen35_non_thinking_values = dict(compact_qwen35_thinking_values)
@@ -2331,6 +2341,12 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
 ):
     install_comfy_api_stub(monkeypatch)
     session_module = importlib.import_module("backend.nodes.llama_cpp_session")
+    server_module = importlib.import_module("backend.backends.llama_cpp_server")
+    monkeypatch.setattr(
+        server_module,
+        "_default_transport",
+        lambda *_args, **_kwargs: (200, b'{"status":"ok"}'),
+    )
     monkeypatch.setattr(
         session_module,
         "_resolve_llama_executable",
