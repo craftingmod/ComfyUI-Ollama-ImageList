@@ -7,6 +7,7 @@ describe("project identity constants", () => {
     expect(PROJECT_ID).toBe("ollama-image-list")
     expect(PROJECT_NAME).toBe("Ollama-ImageList")
     expect(EXTENSION_NAMES.CONNECTIVITY).toStartWith(`${PROJECT_ID}.`)
+    expect(EXTENSION_NAMES.LLAMA_CPP_DECISION).toStartWith(`${PROJECT_ID}.`)
     expect(EXTENSION_NAMES.LLAMA_CPP_WIDGET_STATES).toStartWith(`${PROJECT_ID}.`)
   })
 })

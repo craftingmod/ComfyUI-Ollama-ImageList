@@ -1,10 +1,12 @@
 export type ComfyWidget = {
   name: string
+  type?: string
   label?: string
   tooltip?: string
   value?: unknown
   disabled?: boolean
   serialize?: boolean
+  computeSize?: (width?: number) => [number, number]
   options?: { values?: string[]; [key: string]: unknown }
   callback?: (value: unknown, ...args: unknown[]) => unknown
 }

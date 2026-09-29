@@ -1,7 +1,7 @@
 import base64
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -57,12 +57,17 @@ class FakeLlama:
     }
     token_values = {}
     token_pieces = {}
+    decision_token_ids = {}
+    decision_logits = {"A": 0.0, "B": 2.0}
+    prefill_error = None
 
     def __init__(self, **kwargs):
         NATIVE_EVENTS.append("target")
         self.kwargs = kwargs
         self.completion_kwargs = None
         self.completion_kwargs_history = []
+        self.prefill_messages = []
+        self.prefill_count = 0
         self.reset_count = 0
         self.metadata = dict(type(self).metadata)
         self.last_speculative_stats = dict(type(self).speculative_stats)
@@ -83,6 +88,23 @@ class FakeLlama:
         if type(self).generation_error is not None:
             raise type(self).generation_error
         return type(self).response
+
+    def tokenize(self, value, *, add_bos, special):
+        assert add_bos is False
+        assert special is False
+        target = value.decode("utf-8")
+        return [type(self).decision_token_ids.get(target, ord(target))]
+
+    def create_chat_prefill(self, *, messages):
+        self.prefill_count += 1
+        self.prefill_messages.append(messages)
+        if type(self).prefill_error is not None:
+            raise type(self).prefill_error
+        logits = [0.0] * 128
+        for target, score in type(self).decision_logits.items():
+            token_id = type(self).decision_token_ids.get(target, ord(target))
+            logits[token_id] = score
+        return SimpleNamespace(logits=logits)
 
     def reset(self):
         self.reset_count += 1
@@ -198,6 +220,9 @@ def reset_fakes():
     }
     FakeLlama.token_values = {}
     FakeLlama.token_pieces = {}
+    FakeLlama.decision_token_ids = {}
+    FakeLlama.decision_logits = {"A": 0.0, "B": 2.0}
+    FakeLlama.prefill_error = None
     FakeHandler.instances = []
     FakeJinjaFormatter.instances = []
     FakeSpecConfig.instances = []
@@ -1239,6 +1264,86 @@ def test_retained_session_reuses_model_until_prompt_end_unload(tmp_path):
     assert session.closed is True
     assert instance.closed is True
     assert instance.close_count == 1
+
+
+def test_retained_session_decides_with_prefill_then_reuses_model_for_generate(tmp_path):
+    pytest.importorskip("makoto_decision")
+    model, _ = gguf_files(tmp_path)
+    session = LlamaCppSession(
+        model_path=str(model),
+        handler="auto",
+        bindings=make_bindings(),
+    )
+
+    try:
+        first, probabilities = session.decide(
+            question="Choose one",
+            context="Context: Keep the answer concise.",
+            answers=["first answer", "second answer"],
+        )
+        second, _ = session.decide(
+            question="Choose another",
+            context="",
+            answers=["left", "right"],
+        )
+        generated = session.generate(
+            system="",
+            prompt="continue",
+            media=normalize_media(),
+            max_tokens=8,
+            seed=-1,
+            stop="",
+        )
+
+        assert first == "second answer"
+        assert second == "right"
+        assert list(probabilities) == ["first answer", "second answer"]
+        assert probabilities["second answer"] > probabilities["first answer"]
+        assert len(FakeLlama.instances) == 1
+        assert generated.metrics["session"] == {
+            "execution_index": 2,
+            "model_reused": True,
+            "unload_required": True,
+        }
+        instance = FakeLlama.instances[0]
+        assert instance.reset_count == 3
+        assert instance.prefill_count == 2
+        assert "Context: Keep the answer concise." in instance.prefill_messages[0][0][
+            "content"
+        ]
+        assert instance.closed is False
+    finally:
+        session.close()
+
+    assert instance.closed is True
+
+
+def test_retained_session_rejects_duplicate_choice_tokens_and_missing_prefill(
+    tmp_path,
+):
+    pytest.importorskip("makoto_decision")
+    model, _ = gguf_files(tmp_path)
+    session = LlamaCppSession(
+        model_path=str(model),
+        handler="auto",
+        bindings=make_bindings(),
+    )
+    FakeLlama.decision_token_ids = {"A": 10, "B": 10}
+    with pytest.raises(BackendError, match="same token ID"):
+        session.decide("Choose", "", ["first", "second"])
+    assert session.closed is True
+    assert FakeLlama.instances[0].close_count == 1
+
+    FakeLlama.decision_token_ids = {}
+    FakeLlama.prefill_error = NotImplementedError("prefill is unavailable")
+    session = LlamaCppSession(
+        model_path=str(model),
+        handler="auto",
+        bindings=make_bindings(),
+    )
+    with pytest.raises(BackendError, match="chat handler does not support prefill"):
+        session.decide("Choose", "", ["first", "second"])
+    assert session.closed is True
 
 
 def test_run_chat_preserves_image_then_audio_order_in_one_message(tmp_path):

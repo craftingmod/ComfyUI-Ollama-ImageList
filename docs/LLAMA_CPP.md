@@ -101,6 +101,16 @@ Native speculative settings map to `--spec-type` (`draft-mtp`, `draft-dflash`, o
 
 Connect **Unload Session** to the session and connect the loop's final `timing` result to its `timing` input so unload runs after the last Generate. Unload closes the owned server; an interrupted workflow also closes tracked sessions at prompt end. If ComfyUI exits abnormally, the supervisor's lifetime pipe detects process exit and shuts down its child. These ownership rules apply only to Runtime Session handles: **Connect Session** retains its existing external-server `/models/unload` behavior and never owns or stops that server.
 
+## Decision sessions
+
+Decision nodes require the optional `llama` dependencies, including `makoto-decision`, and the JamePeng `llama-cpp-python` fork's chat-prefill API. Use **[llama.cpp] Create Native Session**; Runtime and Connect Sessions are rejected because their HTTP chat interface does not expose candidate prefill logits.
+
+**[llama.cpp] Create Question** accepts one question and 2–26 answer strings. Set `inputcount`, click **Update inputs**, then fill the visible `answer_N` widgets. Reducing the count hides extra answers without deleting their saved values; increasing it restores them. **[llama.cpp] Create Question From Input** accepts one `STRING` question and a flat ComfyUI `STRING` list output. It rejects multiple question values and nested answer lists.
+
+Connect the question output and Native Session to **[llama.cpp] Decide (Session)**. It returns the selected original answer, an input-ordered `probabilities_json` object, and the same session handle for the next operation. The `system` and `context` text are labeled and prepended to the decision context; `makoto-decision` does not provide a separate system-role input here.
+
+The decision uses `A`–`Z` as candidate targets. Before scoring, each target must tokenize to one distinct token ID; missing chat-prefill support, multi-token targets, or duplicate token IDs fail the execution. The probability values are a softmax over candidate logits, not calibrated confidence estimates. Decision inputs are text-only.
+
 ## Supported files and handlers
 
 The main model must be a single-file GGUF supported by the installed llama.cpp build. Safetensors/Transformers directories, PyTorch checkpoints, ONNX files, and Ollama model names are not accepted.

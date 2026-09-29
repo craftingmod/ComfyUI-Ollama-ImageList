@@ -10,6 +10,11 @@ from .llama_cpp_compact import (
     LlamaCppSequentialGenerateNode,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsNode
+from .llama_cpp_decision import (
+    LlamaCppCreateQuestionFromInputNode,
+    LlamaCppCreateQuestionNode,
+    LlamaCppDecideSessionNode,
+)
 from .llama_cpp_generate import LlamaCppImageListGenerateNode
 from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativePresetNode
 from .llama_cpp_runtime import LlamaCppGemma4RuntimePresetNode
@@ -35,6 +40,9 @@ __all__ = [
     "LlamaCppCreateSessionNode",
     "LlamaCppCreateRuntimeSessionNode",
     "LlamaCppConnectSessionNode",
+    "LlamaCppCreateQuestionNode",
+    "LlamaCppCreateQuestionFromInputNode",
+    "LlamaCppDecideSessionNode",
     "LlamaCppModelProfileNode",
     "LlamaCppNGramSpeculativeConfigNode",
     "LlamaCppProfiledGenerateNode",

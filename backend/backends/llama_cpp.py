@@ -287,6 +287,252 @@ class LlamaCppSession:
         result.media_diagnostics["model_unloaded_after_response"] = False
         return result
 
+    def decide(
+        self,
+        question: str,
+        context: str,
+        answers: list[str],
+    ) -> tuple[str, dict[str, float]]:
+        if self._closed:
+            raise BackendError("The Llama.cpp session has already been unloaded.")
+        try:
+            from makoto_decision import Choices, Decision
+            from makoto_decision.evaluators import (
+                LlamaCppEvaluator,
+                MultiTokenChoiceError,
+            )
+        except ImportError as exc:
+            self.close()
+            raise BackendError(
+                "makoto-decision is required for Llama.cpp decision sessions. "
+                "Install the optional llama dependencies and restart ComfyUI."
+            ) from exc
+
+        try:
+            if not isinstance(question, str) or not question.strip():
+                raise InputNormalizationError("question must be a non-empty string.")
+            if not isinstance(context, str):
+                raise InputNormalizationError("context must be a string.")
+            if not isinstance(answers, list) or not 2 <= len(answers) <= 26:
+                raise InputNormalizationError(
+                    "answers must contain between 2 and 26 items."
+                )
+            if any(
+                not isinstance(answer, str) or not answer.strip()
+                for answer in answers
+            ):
+                raise InputNormalizationError("answers must be non-empty strings.")
+            if len(set(answers)) != len(answers):
+                raise InputNormalizationError("answers must be unique.")
+
+            choices = Choices.letters(*answers)
+            decision = Decision(
+                choices=choices,
+                context=context,
+                question=question,
+            )
+            with _NATIVE_EXECUTION_LOCK:
+                if self._native_session.llm is None:
+                    self._initialize_for_decision()
+                llama = self._native_session.llm
+                if llama is None:
+                    raise BackendError("The Llama.cpp decision session has no model.")
+                if not callable(getattr(llama, "tokenize", None)):
+                    raise BackendError(
+                        "The installed llama-cpp-python fork must expose "
+                        "Llama.tokenize() for decision sessions."
+                    )
+                if not callable(getattr(llama, "create_chat_prefill", None)):
+                    raise BackendError(
+                        "The installed llama-cpp-python fork must expose "
+                        "Llama.create_chat_prefill() for decision sessions."
+                    )
+
+                token_ids: dict[int, str] = {}
+                for choice in choices:
+                    tokens = llama.tokenize(
+                        choice.target.encode("utf-8"),
+                        add_bos=False,
+                        special=False,
+                    )
+                    if len(tokens) != 1:
+                        raise BackendError(
+                            f"Choice target {choice.target!r} must tokenize to one "
+                            f"token; got {len(tokens)}."
+                        )
+                    token_id = int(tokens[0])
+                    if token_id < 0:
+                        raise BackendError(
+                            f"Choice target {choice.target!r} produced an invalid "
+                            "token ID."
+                        )
+                    previous_target = token_ids.get(token_id)
+                    if previous_target is not None:
+                        raise BackendError(
+                            f"Choice targets {previous_target!r} and {choice.target!r} "
+                            "map to the same token ID."
+                        )
+                    token_ids[token_id] = choice.target
+
+                llama.reset()
+                result = LlamaCppEvaluator(llama).evaluate(decision)
+                if result.selected is None:
+                    raise BackendError("Llama.cpp decision did not select an answer.")
+                probabilities = result.probabilities
+                ordered_probabilities = {
+                    answer: float(probabilities[answer]) for answer in answers
+                }
+                self._execution_count += 1
+                return result.selected, ordered_probabilities
+        except Exception as exc:
+            self.close()
+            if isinstance(exc, (BackendError, InputNormalizationError)):
+                raise
+            if isinstance(exc, MultiTokenChoiceError):
+                raise BackendError(str(exc)) from exc
+            if isinstance(exc, NotImplementedError):
+                raise BackendError(
+                    "The selected llama.cpp chat handler does not support prefill."
+                ) from exc
+            raise BackendError(f"llama.cpp decision failed: {exc}") from exc
+
+    def _initialize_for_decision(self) -> None:
+        configuration = self._configuration
+        model_path = _resolve_file(
+            str(configuration.get("model_path", "")),
+            label="model_path",
+            required=True,
+        )
+        n_ctx = int(configuration.get("n_ctx", 8192))
+        n_batch = int(configuration.get("n_batch", 512))
+        gpu_layers = str(configuration.get("gpu_layers", "all"))
+        if gpu_layers not in {"auto", "all", "cpu"}:
+            raise InputNormalizationError("gpu_layers must be auto, all, or cpu.")
+        flash_attention = str(configuration.get("flash_attention", "auto"))
+        if flash_attention not in _FLASH_ATTN_TYPES:
+            raise InputNormalizationError(
+                "flash_attention must be auto, enabled, or disabled."
+            )
+        verbose = bool(configuration.get("verbose", False))
+        thinking = configuration.get("thinking", False)
+        reasoning_strength = str(configuration.get("reasoning_strength", "auto"))
+        effective_reasoning_strength = _effective_reasoning_strength(
+            bool(thinking),
+            reasoning_strength,
+        )
+        handler = str(configuration.get("handler", "auto"))
+        custom_chat_template = str(configuration.get("custom_chat_template", ""))
+        resolved_draft = _resolve_file(
+            str(configuration.get("draft_model_path", "")),
+            label="draft_model_path",
+            required=False,
+        )
+        spec_type = configuration.get("spec_type")
+        if spec_type is None and resolved_draft is not None:
+            raise InputNormalizationError(
+                "draft_model_path requires an explicit spec_type; use the official "
+                "JamePeng SpecConfig path instead of the removed implicit "
+                "Experimental API."
+            )
+        native_configuration = _normalize_native_speculative(
+            resolved_draft=resolved_draft,
+            spec_type="none" if spec_type is None else str(spec_type),
+            spec_n_max=int(configuration.get("spec_n_max", 2)),
+            spec_n_min=int(configuration.get("spec_n_min", 0)),
+            spec_p_min=float(configuration.get("spec_p_min", 0.0)),
+            mtp_provider=str(configuration.get("mtp_provider", "off")),
+            draft_n_gpu_layers=configuration.get("draft_n_gpu_layers", "all"),
+            draft_backend_sampling=configuration.get("draft_backend_sampling", True),
+            verbose=verbose,
+            has_media=False,
+            gpu_layers=gpu_layers,
+            n_ctx=n_ctx,
+        )
+        ngram_configuration = normalize_ngram_speculative(
+            configuration.get("ngram_speculative")
+        )
+        if (
+            native_configuration is not None
+            and ngram_configuration["speculative_mode"] == "ngram"
+        ):
+            raise InputNormalizationError(
+                "Native draft GGUF and N-gram speculative decoding cannot be enabled together."
+            )
+
+        native_speculative_api = configuration.get("speculative_api")
+        if (
+            native_configuration is not None
+            or ngram_configuration["speculative_mode"] == "ngram"
+        ):
+            native_speculative_api = (
+                native_speculative_api or _import_native_speculative_bindings()
+            )
+
+        n_ubatch_override = _optional_positive_override(
+            "n_ubatch",
+            bool(configuration.get("override_n_ubatch", False)),
+            int(configuration.get("n_ubatch", _DEFAULT_N_UBATCH)),
+        )
+        image_min_tokens_override = _optional_positive_override(
+            "image_min_tokens",
+            bool(configuration.get("override_image_min_tokens", False)),
+            int(configuration.get("image_min_tokens", 1024)),
+        )
+        image_max_tokens_override = _optional_positive_override(
+            "image_max_tokens",
+            bool(configuration.get("override_image_max_tokens", False)),
+            int(configuration.get("image_max_tokens", 1120)),
+        )
+        model_kwargs, _ = _native_model_kwargs(
+            self._bindings,
+            model_path=model_path,
+            mmproj_path=None,
+            has_media=False,
+            handler=handler,
+            verbose=verbose,
+            thinking=thinking,
+            effective_reasoning_strength=effective_reasoning_strength,
+            preserve_thinking=bool(configuration.get("preserve_thinking", False)),
+            custom_chat_template=custom_chat_template,
+            n_ctx=n_ctx,
+            n_batch=n_batch,
+            gpu_layers=gpu_layers,
+            main_gpu=int(configuration.get("main_gpu", 0)),
+            n_threads=int(configuration.get("n_threads", 0)),
+            flash_attention=flash_attention,
+            use_mmap=bool(configuration.get("use_mmap", True)),
+            n_ubatch_override=n_ubatch_override,
+            image_min_tokens_override=image_min_tokens_override,
+            image_max_tokens_override=image_max_tokens_override,
+            native_configuration=native_configuration,
+            ngram_configuration=ngram_configuration,
+            native_speculative_api=native_speculative_api,
+        )
+        adapter = self._native_session.create(**model_kwargs)
+        _install_text_template_handler(
+            self._bindings,
+            adapter,
+            thinking=thinking,
+            reasoning_strength=effective_reasoning_strength,
+            custom_chat_template=custom_chat_template,
+        )
+        if (
+            native_configuration is not None
+            and native_configuration["mtp_provider"] == "internal"
+        ):
+            try:
+                mtp_n_layer_nextn = adapter.n_layer_nextn()
+            except (AttributeError, TypeError) as exc:
+                raise BackendError(
+                    "The installed llama-cpp-python fork does not expose "
+                    "Llama.n_layer_nextn(); reinstall the matching Native MTP wheel."
+                ) from exc
+            if mtp_n_layer_nextn <= 0:
+                raise BackendError(
+                    "Selected Qwen 3.5+ target GGUF has no usable embedded NextN/MTP "
+                    "layers."
+                )
+
     def close(self) -> None:
         if self._closed:
             return
@@ -873,6 +1119,105 @@ def _install_text_template_handler(
     return True
 
 
+def _native_model_kwargs(
+    native: LlamaCppBindings,
+    *,
+    model_path: str,
+    mmproj_path: str | None,
+    has_media: bool,
+    handler: str,
+    verbose: bool,
+    thinking: bool | None,
+    effective_reasoning_strength: str | None,
+    preserve_thinking: bool,
+    custom_chat_template: str,
+    n_ctx: int,
+    n_batch: int,
+    gpu_layers: str,
+    main_gpu: int,
+    n_threads: int,
+    flash_attention: str,
+    use_mmap: bool,
+    n_ubatch_override: int | None,
+    image_min_tokens_override: int | None,
+    image_max_tokens_override: int | None,
+    native_configuration: dict[str, Any] | None,
+    ngram_configuration: dict[str, Any],
+    native_speculative_api: NativeSpeculativeBindings | None,
+) -> tuple[dict[str, Any], Any | None]:
+    chat_handler = None
+    model_kwargs: dict[str, Any] = {
+        "model_path": model_path,
+        "n_ctx": int(n_ctx),
+        "n_batch": int(n_batch),
+        "n_gpu_layers": 0 if gpu_layers == "cpu" else gpu_layers,
+        "main_gpu": int(main_gpu),
+        "n_threads": None if int(n_threads) <= 0 else int(n_threads),
+        "flash_attn_type": _FLASH_ATTN_TYPES[flash_attention],
+        "use_mmap": bool(use_mmap),
+        "verbose": bool(verbose),
+    }
+    if n_ubatch_override is not None:
+        model_kwargs["n_ubatch"] = n_ubatch_override
+    if not has_media:
+        if mmproj_path is not None:
+            model_kwargs["mmproj_path"] = mmproj_path
+        handler_kwargs: dict[str, Any] = {"verbose": bool(verbose)}
+        if handler == "qwen35":
+            handler_kwargs["preserve_thinking"] = bool(preserve_thinking)
+            if effective_reasoning_strength is not None:
+                handler_kwargs["reasoning_effort"] = (
+                    "xhigh"
+                    if effective_reasoning_strength == "high"
+                    else effective_reasoning_strength
+                )
+        if thinking is not None or effective_reasoning_strength is not None:
+            handler_kwargs["extra_template_arguments"] = {
+                "enable_thinking": bool(thinking),
+                "force_reasoning": bool(thinking),
+            }
+            if effective_reasoning_strength is not None:
+                handler_kwargs["extra_template_arguments"][
+                    "reasoning_strength"
+                ] = effective_reasoning_strength
+        if image_min_tokens_override is not None:
+            handler_kwargs["image_min_tokens"] = image_min_tokens_override
+        if image_max_tokens_override is not None:
+            handler_kwargs["image_max_tokens"] = image_max_tokens_override
+        model_kwargs["chat_handler_kwargs"] = handler_kwargs
+        if custom_chat_template:
+            model_kwargs["chat_format"] = custom_chat_template
+
+    if native_configuration is not None:
+        assert native_speculative_api is not None
+        model_kwargs["speculative"] = _create_native_speculative_config(
+            native_speculative_api,
+            native_configuration,
+        )
+        if native_configuration["mtp_provider"] != "off":
+            model_kwargs["n_seq_max"] = 1
+    elif ngram_configuration["speculative_mode"] == "ngram":
+        assert native_speculative_api is not None
+        model_kwargs["speculative"] = _create_ngram_speculative_config(
+            native_speculative_api,
+            ngram_configuration,
+        )
+    if has_media:
+        chat_handler = _create_handler(
+            native,
+            handler=handler,
+            mmproj_path=mmproj_path,
+            verbose=verbose,
+            thinking=thinking,
+            reasoning_strength=effective_reasoning_strength,
+            image_min_tokens=image_min_tokens_override,
+            image_max_tokens=image_max_tokens_override,
+            custom_chat_template=custom_chat_template,
+        )
+        model_kwargs["chat_handler"] = chat_handler
+    return model_kwargs, chat_handler
+
+
 def _optional_positive_override(name: str, enabled: bool, value: int) -> int | None:
     if not enabled:
         return None
@@ -1276,91 +1621,32 @@ def run_chat(
     with _NATIVE_EXECUTION_LOCK:
         load_started = time.perf_counter()
         try:
-            chat_handler = (
-                _create_handler(
-                    native,
-                    handler=handler,
-                    mmproj_path=resolved_mmproj,
-                    verbose=verbose,
-                    thinking=thinking,
-                    reasoning_strength=effective_reasoning_strength,
-                    image_min_tokens=image_min_tokens_override,
-                    image_max_tokens=image_max_tokens_override,
-                    custom_chat_template=custom_chat_template,
-                )
-                if has_media
-                else None
+            model_kwargs, chat_handler = _native_model_kwargs(
+                native,
+                model_path=resolved_model,
+                mmproj_path=resolved_mmproj,
+                has_media=has_media,
+                handler=handler,
+                verbose=verbose,
+                thinking=thinking,
+                effective_reasoning_strength=effective_reasoning_strength,
+                preserve_thinking=preserve_thinking,
+                custom_chat_template=custom_chat_template,
+                n_ctx=n_ctx,
+                n_batch=n_batch,
+                gpu_layers=gpu_layers,
+                main_gpu=main_gpu,
+                n_threads=n_threads,
+                flash_attention=flash_attention,
+                use_mmap=use_mmap,
+                n_ubatch_override=n_ubatch_override,
+                image_min_tokens_override=image_min_tokens_override,
+                image_max_tokens_override=image_max_tokens_override,
+                native_configuration=native_configuration,
+                ngram_configuration=ngram_configuration,
+                native_speculative_api=native_speculative_api,
             )
-            model_kwargs: dict[str, Any] = {
-                "model_path": resolved_model,
-                "n_ctx": int(n_ctx),
-                "n_batch": int(n_batch),
-                "n_gpu_layers": 0 if gpu_layers == "cpu" else gpu_layers,
-                "main_gpu": int(main_gpu),
-                "n_threads": None if int(n_threads) <= 0 else int(n_threads),
-                "flash_attn_type": _FLASH_ATTN_TYPES[flash_attention],
-                "use_mmap": bool(use_mmap),
-                "verbose": bool(verbose),
-            }
-            if n_ubatch_override is not None:
-                model_kwargs["n_ubatch"] = n_ubatch_override
-            if chat_handler is not None:
-                model_kwargs["chat_handler"] = chat_handler
-            else:
-                if resolved_mmproj is not None:
-                    model_kwargs["mmproj_path"] = resolved_mmproj
-                model_kwargs["chat_handler_kwargs"] = {"verbose": bool(verbose)}
-
-                # for Qwen 3.8
-                if handler == "qwen35":
-                    model_kwargs["chat_handler_kwargs"]["preserve_thinking"] = bool(
-                        preserve_thinking
-                    )
-
-                    if effective_reasoning_strength is not None:
-                        qwen_effort = (
-                            "xhigh"
-                            if effective_reasoning_strength == "high"
-                            else effective_reasoning_strength
-                        )
-                        model_kwargs["chat_handler_kwargs"]["reasoning_effort"] = (
-                            qwen_effort
-                        )
-
-                if custom_chat_template:
-                    model_kwargs["chat_format"] = custom_chat_template
-                if thinking is not None or effective_reasoning_strength is not None:
-                    model_kwargs["chat_handler_kwargs"]["extra_template_arguments"] = {
-                        "enable_thinking": bool(thinking),
-                        "force_reasoning": bool(thinking),
-                    }
-                if effective_reasoning_strength is not None:
-                    model_kwargs["chat_handler_kwargs"]["extra_template_arguments"][
-                        "reasoning_strength"
-                    ] = effective_reasoning_strength
-                if image_min_tokens_override is not None:
-                    model_kwargs["chat_handler_kwargs"]["image_min_tokens"] = (
-                        image_min_tokens_override
-                    )
-                if image_max_tokens_override is not None:
-                    model_kwargs["chat_handler_kwargs"]["image_max_tokens"] = (
-                        image_max_tokens_override
-                    )
-
-            if native_configuration is not None:
-                assert native_speculative_api is not None
-                model_kwargs["speculative"] = _create_native_speculative_config(
-                    native_speculative_api,
-                    native_configuration,
-                )
-                if native_configuration["mtp_provider"] != "off":
-                    model_kwargs["n_seq_max"] = 1
-            elif ngram_configuration["speculative_mode"] == "ngram":
-                assert native_speculative_api is not None
-                model_kwargs["speculative"] = _create_ngram_speculative_config(
-                    native_speculative_api,
-                    ngram_configuration,
-                )
+            if ngram_configuration["speculative_mode"] == "ngram":
                 _LOGGER.info(
                     "N-gram speculative decoding: ngram size=%s, max predicted tokens=%s, "
                     "mode=%s, minimum hits=%s.",

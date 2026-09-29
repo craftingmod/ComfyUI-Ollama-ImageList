@@ -224,6 +224,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppCreateSession",
         "OllamaImageList_LlamaCppCreateRuntimeSession",
         "OllamaImageList_LlamaCppConnectSession",
+        "OllamaImageList_LlamaCppCreateQuestion",
+        "OllamaImageList_LlamaCppCreateQuestionFromInput",
+        "OllamaImageList_LlamaCppDecideSession",
         "OllamaImageList_LlamaCppSessionGenerate",
         "OllamaImageList_LlamaCppUnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
@@ -250,6 +253,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Create Native Session",
         "[llama.cpp] Create Runtime Session",
         "[llama.cpp] Connect Session",
+        "[llama.cpp] Create Question",
+        "[llama.cpp] Create Question From Input",
+        "[llama.cpp] Decide (Session)",
         "[llama.cpp] Generate (Session)",
         "[llama.cpp] Unload Session",
         "[llama.cpp] Generate",
@@ -276,6 +282,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/session",
         "llama_cpp/session",
         "llama_cpp/session",
+        "llama_cpp/decision",
+        "llama_cpp/decision",
+        "llama_cpp/decision",
         "llama_cpp/generate",
         "llama_cpp/session",
         "llama_cpp/compact",
@@ -1149,6 +1158,56 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert connect_inputs["available_models"].options["options"] == []
     assert connect_inputs["model"].data_type == "string"
     assert connect_session_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    )
+    _, create_question_schema = registered[
+        "OllamaImageList_LlamaCppCreateQuestion"
+    ]
+    assert [field.name for field in create_question_schema.inputs] == [
+        "question",
+        "inputcount",
+        *(f"answer_{index}" for index in range(1, 27)),
+    ]
+    assert create_question_schema.inputs[0].options["multiline"] is True
+    assert create_question_schema.inputs[1].options["min"] == 2
+    assert create_question_schema.inputs[1].options["max"] == 26
+    assert all(field.options["optional"] is True for field in create_question_schema.inputs[2:])
+    assert create_question_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
+    )
+    _, create_question_input_schema = registered[
+        "OllamaImageList_LlamaCppCreateQuestionFromInput"
+    ]
+    assert create_question_input_schema.is_input_list is True
+    assert [field.name for field in create_question_input_schema.inputs] == [
+        "question",
+        "answer",
+    ]
+    assert all(
+        field.options["force_input"] is True
+        for field in create_question_input_schema.inputs
+    )
+    assert create_question_input_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
+    )
+    _, decide_schema = registered["OllamaImageList_LlamaCppDecideSession"]
+    assert decide_schema.is_input_list is True
+    assert [field.name for field in decide_schema.inputs] == [
+        "session",
+        "system",
+        "context",
+        "question",
+    ]
+    assert [field.name for field in decide_schema.outputs] == [
+        "selected",
+        "probabilities_json",
+        "session",
+    ]
+    assert decide_schema.inputs[0].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+    assert decide_schema.inputs[-1].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
+    )
+    assert decide_schema.outputs[-1].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     session_generate_class, session_generate_schema = registered[
@@ -2361,3 +2420,94 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
         captured_arguments[1].index("--chat-template-file") + 1
     ]
     assert os.path.exists(failed_template_path) is False
+
+
+def import_llama_cpp_decision_nodes(monkeypatch):
+    install_comfy_api_stub(monkeypatch)
+    for module_name in tuple(sys.modules):
+        if module_name == "backend.nodes" or module_name.startswith("backend.nodes."):
+            monkeypatch.delitem(sys.modules, module_name)
+    return importlib.import_module("backend.nodes.llama_cpp_decision")
+
+
+def test_llama_cpp_question_nodes_share_validation_and_preserve_list_order(monkeypatch):
+    decision_nodes = import_llama_cpp_decision_nodes(monkeypatch)
+    create_question = decision_nodes.LlamaCppCreateQuestionNode
+    from_input = decision_nodes.LlamaCppCreateQuestionFromInputNode
+    direct = create_question.execute(
+        question="Which option?",
+        inputcount=3,
+        answer_1="first",
+        answer_2="second",
+        answer_3="third",
+        answer_4="ignored after count",
+    )[0]
+    listed = from_input.execute(["Which option?"], ["first", "second", "third"])[0]
+
+    assert direct == listed == {
+        "question": "Which option?",
+        "answer": ["first", "second", "third"],
+    }
+    with pytest.raises(InputNormalizationError, match="exactly one STRING"):
+        from_input.execute(["one", "two"], ["first", "second"])
+    with pytest.raises(InputNormalizationError, match="flat ComfyUI STRING list"):
+        from_input.execute(["one"], [["first"], ["second"]])
+
+
+def test_llama_cpp_question_payload_rejects_invalid_values(monkeypatch):
+    decision_nodes = import_llama_cpp_decision_nodes(monkeypatch)
+    make_payload = decision_nodes.make_question_payload
+
+    invalid_values = [
+        (" ", ["first", "second"], "non-empty string"),
+        ("question", ["first"], "between 2 and 26"),
+        ("question", ["first", "first"], "unique"),
+        ("question", ["first", "  "], "non-empty strings"),
+        ("question", ["first", 2], "must be strings"),
+    ]
+    for question, answers, message in invalid_values:
+        with pytest.raises(InputNormalizationError, match=message):
+            make_payload(question, answers)
+    with pytest.raises(InputNormalizationError, match="integer from 2 to 26"):
+        decision_nodes.LlamaCppCreateQuestionNode.execute(
+            question="question", inputcount=1, answer_1="first", answer_2="second"
+        )
+    with pytest.raises(InputNormalizationError, match="between 2 and 26"):
+        make_payload("question", [f"answer {index}" for index in range(27)])
+
+
+def test_llama_cpp_decide_node_preserves_answer_labels_and_probability_order(
+    monkeypatch,
+):
+    decision_nodes = import_llama_cpp_decision_nodes(monkeypatch)
+    calls = []
+
+    class FakeNativeSession:
+        def decide(self, **values):
+            calls.append(values)
+            return "second option", {"second option": 0.7, "first option": 0.3}
+
+    monkeypatch.setattr(decision_nodes, "LlamaCppSession", FakeNativeSession)
+    session = FakeNativeSession()
+    payload = {
+        "question": "Choose",
+        "answer": ["first option", "second option"],
+    }
+    result = decision_nodes.LlamaCppDecideSessionNode.execute(
+        [session], ["system rules"], ["supporting context"], [payload]
+    )
+
+    assert result[0] == "second option"
+    assert list(json.loads(result[1])) == ["first option", "second option"]
+    assert result[2] is session
+    assert calls == [
+        {
+            "question": "Choose",
+            "context": "System:\nsystem rules\n\nContext:\nsupporting context",
+            "answers": ["first option", "second option"],
+        }
+    ]
+    with pytest.raises(InputNormalizationError, match="Create Native Session"):
+        decision_nodes.LlamaCppDecideSessionNode.execute(
+            [object()], [""], [""], [payload]
+        )
