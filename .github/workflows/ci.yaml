@@ -39,17 +39,8 @@ jobs:
       - name: Sync Python dependencies
         run: uv sync --locked --group dev
 
-      - name: Check formatting
-        run: bun run fmt:check
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Run unit tests
-        run: bun run test:unit
+      - name: Run validate
+        run: bun run validate:ci
 
       - name: Build frontend
         run: bun run build
