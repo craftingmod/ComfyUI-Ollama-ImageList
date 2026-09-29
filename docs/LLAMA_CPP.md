@@ -87,13 +87,17 @@ When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shu
 
 `[llama.cpp] Create Native Session`, `[llama.cpp] Create Runtime Session`, `[llama.cpp] Connect Session`, and `[llama.cpp] Unload Session` are in `llama_cpp/session`; `[llama.cpp] Generate (Session)` is in `llama_cpp/generate`.
 
+**[llama.cpp] Create Native Session** owns its `custom_handler` and optional `custom_chat_template` settings. The handler defaults to `auto`; when the template socket is disconnected or empty, llama.cpp uses the template from GGUF metadata.
+
+**[llama.cpp] Generate (Session)** and **[llama.cpp] Decide (Session)** also accept an optional `model_profile`. On Native Sessions it overrides the session profile for that operation. Server-backed sessions apply the profile's sampling values and explicit `on`/`off` reasoning mode per request; the server handler and custom Jinja template remain fixed at server startup.
+
 `[llama.cpp] Create Runtime Session` starts a local `llama server` only when the workflow executes the node. It uses the existing `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` socket, so connect it to the existing **Generate (Session)** and **Unload Session** nodes. This path does not require `llama-cpp-python` or enable the always-on Internal runtime. It leaves the daemon's saved settings and running process alone.
 
 Each runtime session assigns its own random API key to the server and keeps that key inside the session handle. Model-list and Generate requests include it automatically, so direct requests to protected server endpoints without the session's key are rejected.
 
 The node resolves the executable the same way as the Internal runtime: a `llama` executable on ComfyUI's `PATH` takes priority, followed by a completed Internal runtime installation. If neither is available, creation fails before returning a session. Each execution starts its own supervised server on an OS-assigned free `127.0.0.1` port; a bind/start conflict fails that execution and does not stop another process. The session is returned only after the server process is alive and `/health` reports `ok`. Startup failure or timeout cleans up the process started by that node.
 
-The node accepts the same model, projector, and typed profiles as **[llama.cpp] Create Native Session**. The model and optional projector are resolved GGUF paths and become `--model` and `--mmproj`; `n_ctx` becomes `--ctx-size`. A disconnected `hardware_profile` uses **Automatic Offload**, allowing llama.cpp to choose the GPU layer count to fit available device memory. The profile's handler is accepted but ignored because the server handles chat templates. Profile sampling values (`temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, and `repeat_penalty`) are fixed for the session. `custom_chat_template`, when non-empty, is written to a temporary Jinja file and passed using `--jinja --chat-template-file`; the file is removed after the server exits. `recommended_reasoning_mode` supplies the default when reasoning is disconnected or `auto`; an explicitly conflicting mode fails before launch.
+The node accepts the same model, projector, and typed profiles as **[llama.cpp] Create Native Session**. The model and optional projector are resolved GGUF paths and become `--model` and `--mmproj`; `n_ctx` becomes `--ctx-size`. A disconnected `hardware_profile` uses **Automatic Offload**, allowing llama.cpp to choose the GPU layer count to fit available device memory. The profile's handler is accepted but ignored because the server handles chat templates. Profile sampling values (`temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, and `repeat_penalty`) seed the session defaults; a connected `model_profile` on Generate or Decide overrides those values per request. The node's optional `custom_chat_template` input overrides the Model Profile template when connected; otherwise the Model Profile template is used. A non-empty selected template is written to a temporary Jinja file and passed using `--jinja --chat-template-file`; the file is removed after the server exits and the template cannot be replaced per request. `recommended_reasoning_mode` supplies the default when reasoning is disconnected or `auto`; an explicitly conflicting mode fails before launch.
 
 Hardware settings map to server options as follows: `n_batch` to `--batch-size`, positive `n_ubatch` to `--ubatch-size`, `gpu_layers` to `--gpu-layers` (`cpu` becomes `0`), `main_gpu` to `--main-gpu`, positive `n_threads` to `--threads`, and `flash_attention` to `--flash-attn` (`enabled`/`disabled` become `on`/`off`). `use_mmap` maps to `--load-mode mmap` or `--load-mode none`. Zero `n_ubatch` and `n_threads` omit those options. Positive `image_min_tokens` and `image_max_tokens` map to `--image-min-tokens` and `--image-max-tokens`; zero omits the option, and when both are positive, minimum may not exceed maximum. `reasoning_mode` and non-`auto` `reasoning_effort` map to `--reasoning` and `--reasoning-effort`. A positive `max_reasoning_tokens` maps to `--reasoning-budget`; zero omits the option. With reasoning off, effort and budget are omitted. `preserve_thinking` is passed only when the selected executable advertises its corresponding option; otherwise that field is ignored.
 
@@ -103,13 +107,13 @@ Connect **Unload Session** to the session and connect the loop's final `timing` 
 
 ## Decision sessions
 
-Decision nodes require the optional `llama` dependencies, including `makoto-decision`, and the JamePeng `llama-cpp-python` fork's chat-prefill API. Use **[llama.cpp] Create Native Session**; Runtime and Connect Sessions are rejected because their HTTP chat interface does not expose candidate prefill logits.
+Decision nodes require the optional `llama` dependencies, including `makoto-decision`. **[llama.cpp] Create Native Session** uses the JamePeng `llama-cpp-python` chat-prefill API. **[llama.cpp] Create Runtime Session** formats the decision through the workflow-owned `llama-server` chat template, then uses `/tokenize` and grammar-constrained `/completion` to score candidates. **Connect Session** remains unsupported.
 
 **[llama.cpp] Create Question** accepts one question and 2–26 answer strings. Set `inputcount`, click **Update inputs**, then fill the visible `answer_N` widgets. Reducing the count hides extra answers without deleting their saved values; increasing it restores them. **[llama.cpp] Create Question From Input** accepts one `STRING` question and a flat ComfyUI `STRING` list output. It rejects multiple question values and nested answer lists.
 
-Connect the question output and Native Session to **[llama.cpp] Decide (Session)**. It returns the selected original answer, an input-ordered `probabilities_json` object, and the same session handle for the next operation. The `system` and `context` text are labeled and prepended to the decision context; `makoto-decision` does not provide a separate system-role input here.
+Connect the question output and a Native or Runtime Session to **[llama.cpp] Decide (Session)**. It returns the selected original answer, an input-ordered `probabilities_json` object, and the same session handle for the next operation. The `system` and `context` text are labeled and prepended to the decision context; `makoto-decision` does not provide a separate system-role input here.
 
-The decision uses `A`–`Z` as candidate targets. Before scoring, each target must tokenize to one distinct token ID; missing chat-prefill support, multi-token targets, or duplicate token IDs fail the execution. The probability values are a softmax over candidate logits, not calibrated confidence estimates. Decision inputs are text-only.
+The decision uses `A`–`Z` as candidate targets. Before scoring, each target must tokenize to one distinct token ID; multi-token targets, duplicate token IDs, or missing server probability fields fail the execution. Native probabilities are a softmax over candidate logits. Runtime probabilities come from constrained completion, then are renormalized over the requested candidates; they are not raw logits or calibrated confidence estimates. Decision inputs are text-only.
 
 ## Supported files and handlers
 
@@ -243,10 +247,13 @@ using the `LLAMA_SEQUENTIAL_RESPONSE` type; `kind` is `image`, `audio`, `video`,
 `text`, and `modality_index` is zero-based within that kind.
 Without media, multiple prompts run as independent text-only items.
 
-Model Profile choices are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5+ Thinking`,
-`Qwen 3.5+ Non-thinking`, `Qwen 3 VL`, and `Custom`. Selecting `Custom` enables the Advanced
-handler and six sampling inputs; switching back to a named profile preserves those custom
-widget values without applying them. The published general-purpose values are encoded as:
+Model Profile choices come from the `name` field in `presets/model/*.json`; the built-in choices
+are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5+ Thinking`, `Qwen 3.5+ Non-thinking`,
+and `Qwen 3 VL`. Add a JSON object there with `name`, `handler`,
+`recommended_reasoning_mode`, and the sampling fields from `temperature` through
+`presence_penalty`, then restart ComfyUI. Selecting `Custom` enables the Advanced handler and
+six sampling inputs; switching back to a named profile preserves those custom widget values
+without applying them. The built-in values are:
 
 | Profile | temperature | top_p | top_k | min_p | presence_penalty | repeat_penalty | reasoning mode |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |

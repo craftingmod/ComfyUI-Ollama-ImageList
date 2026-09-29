@@ -1096,6 +1096,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "model_path",
         "mmproj_path",
         "model_profile",
+        "custom_handler",
+        "custom_chat_template",
         "hardware_profile",
         "reasoning",
         "speculative",
@@ -1197,6 +1199,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "system",
         "context",
         "question",
+        "model_profile",
     ]
     assert [field.name for field in decide_schema.outputs] == [
         "selected",
@@ -1205,6 +1208,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert decide_schema.inputs[0].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     assert decide_schema.inputs[-1].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
+    )
+    assert decide_schema.inputs[-1].options["optional"] is True
+    assert decide_schema.inputs[3].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
     )
     assert decide_schema.outputs[-1].data_type == (
@@ -1225,7 +1232,15 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "audio",
         "video",
         "video_with_audio",
+        "model_profile",
     ]
+    session_generate_inputs = {
+        field.name: field for field in session_generate_schema.inputs
+    }
+    assert session_generate_inputs["model_profile"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
+    )
+    assert session_generate_inputs["model_profile"].options["optional"] is True
     assert [field.name for field in session_generate_schema.outputs] == [
         "response",
         "thinking",

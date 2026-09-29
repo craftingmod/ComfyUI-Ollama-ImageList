@@ -1,0 +1,11 @@
+{
+  "name": "Qwen 3 VL",
+  "handler": "qwen3_vl",
+  "recommended_reasoning_mode": "auto",
+  "temperature": 0.7,
+  "top_p": 0.8,
+  "top_k": 20,
+  "min_p": 0.0,
+  "repeat_penalty": 1.0,
+  "presence_penalty": 1.5
+}

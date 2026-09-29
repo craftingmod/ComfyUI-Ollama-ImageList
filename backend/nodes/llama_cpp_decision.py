@@ -10,8 +10,17 @@ except ImportError:  # pragma: no cover - compatibility with newer ComfyUI build
     from comfy_api.latest import io
 
 from ..backends.llama_cpp import LlamaCppSession
-from ..core import InputNormalizationError, unwrap_required_scalar
-from .llama_cpp_compact import BASE_CATEGORY
+from ..backends.llama_cpp_server import OwnedLlamaCppServerSession
+from ..core import (
+    InputNormalizationError,
+    unwrap_optional_scalar,
+    unwrap_required_scalar,
+)
+from .llama_cpp_compact import (
+    BASE_CATEGORY,
+    LlamaCppModelProfileType,
+    normalize_compact_model_profile,
+)
 from .llama_cpp_session import LlamaCppSessionType
 
 LlamaCppQuestionType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION")
@@ -128,8 +137,9 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
             display_name="[llama.cpp] Decide (Session)",
             category=f"{BASE_CATEGORY}/decision",
             description=(
-                "Scores letter-token choices with a retained Native Session prefill. "
-                "Runtime and Connect Sessions do not expose prefill logits."
+                "Scores letter-token choices with a Native Session prefill or a Runtime "
+                "Session's constrained llama-server completion. Connect Sessions are "
+                "not supported."
             ),
             is_input_list=True,
             not_idempotent=True,
@@ -143,6 +153,14 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
                     "context", default="", multiline=True, dynamic_prompts=False
                 ),
                 LlamaCppQuestionType.Input("question"),
+                LlamaCppModelProfileType.Input(
+                    "model_profile",
+                    optional=True,
+                    tooltip=(
+                        "Optional override; server sessions apply sampling and explicit "
+                        "on/off reasoning settings per request."
+                    ),
+                ),
             ],
             outputs=[
                 io.String.Output("selected"),
@@ -153,13 +171,20 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
 
     @classmethod
     def execute(
-        cls, session: Any, system: Any, context: Any, question: Any
+        cls,
+        session: Any,
+        system: Any,
+        context: Any,
+        question: Any,
+        model_profile: Any = None,
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
-        if not isinstance(resolved_session, LlamaCppSession):
+        if not isinstance(
+            resolved_session, (LlamaCppSession, OwnedLlamaCppServerSession)
+        ):
             raise InputNormalizationError(
-                "Decide (Session) requires [llama.cpp] Create Native Session; "
-                "Runtime and Connect Sessions do not expose prefill logits."
+                "Decide (Session) requires [llama.cpp] Create Native Session or "
+                "Create Runtime Session. Connect Sessions are not supported."
             )
         payload = unwrap_required_scalar("question", question)
         if not isinstance(payload, Mapping) or set(payload) != {"question", "answer"}:
@@ -171,16 +196,25 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
         resolved_context = unwrap_required_scalar("context", context)
         if not isinstance(resolved_system, str) or not isinstance(resolved_context, str):
             raise InputNormalizationError("system and context must be strings.")
+        profile_value = unwrap_optional_scalar("model_profile", model_profile, None)
+        profile = (
+            normalize_compact_model_profile(profile_value)
+            if profile_value is not None
+            else None
+        )
         context_parts = [
             f"System:\n{resolved_system}" if resolved_system else "",
             f"Context:\n{resolved_context}" if resolved_context else "",
         ]
         decision_context = "\n\n".join(part for part in context_parts if part)
-        selected, probabilities = resolved_session.decide(
-            question=validated["question"],
-            context=decision_context,
-            answers=validated["answer"],
-        )
+        request = {
+            "question": validated["question"],
+            "context": decision_context,
+            "answers": validated["answer"],
+        }
+        if profile is not None:
+            request["model_profile"] = profile
+        selected, probabilities = resolved_session.decide(**request)
         ordered_probabilities = {
             answer: probabilities[answer] for answer in validated["answer"]
         }

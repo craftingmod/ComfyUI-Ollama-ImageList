@@ -200,11 +200,12 @@ class _SequentialLlamaSession:
             self.llm = self._llama_class(**kwargs)
             transient_resources: tuple[Any, ...] = ()
         else:
-            new_handler = kwargs.get("chat_handler")
-            old_handler = self.llm.chat_handler
-            if new_handler is not None and new_handler is not old_handler:
-                _close_resources((old_handler,))
-                self.llm.chat_handler = new_handler
+            if "chat_handler" in kwargs:
+                new_handler = kwargs["chat_handler"]
+                old_handler = self.llm.chat_handler
+                if new_handler is not old_handler:
+                    _close_resources((old_handler,))
+                    self.llm.chat_handler = new_handler
             transient_resources = ()
 
         def reset() -> None:
@@ -231,6 +232,19 @@ class _SequentialLlamaSession:
         finally:
             self.llm = None
             gc.collect()
+
+
+def _model_profile_overrides(value: dict[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    overrides = dict(value)
+    reasoning_mode = overrides.pop("recommended_reasoning_mode")
+    overrides["thinking"] = {
+        "auto": None,
+        "off": False,
+        "on": True,
+    }[reasoning_mode]
+    return overrides
 
 
 class LlamaCppSession:
@@ -262,8 +276,15 @@ class LlamaCppSession:
     def generate(self, **request: Any) -> LlamaCppResult:
         if self._closed:
             raise BackendError("The Llama.cpp session has already been unloaded.")
+        model_profile = request.pop("model_profile", None)
+        configuration = self._configuration
+        if model_profile is not None:
+            configuration = {
+                **self._configuration,
+                **_model_profile_overrides(model_profile),
+            }
         max_tokens = int(request.get("max_tokens", 0))
-        reasoning_budget = int(self._configuration.get("reasoning_budget", 0))
+        reasoning_budget = int(configuration.get("reasoning_budget", 0))
         if reasoning_budget > max_tokens:
             raise InputNormalizationError(
                 "Session reasoning_budget cannot exceed Generate max_tokens."
@@ -271,7 +292,7 @@ class LlamaCppSession:
         try:
             result = run_chat(
                 bindings=self._bindings,
-                **self._configuration,
+                **configuration,
                 **request,
             )
         except Exception:
@@ -292,6 +313,7 @@ class LlamaCppSession:
         question: str,
         context: str,
         answers: list[str],
+        model_profile: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, float]]:
         if self._closed:
             raise BackendError("The Llama.cpp session has already been unloaded.")
@@ -325,6 +347,10 @@ class LlamaCppSession:
             if len(set(answers)) != len(answers):
                 raise InputNormalizationError("answers must be unique.")
 
+            configuration = {
+                **self._configuration,
+                **_model_profile_overrides(model_profile),
+            }
             choices = Choices.letters(*answers)
             decision = Decision(
                 choices=choices,
@@ -332,8 +358,7 @@ class LlamaCppSession:
                 question=question,
             )
             with _NATIVE_EXECUTION_LOCK:
-                if self._native_session.llm is None:
-                    self._initialize_for_decision()
+                self._initialize_for_decision(configuration)
                 llama = self._native_session.llm
                 if llama is None:
                     raise BackendError("The Llama.cpp decision session has no model.")
@@ -396,8 +421,12 @@ class LlamaCppSession:
                 ) from exc
             raise BackendError(f"llama.cpp decision failed: {exc}") from exc
 
-    def _initialize_for_decision(self) -> None:
-        configuration = self._configuration
+    def _initialize_for_decision(
+        self, configuration: dict[str, Any] | None = None
+    ) -> None:
+        configuration = (
+            self._configuration if configuration is None else configuration
+        )
         model_path = _resolve_file(
             str(configuration.get("model_path", "")),
             label="model_path",
@@ -1061,6 +1090,8 @@ def _install_text_template_handler(
     custom_chat_template: str = "",
 ) -> bool:
     if thinking is None and reasoning_strength is None and not custom_chat_template:
+        if llm.chat_handler is not None:
+            llm.chat_handler = None
         return False
     formatter_class = bindings.jinja_formatter_class
     to_handler = bindings.chat_formatter_to_handler

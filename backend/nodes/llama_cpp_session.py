@@ -13,7 +13,7 @@ try:
 except ImportError:  # pragma: no cover - compatibility with newer ComfyUI builds
     from comfy_api.latest import io
 
-from ..backends.llama_cpp import LlamaCppSession, _resolve_file
+from ..backends.llama_cpp import HANDLER_NAMES, LlamaCppSession, _resolve_file
 from ..backends.llama_cpp_server import (
     LlamaCppServerSession,
     OwnedLlamaCppServerSession,
@@ -61,6 +61,7 @@ def _runtime_server_arguments(
     hardware_profile: Any = None,
     reasoning: Any = None,
     speculative: Any = None,
+    custom_chat_template: Any = None,
     n_ctx: Any,
     image_min_tokens: Any,
     image_max_tokens: Any,
@@ -94,7 +95,12 @@ def _runtime_server_arguments(
     )
     profile_reasoning_mode = profile.pop("recommended_reasoning_mode")
     profile.pop("handler")
-    custom_chat_template = profile.pop("custom_chat_template")
+    profile_chat_template = profile.pop("custom_chat_template")
+    selected_chat_template = unwrap_optional_scalar(
+        "custom_chat_template", custom_chat_template, profile_chat_template
+    )
+    if not isinstance(selected_chat_template, str):
+        raise InputNormalizationError("custom_chat_template must be a string.")
 
     hardware = normalize_compact_hardware_profile(
         COMPACT_HARDWARE_PROFILES["Automatic Offload"]
@@ -270,7 +276,7 @@ def _runtime_server_arguments(
 
     if verbose_value:
         arguments.append("--verbose")
-    return arguments, custom_chat_template or None, model
+    return arguments, selected_chat_template or None, model
 
 
 def _supports_reasoning_preserve(executable: str, *, internal: bool) -> bool:
@@ -305,7 +311,7 @@ class LlamaCppConnectSessionNode(io.ComfyNode):
             inputs=[
                 io.String.Input(
                     "url",
-                    default="http://127.0.0.1:8080",
+                    default="http://127.0.0.1:9931",
                     tooltip="llama.cpp server base URL. Only HTTP and HTTPS are accepted.",
                 ),
                 io.Combo.Input(
@@ -384,6 +390,21 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
                     "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
                 ),
                 LlamaCppModelProfileType.Input("model_profile"),
+                io.Combo.Input(
+                    "custom_handler",
+                    options=list(HANDLER_NAMES),
+                    default="auto",
+                    tooltip="Chat handler used by this native session.",
+                ),
+                io.String.Input(
+                    "custom_chat_template",
+                    optional=True,
+                    force_input=True,
+                    tooltip=(
+                        "Optional custom Jinja template for this native session. "
+                        "When disconnected, the GGUF metadata template is used."
+                    ),
+                ),
                 LlamaCppHardwareRuntimeProfileType.Input(
                     "hardware_profile", optional=True
                 ),
@@ -430,6 +451,16 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
                     "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
                 ),
                 LlamaCppModelProfileType.Input("model_profile"),
+                io.String.Input(
+                    "custom_chat_template",
+                    optional=True,
+                    force_input=True,
+                    tooltip=(
+                        "Optional custom Jinja template for this server session. "
+                        "When connected, it overrides the Model Profile template; "
+                        "when disconnected, the GGUF or Model Profile template is used."
+                    ),
+                ),
                 LlamaCppHardwareRuntimeProfileType.Input(
                     "hardware_profile", optional=True
                 ),
@@ -540,6 +571,14 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
                 io.Audio.Input("audio", optional=True),
                 io.Video.Input("video", optional=True),
                 io.Boolean.Input("video_with_audio", default=False),
+                LlamaCppModelProfileType.Input(
+                    "model_profile",
+                    optional=True,
+                    tooltip=(
+                        "Optional override; server sessions apply sampling and explicit "
+                        "on/off reasoning settings per request."
+                    ),
+                ),
             ],
             outputs=[
                 io.String.Output("response", display_name="response"),
@@ -566,10 +605,17 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
         audio: Any = None,
         video: Any = None,
         video_with_audio: Any = False,
+        model_profile: Any = None,
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
         if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
             raise TypeError("session must be a Llama.cpp Create or Connect Session output.")
+        profile_value = unwrap_optional_scalar("model_profile", model_profile, None)
+        profile = (
+            normalize_compact_model_profile(profile_value)
+            if profile_value is not None
+            else None
+        )
         bundle = normalize_media(
             images=images,
             audio=audio,
@@ -580,14 +626,17 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
             audio_sample_rate=16_000,
             audio_channels=1,
         )
-        result = resolved_session.generate(
-            system=str(unwrap_required_scalar("system", system)),
-            prompt=str(unwrap_required_scalar("prompt", prompt)),
-            media=bundle,
-            max_tokens=int(unwrap_required_scalar("max_tokens", max_tokens)),
-            seed=int(unwrap_required_scalar("seed", seed)),
-            stop=str(unwrap_required_scalar("stop", stop)),
-        )
+        request = {
+            "system": str(unwrap_required_scalar("system", system)),
+            "prompt": str(unwrap_required_scalar("prompt", prompt)),
+            "media": bundle,
+            "max_tokens": int(unwrap_required_scalar("max_tokens", max_tokens)),
+            "seed": int(unwrap_required_scalar("seed", seed)),
+            "stop": str(unwrap_required_scalar("stop", stop)),
+        }
+        if profile is not None:
+            request["model_profile"] = profile
+        result = resolved_session.generate(**request)
         return io.NodeOutput(
             result.response,
             result.thinking,

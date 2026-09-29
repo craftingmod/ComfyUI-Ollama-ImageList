@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 import socket
 import time
@@ -251,6 +252,7 @@ class LlamaCppServerSession:
         self._closed = False
         self._close_lock = Lock()
         self._execution_count = 0
+        self._decision_token_ids: dict[str, int] = {}
         track_session(self)
 
     @property
@@ -266,6 +268,7 @@ class LlamaCppServerSession:
         max_tokens: int,
         seed: int,
         stop: str,
+        model_profile: dict[str, Any] | None = None,
     ) -> LlamaCppResult:
         if self._closed:
             raise BackendError("The llama.cpp server session has already been unloaded.")
@@ -280,6 +283,21 @@ class LlamaCppServerSession:
             "max_tokens": int(max_tokens),
             "stream": False,
         }
+        if model_profile is not None:
+            # ponytail: Handler/template are launch-bound; changes need a restart.
+            request.update(
+                temperature=model_profile["temperature"],
+                top_p=model_profile["top_p"],
+                top_k=model_profile["top_k"],
+                min_p=model_profile["min_p"],
+                presence_penalty=model_profile["presence_penalty"],
+                repeat_penalty=model_profile["repeat_penalty"],
+            )
+            if model_profile["recommended_reasoning_mode"] != "auto":
+                request["chat_template_kwargs"] = {
+                    "enable_thinking": model_profile["recommended_reasoning_mode"]
+                    == "on"
+                }
         if seed >= 0:
             request["seed"] = int(seed)
         if stop:
@@ -361,6 +379,253 @@ class LlamaCppServerSession:
             metrics=metrics,
             media_diagnostics=media_diagnostics,
         )
+
+    def decide(
+        self,
+        *,
+        question: str,
+        context: str,
+        answers: list[str],
+        model_profile: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, float]]:
+        if self._closed:
+            raise BackendError("The llama.cpp server session has already been unloaded.")
+        if not isinstance(question, str) or not question.strip():
+            raise InputNormalizationError("question must be a non-empty string.")
+        if not isinstance(context, str):
+            raise InputNormalizationError("context must be a string.")
+        if not isinstance(answers, list) or not 2 <= len(answers) <= 26:
+            raise InputNormalizationError(
+                "answers must contain between 2 and 26 items."
+            )
+        if any(
+            not isinstance(answer, str) or not answer.strip() for answer in answers
+        ):
+            raise InputNormalizationError("answers must be non-empty strings.")
+        if len(set(answers)) != len(answers):
+            raise InputNormalizationError("answers must be unique.")
+
+        try:
+            from makoto_decision import Choices
+        except ImportError as exc:
+            raise BackendError(
+                "makoto-decision is required for Llama.cpp decision sessions. "
+                "Install the optional llama dependencies and restart ComfyUI."
+            ) from exc
+
+        try:
+            choices = Choices.letters(*answers)
+            token_to_answer: dict[int, str] = {}
+            for choice in choices:
+                token_id = self._decision_token_id(choice.target)
+                if token_id in token_to_answer:
+                    raise BackendError(
+                        "Decision choice targets must map to distinct server token IDs."
+                    )
+                token_to_answer[token_id] = choice.value
+
+            prompt_sections = [question]
+            prompt_sections.extend(
+                (
+                    "Choices:\n"
+                    + "\n".join(
+                        f"{choice.target}: {choice.value}" for choice in choices
+                    ),
+                    "Respond with exactly one of: "
+                    + ", ".join(choice.target for choice in choices),
+                )
+            )
+            decision_prompt = "\n\n".join((context, "\n\n".join(prompt_sections)))
+            grammar = "root ::= " + " | ".join(
+                f'"{choice.target}"' for choice in choices
+            )
+            template_request: dict[str, Any] = {
+                "messages": [{"role": "user", "content": decision_prompt}]
+            }
+            if (
+                model_profile is not None
+                and model_profile["recommended_reasoning_mode"] != "auto"
+            ):
+                template_request["chat_template_kwargs"] = {
+                    "enable_thinking": model_profile["recommended_reasoning_mode"]
+                    == "on"
+                }
+            template_body = json.dumps(
+                template_request, ensure_ascii=False, separators=(",", ":")
+            ).encode("utf-8")
+            template_response = _request(
+                url=_endpoint_url(self.url, "/apply-template"),
+                method="POST",
+                body=template_body,
+                timeout_seconds=10.0,
+                api_key=self._api_key,
+                transport=self._transport,
+            )
+            try:
+                template = json.loads(template_response.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise BackendError(
+                    "llama.cpp server returned an invalid decision template response."
+                ) from exc
+            prompt = template.get("prompt") if isinstance(template, dict) else None
+            if not isinstance(prompt, str) or not prompt:
+                raise BackendError(
+                    "llama.cpp server did not return a formatted decision prompt."
+                )
+
+            request = {
+                "prompt": prompt,
+                "n_predict": 1,
+                "temperature": 1.0,
+                "top_k": 0,
+                "top_p": 1.0,
+                "min_p": 0.0,
+                "typical_p": 1.0,
+                "repeat_penalty": 1.0,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "dry_multiplier": 0.0,
+                "xtc_probability": 0.0,
+                "mirostat": 0,
+                "n_probs": len(choices),
+                "post_sampling_probs": True,
+                "grammar": grammar,
+            }
+            if model_profile is not None:
+                request.update(
+                    temperature=model_profile["temperature"],
+                    top_k=model_profile["top_k"],
+                    top_p=model_profile["top_p"],
+                    min_p=model_profile["min_p"],
+                    repeat_penalty=model_profile["repeat_penalty"],
+                    presence_penalty=model_profile["presence_penalty"],
+                )
+            response_body = _request(
+                url=_endpoint_url(self.url, "/completion"),
+                method="POST",
+                body=json.dumps(
+                    request, ensure_ascii=False, separators=(",", ":")
+                ).encode("utf-8"),
+                timeout_seconds=_REQUEST_TIMEOUT_SECONDS,
+                api_key=self._api_key,
+                transport=self._transport,
+            )
+            try:
+                response = json.loads(response_body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise BackendError(
+                    "llama.cpp server returned an invalid decision response."
+                ) from exc
+            if not isinstance(response, dict):
+                raise BackendError(
+                    "llama.cpp server returned a non-object decision response."
+                )
+
+            generated = response.get("content")
+            if not isinstance(generated, str) or generated.strip() not in {
+                choice.target for choice in choices
+            }:
+                raise BackendError(
+                    "llama.cpp server did not generate a valid decision label."
+                )
+
+            probability_steps = response.get("probs")
+            if probability_steps is None:
+                probability_steps = response.get("completion_probabilities")
+            if not isinstance(probability_steps, list) or len(probability_steps) != 1:
+                raise BackendError(
+                    "llama.cpp server decision response must contain one token "
+                    "probability step."
+                )
+            top_probs = probability_steps[0]
+            if isinstance(top_probs, dict):
+                top_probs = top_probs.get("top_probs")
+            if not isinstance(top_probs, list):
+                raise BackendError(
+                    "llama.cpp server decision response is missing top_probs."
+                )
+
+            probabilities = {answer: 0.0 for answer in answers}
+            seen_token_ids: set[int] = set()
+            for item in top_probs:
+                if not isinstance(item, dict):
+                    raise BackendError(
+                        "llama.cpp server returned an invalid decision probability."
+                    )
+                token_id = item.get("id")
+                probability = item.get("prob")
+                if type(token_id) is not int or token_id not in token_to_answer:
+                    raise BackendError(
+                        "llama.cpp server returned a token outside the decision choices."
+                    )
+                if token_id in seen_token_ids:
+                    raise BackendError(
+                        "llama.cpp server returned a duplicate decision token."
+                    )
+                if (
+                    isinstance(probability, bool)
+                    or not isinstance(probability, (int, float))
+                    or not math.isfinite(probability)
+                    or not 0.0 <= probability <= 1.0
+                ):
+                    raise BackendError(
+                        "llama.cpp server returned an invalid decision probability."
+                    )
+                seen_token_ids.add(token_id)
+                probabilities[token_to_answer[token_id]] = float(probability)
+
+            total = sum(probabilities.values())
+            if total <= 0.0:
+                raise BackendError(
+                    "llama.cpp server returned no positive probability mass for "
+                    "the decision choices."
+                )
+            probabilities = {
+                answer: probability / total
+                for answer, probability in probabilities.items()
+            }
+            selected = max(probabilities, key=probabilities.__getitem__)
+            self._execution_count += 1
+            return selected, probabilities
+        except (BackendError, InputNormalizationError):
+            raise
+        except Exception as exc:
+            raise BackendError(f"llama.cpp server decision failed: {exc}") from exc
+
+    def _decision_token_id(self, target: str) -> int:
+        cached = self._decision_token_ids.get(target)
+        if cached is not None:
+            return cached
+        body = json.dumps(
+            {"content": target, "add_special": False}, separators=(",", ":")
+        ).encode("utf-8")
+        response_body = _request(
+            url=_endpoint_url(self.url, "/tokenize"),
+            method="POST",
+            body=body,
+            timeout_seconds=10.0,
+            api_key=self._api_key,
+            transport=self._transport,
+        )
+        try:
+            response = json.loads(response_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BackendError(
+                "llama.cpp server returned an invalid decision tokenization response."
+            ) from exc
+        tokens = response.get("tokens") if isinstance(response, dict) else None
+        if (
+            not isinstance(tokens, list)
+            or len(tokens) != 1
+            or type(tokens[0]) is not int
+            or tokens[0] < 0
+        ):
+            raise BackendError(
+                f"Decision choice target {target!r} must tokenize to exactly one "
+                "valid server token."
+            )
+        self._decision_token_ids[target] = tokens[0]
+        return tokens[0]
 
     def close(self) -> None:
         with self._close_lock:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 from typing import Any
 
 try:
@@ -50,6 +51,7 @@ LlamaCppSequentialResponseType = io.Custom("LLAMA_SEQUENTIAL_RESPONSE")
 BASE_CATEGORY = "llama_cpp"
 PROFILE_CATEGORY = f"{BASE_CATEGORY}/profile"
 COMPACT_CATEGORY = f"{BASE_CATEGORY}/compact"
+MODEL_PRESETS_DIRECTORY = Path(__file__).resolve().parents[2] / "presets" / "model"
 
 _BASE_MODEL_PROFILE: dict[str, Any] = {
     "handler": "auto",
@@ -74,50 +76,25 @@ _BASE_HARDWARE_PROFILE: dict[str, Any] = {
 }
 
 
-def _model_profile(**overrides: Any) -> dict[str, Any]:
-    return {**_BASE_MODEL_PROFILE, **overrides}
+def _load_model_profiles() -> dict[str, dict[str, Any]]:
+    profiles = {}
+    if not MODEL_PRESETS_DIRECTORY.is_dir():
+        return profiles
+    for path in sorted(MODEL_PRESETS_DIRECTORY.glob("*.json")):
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Could not read model profile preset: {path}") from exc
+        if not isinstance(profile, dict):
+            raise ValueError(f"Model profile preset must contain a JSON object: {path}")
+        name = profile.pop("name", path.stem)
+        if not isinstance(name, str) or not name.strip() or name in profiles:
+            raise ValueError(f"Model profile preset has an invalid or duplicate name: {path}")
+        profiles[name] = {**_BASE_MODEL_PROFILE, **profile}
+    return profiles
 
 
-COMPACT_MODEL_PROFILES: dict[str, dict[str, Any]] = {
-    "General": _model_profile(),
-    "Gemma 4 Vision": _model_profile(
-        handler="gemma4",
-        temperature=1.0,
-        top_k=64,
-        min_p=0.0,
-    ),
-    "Muse Glimmer": _model_profile(
-        temperature=1.0,
-        top_k=64,
-        min_p=0.0,
-    ),
-    "Qwen 3.5+ Thinking": _model_profile(
-        recommended_reasoning_mode="on",
-        handler="qwen35",
-        temperature=1.0,
-        top_p=0.95,
-        top_k=20,
-        min_p=0.0,
-        presence_penalty=0.0,
-    ),
-    "Qwen 3.5+ Non-thinking": _model_profile(
-        recommended_reasoning_mode="off",
-        handler="qwen35",
-        temperature=0.7,
-        top_p=0.8,
-        top_k=20,
-        min_p=0.0,
-        presence_penalty=1.5,
-    ),
-    "Qwen 3 VL": _model_profile(
-        handler="qwen3_vl",
-        temperature=0.7,
-        top_p=0.8,
-        top_k=20,
-        min_p=0.0,
-        presence_penalty=1.5,
-    ),
-}
+COMPACT_MODEL_PROFILES = _load_model_profiles()
 
 COMPACT_HARDWARE_PROFILES: dict[str, dict[str, Any]] = {
     "GPU Full Offload": dict(_BASE_HARDWARE_PROFILE),
@@ -1096,6 +1073,8 @@ def build_compact_session_kwargs(
     image_min_tokens: Any,
     image_max_tokens: Any,
     verbose: Any,
+    custom_handler: Any = "auto",
+    custom_chat_template: Any = "",
 ) -> dict[str, Any]:
     """Resolve Compact node fields that must remain fixed for one session."""
     speculative_config = {"kind": "off"}
@@ -1124,6 +1103,20 @@ def build_compact_session_kwargs(
         unwrap_required_scalar("model_profile", model_profile)
     )
     profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
+    selected_handler = unwrap_optional_scalar(
+        "custom_handler", custom_handler, "auto"
+    )
+    if selected_handler not in HANDLER_NAMES:
+        raise InputNormalizationError(
+            f"custom_handler must be one of {', '.join(HANDLER_NAMES)}."
+        )
+    compact_model_profile["handler"] = selected_handler
+    selected_template = unwrap_optional_scalar(
+        "custom_chat_template", custom_chat_template, ""
+    )
+    if not isinstance(selected_template, str):
+        raise InputNormalizationError("custom_chat_template must be a string.")
+    compact_model_profile["custom_chat_template"] = selected_template
     compact_hardware_profile = normalize_compact_hardware_profile(
         COMPACT_HARDWARE_PROFILES["Automatic Offload"]
         if hardware_profile is None
