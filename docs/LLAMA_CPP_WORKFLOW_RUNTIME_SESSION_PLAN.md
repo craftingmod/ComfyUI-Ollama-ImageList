@@ -15,7 +15,7 @@
 
 ## 입력 및 옵션 변환
 
-새 노드의 입력은 기존 Create Session과 같이 `model_path`, `mmproj_path`, `model_profile`, 선택적 `hardware_profile`, `reasoning`, `speculative`, `n_ctx`, `image_min_tokens`, `image_max_tokens`, `verbose`로 구성한다. 기존 프로필 정규화와 GGUF 경로 확인은 재사용한다. Python 전용 `require_native_speculative()`와 `LlamaCppSession` 생성은 호출하지 않는다.
+새 노드의 입력은 기존 `[llama.cpp] Create Native Session`과 같이 `model_path`, `mmproj_path`, `model_profile`, 선택적 `hardware_profile`, `reasoning`, `speculative`, `n_ctx`, `image_min_tokens`, `image_max_tokens`, `verbose`로 구성한다. 기존 프로필 정규화와 GGUF 경로 확인은 재사용한다. Python 전용 `require_native_speculative()`와 `LlamaCppSession` 생성은 호출하지 않는다.
 
 `hardware_profile`이 연결되지 않으면 `Automatic Offload` 값을 사용한다. `reasoning`과 `speculative`이 연결되지 않으면 각각 기본 추론 설정과 Off를 사용한다.
 
@@ -26,7 +26,7 @@
 | `model_profile.handler` | 입력과 기존 프로필 구조는 받되 서버에서는 무시한다. |
 | `model_profile` 샘플링 값 | `temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, `repeat_penalty`를 서버의 대응 설정으로 전달한다. 한 세션에 고정된 프로필 값이며 Generate별 `max_tokens`, `seed`, `stop`은 기존 요청 입력을 따른다. |
 | `model_profile.custom_chat_template` | 값이 있으면 임시 Jinja 템플릿 파일을 만들어 `--chat-template-file`로 전달하고, 서버 종료 후 파일을 정리한다. 비어 있으면 모델 메타데이터의 템플릿을 사용한다. |
-| `model_profile.recommended_reasoning_mode` | `reasoning`이 없거나 `auto`일 때의 기본 모드로 사용한다. 명시적으로 충돌하는 모드는 기존 Create Session과 같이 오류로 처리한다. |
+| `model_profile.recommended_reasoning_mode` | `reasoning`이 없거나 `auto`일 때의 기본 모드로 사용한다. 명시적으로 충돌하는 모드는 기존 `[llama.cpp] Create Native Session`과 같이 오류로 처리한다. |
 | `hardware_profile` | `n_batch`→`--batch-size`, 양수 `n_ubatch`→`--ubatch-size`, `gpu_layers`→`--gpu-layers`(`cpu`는 `0`), `main_gpu`→`--main-gpu`, 양수 `n_threads`→`--threads`, `flash_attention`→`--flash-attn`(`enabled`/`disabled`는 `on`/`off`)으로 변환한다. `n_ubatch=0`, `n_threads=0`은 옵션을 생략한다. |
 | `hardware_profile.use_mmap` | `true`는 `--load-mode mmap`, `false`는 `--load-mode none`으로 변환한다. |
 | `reasoning.reasoning_mode`, `reasoning_effort` | 유효 모드를 `--reasoning`에 전달한다. `reasoning_effort=auto`는 effort 옵션을 생략하고 그 외 값은 `--reasoning-effort`에 전달한다. |

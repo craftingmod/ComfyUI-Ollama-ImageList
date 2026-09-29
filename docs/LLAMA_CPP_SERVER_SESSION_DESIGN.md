@@ -2,7 +2,7 @@
 
 ## Contract
 
-- Add `[llama.cpp] Connect Session` alongside the existing native Create Session. Both feed the existing `session` socket on Generate (Session) and Unload Session.
+- Add `[llama.cpp] Connect Session` alongside the existing `[llama.cpp] Create Native Session`. Both feed the existing `session` socket on Generate (Session) and Unload Session.
 - The node has a server base URL, an available-models COMBO, and an editable `model` STRING. `model` is the saved execution value; selecting the COMBO copies its ID into `model`. A workflow can execute from the saved URL and `model` after reload without fetching suggestions.
 - Place a **Connect** button first in the node's widgets. Pressing it asks a ComfyUI backend route to GET `<server>/models`; the browser never contacts the remote server directly. Do not fetch automatically on node creation or reload. A failed fetch leaves the saved `model` intact and shows the error.
 - `GET /models` is expected to return `data` entries with string `id` values. A single-model server and a router server both use this shape. An empty or malformed response must not silently replace the saved model.

@@ -31,7 +31,7 @@ from ..llama_cpp_runtime import (
     start_owned_llama_server,
 )
 from .llama_cpp_compact import (
-    COMPACT_CATEGORY,
+    BASE_CATEGORY,
     COMPACT_HARDWARE_PROFILES,
     LlamaCppHardwareRuntimeProfileType,
     LlamaCppModelProfileType,
@@ -294,7 +294,7 @@ class LlamaCppConnectSessionNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppConnectSession",
             display_name="[llama.cpp] Connect Session",
-            category=f"{COMPACT_CATEGORY}/session",
+            category=f"{BASE_CATEGORY}/session",
             description=(
                 "Creates a session handle for a llama.cpp server. Connect fetches model IDs; "
                 "the saved model string remains the value used for generation."
@@ -366,8 +366,8 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
         model_options, mmproj_options = _gguf_options()
         return io.Schema(
             node_id="OllamaImageList_LlamaCppCreateSession",
-            display_name="[llama.cpp] Create Session",
-            category=f"{COMPACT_CATEGORY}/session",
+            display_name="[llama.cpp] Create Native Session",
+            category=f"{BASE_CATEGORY}/session",
             description=(
                 "Keeps one Llama.cpp model resident until Llama.cpp Unload Session. "
                 "Sessions left open during an interrupted workflow unload at prompt end. "
@@ -413,7 +413,7 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppCreateRuntimeSession",
             display_name="[llama.cpp] Create Runtime Session",
-            category=f"{COMPACT_CATEGORY}/session",
+            category=f"{BASE_CATEGORY}/session",
             description=(
                 "Starts a workflow-owned local llama.cpp server and keeps its model "
                 "loaded until Unload Session or prompt-end cleanup. The session "
@@ -517,7 +517,7 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSessionGenerate",
             display_name="[llama.cpp] Generate (Session)",
-            category=f"{COMPACT_CATEGORY}/session",
+            category=f"{BASE_CATEGORY}/generate",
             description=(
                 "Runs one request on a local or server-backed llama.cpp session and "
                 "carries it forward."
@@ -604,7 +604,7 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
         return io.Schema(
             node_id="OllamaImageList_LlamaCppUnloadSession",
             display_name="[llama.cpp] Unload Session",
-            category=f"{COMPACT_CATEGORY}/session",
+            category=f"{BASE_CATEGORY}/session",
             description=(
                 "Unloads a local or server-backed Llama.cpp session. Connect session and "
                 "a final End Loop result to timing so unloading runs after the loop."

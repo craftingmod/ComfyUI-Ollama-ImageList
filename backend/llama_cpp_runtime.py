@@ -253,6 +253,8 @@ def start_owned_llama_server(
         str(port),
         "--cors-origins",
         "localhost",
+        "--models-max",
+        "1",
         *server_args,
     ]
     environment = _llama_child_environment(Path(executable), internal=internal)

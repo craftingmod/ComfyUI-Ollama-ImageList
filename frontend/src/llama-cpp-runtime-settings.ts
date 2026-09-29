@@ -15,6 +15,7 @@ const EXECUTABLE_PATH_SETTING = "OllamaImageList.LlamaCpp.ExecutablePath"
 const LLAMA_VERSION_SETTING = "OllamaImageList.LlamaCpp.Version"
 const CTX_SIZE_SETTING = "OllamaImageList.LlamaCpp.CtxSize"
 const PORT_SETTING = "OllamaImageList.LlamaCpp.Port"
+const SERVER_LINK_SETTING = "OllamaImageList.LlamaCpp.ServerLink"
 const MODEL_DIR_SETTING = "OllamaImageList.LlamaCpp.ModelDir"
 const DEFAULT_CTX_SIZE = 16384
 const MIN_CTX_SIZE = 512
@@ -90,6 +91,9 @@ let downloadView:
       message: HTMLElement
     }
   | undefined
+let serverLinkView:
+  | { link: HTMLAnchorElement; message: HTMLSpanElement }
+  | undefined
 
 async function setSettingFromBackend(
   app: ComfyApp,
@@ -148,6 +152,7 @@ async function updatePathStatus(
   downloadInProgress =
     downloadStartPending || isDownloadActive(status.download_state)
   renderDownloadView()
+  renderServerLink()
 }
 
 function isDownloadActive(state: RuntimeStatus["download_state"]): boolean {
@@ -335,6 +340,38 @@ function createDownloadControl(app: ComfyApp, api: ComfyApi): HTMLElement {
   downloadView = { app, button, progress, message }
   renderDownloadView()
   void refreshDownloadStatus(app, api)
+  return wrapper
+}
+
+function renderServerLink(): void {
+  if (!serverLinkView) return
+  const { link, message } = serverLinkView
+  const port = latestStatus?.active_port
+  if (port === null || port === undefined) {
+    link.hidden = true
+    link.removeAttribute("href")
+    message.hidden = false
+    message.textContent = latestStatus
+      ? "Internal daemon is not running."
+      : "Checking internal daemon status…"
+    return
+  }
+
+  link.href = `http://127.0.0.1:${port}`
+  link.textContent = `127.0.0.1:${port}`
+  link.hidden = false
+  message.hidden = true
+}
+
+function createServerLinkControl(): HTMLElement {
+  const wrapper = document.createElement("div")
+  const link = document.createElement("a")
+  link.target = "_blank"
+  link.rel = "noopener noreferrer"
+  const message = document.createElement("span")
+  wrapper.append(link, message)
+  serverLinkView = { link, message }
+  renderServerLink()
   return wrapper
 }
 
@@ -598,6 +635,17 @@ export function registerLlamaCppRuntimeSettings(
         attrs: { readonly: true },
         defaultValue: "stopped",
         sortOrder: 90,
+        telemetry: { trackChanges: false },
+      },
+      {
+        id: SERVER_LINK_SETTING as any,
+        category: [PROJECT_NAME, "llama.cpp Daemon", "ServerLink"],
+        name: "Internal server address (Beta)",
+        tooltip:
+          "Opens the running llama.cpp server in a new tab. This 127.0.0.1 link works from a browser on the same machine as ComfyUI.",
+        type: () => createServerLinkControl(),
+        defaultValue: null,
+        sortOrder: 85,
         telemetry: { trackChanges: false },
       },
       {
