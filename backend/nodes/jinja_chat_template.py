@@ -76,7 +76,8 @@ class JinjaChatTemplatePresetNode(io.ComfyNode):
                     "chat_template",
                     display_name="chat template",
                     tooltip=(
-                        "Connect to [llama.cpp] Model Profile's custom_chat_template input."
+                        "Connect to [llama.cpp] Create Native Session or Create Runtime "
+                        "Session's custom_chat_template input."
                     ),
                 ),
             ],

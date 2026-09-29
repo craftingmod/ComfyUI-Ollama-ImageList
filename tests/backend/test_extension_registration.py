@@ -719,7 +719,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert [field.name for field in compact_profile_schema.inputs] == [
         "profile",
-        "custom_chat_template",
         "custom_handler",
         "temperature",
         "top_p",
@@ -737,10 +736,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "Qwen 3 VL",
         "Custom",
     ]
-    assert compact_profile_schema.inputs[1].options["optional"] is True
-    assert compact_profile_schema.inputs[1].options["force_input"] is True
     assert all(
-        field.options["advanced"] is True for field in compact_profile_schema.inputs[2:]
+        field.options["advanced"] is True for field in compact_profile_schema.inputs[1:]
     )
     assert compact_profile_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
@@ -755,7 +752,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     )[0]
     assert muse_profile["temperature"] == 1.0
     assert muse_profile["top_k"] == 64
-    assert muse_profile["custom_chat_template"] == ""
     assert set(muse_profile) == {
         "handler",
         "recommended_reasoning_mode",
@@ -765,7 +761,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "min_p",
         "presence_penalty",
         "repeat_penalty",
-        "custom_chat_template",
     }
     qwen35_thinking_profile = compact_profile_class.execute(
         **{**model_profile_defaults, "profile": "Qwen 3.5+ Thinking"}
@@ -802,7 +797,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "min_p": 0.1,
         "presence_penalty": 1.25,
         "repeat_penalty": 1.1,
-        "custom_chat_template": "",
     }
 
     hardware_class, hardware_schema = registered[
@@ -1096,7 +1090,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "model_path",
         "mmproj_path",
         "model_profile",
-        "custom_handler",
         "custom_chat_template",
         "hardware_profile",
         "reasoning",
@@ -2165,7 +2158,6 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
         "min_p": 0.13,
         "presence_penalty": 0.4,
         "repeat_penalty": 1.17,
-        "custom_chat_template": "{% custom template %}",
     }
     hardware_profile = {
         "n_batch": 1024,
@@ -2180,6 +2172,7 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
         "model_path": ["external/model-a.gguf"],
         "mmproj_path": ["external/mmproj-model-a-f16.gguf"],
         "model_profile": [model_profile],
+        "custom_chat_template": ["{% custom template %}"],
         "hardware_profile": [hardware_profile],
         "reasoning": [
             {
@@ -2398,9 +2391,9 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
                 "min_p": 0.05,
                 "presence_penalty": 0.0,
                 "repeat_penalty": 1.0,
-                "custom_chat_template": "{% set custom = true %}",
             }
         ],
+        "custom_chat_template": ["{% set custom = true %}"],
         "hardware_profile": None,
         "reasoning": None,
         "speculative": None,

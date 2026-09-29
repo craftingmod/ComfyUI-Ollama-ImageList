@@ -279,9 +279,11 @@ class LlamaCppSession:
         model_profile = request.pop("model_profile", None)
         configuration = self._configuration
         if model_profile is not None:
+            overrides = _model_profile_overrides(model_profile)
+            overrides.pop("handler", None)
             configuration = {
                 **self._configuration,
-                **_model_profile_overrides(model_profile),
+                **overrides,
             }
         max_tokens = int(request.get("max_tokens", 0))
         reasoning_budget = int(configuration.get("reasoning_budget", 0))

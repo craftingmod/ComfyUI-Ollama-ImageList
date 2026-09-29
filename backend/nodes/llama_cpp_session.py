@@ -13,7 +13,7 @@ try:
 except ImportError:  # pragma: no cover - compatibility with newer ComfyUI builds
     from comfy_api.latest import io
 
-from ..backends.llama_cpp import HANDLER_NAMES, LlamaCppSession, _resolve_file
+from ..backends.llama_cpp import LlamaCppSession, _resolve_file
 from ..backends.llama_cpp_server import (
     LlamaCppServerSession,
     OwnedLlamaCppServerSession,
@@ -95,9 +95,8 @@ def _runtime_server_arguments(
     )
     profile_reasoning_mode = profile.pop("recommended_reasoning_mode")
     profile.pop("handler")
-    profile_chat_template = profile.pop("custom_chat_template")
     selected_chat_template = unwrap_optional_scalar(
-        "custom_chat_template", custom_chat_template, profile_chat_template
+        "custom_chat_template", custom_chat_template, ""
     )
     if not isinstance(selected_chat_template, str):
         raise InputNormalizationError("custom_chat_template must be a string.")
@@ -390,12 +389,6 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
                     "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
                 ),
                 LlamaCppModelProfileType.Input("model_profile"),
-                io.Combo.Input(
-                    "custom_handler",
-                    options=list(HANDLER_NAMES),
-                    default="auto",
-                    tooltip="Chat handler used by this native session.",
-                ),
                 io.String.Input(
                     "custom_chat_template",
                     optional=True,
@@ -457,8 +450,8 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
                     force_input=True,
                     tooltip=(
                         "Optional custom Jinja template for this server session. "
-                        "When connected, it overrides the Model Profile template; "
-                        "when disconnected, the GGUF or Model Profile template is used."
+                        "When connected, it overrides the GGUF metadata template; "
+                        "when disconnected, the GGUF template is used."
                     ),
                 ),
                 LlamaCppHardwareRuntimeProfileType.Input(
@@ -571,12 +564,19 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
                 io.Audio.Input("audio", optional=True),
                 io.Video.Input("video", optional=True),
                 io.Boolean.Input("video_with_audio", default=False),
+                io.Boolean.Input(
+                    "session_unload",
+                    default=False,
+                    label_on="Unload",
+                    label_off="Keep",
+                    tooltip="Unload the session after this request completes.",
+                ),
                 LlamaCppModelProfileType.Input(
                     "model_profile",
                     optional=True,
                     tooltip=(
-                        "Optional override; server sessions apply sampling and explicit "
-                        "on/off reasoning settings per request."
+                        "Optional per-request sampling and reasoning override. The "
+                        "session handler is selected at creation and is not changed."
                     ),
                 ),
             ],
@@ -588,7 +588,6 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
                 LlamaCppMediaDiagnosticsType.Output(
                     "media_diagnostics", display_name="media diagnostics"
                 ),
-                LlamaCppSessionType.Output("session", display_name="session"),
             ],
         )
 
@@ -605,6 +604,7 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
         audio: Any = None,
         video: Any = None,
         video_with_audio: Any = False,
+        session_unload: Any = "Keep",
         model_profile: Any = None,
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
@@ -637,13 +637,17 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
         if profile is not None:
             request["model_profile"] = profile
         result = resolved_session.generate(**request)
+        if bool(unwrap_required_scalar("session_unload", session_unload)):
+            resolved_session.close()
+            result.metrics["model_unloaded"] = True
+            result.metrics["session"]["unload_required"] = False
+            result.media_diagnostics["model_unloaded_after_response"] = True
         return io.NodeOutput(
             result.response,
             result.thinking,
             json.dumps(result.raw, ensure_ascii=False, indent=2),
             json.dumps(result.metrics, ensure_ascii=False, indent=2),
             result.media_diagnostics,
-            resolved_session,
         )
 
 

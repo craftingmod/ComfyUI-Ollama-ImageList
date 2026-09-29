@@ -62,7 +62,6 @@ _BASE_MODEL_PROFILE: dict[str, Any] = {
     "min_p": 0.05,
     "presence_penalty": 0.0,
     "repeat_penalty": 1.0,
-    "custom_chat_template": "",
 }
 
 _BASE_HARDWARE_PROFILE: dict[str, Any] = {
@@ -150,7 +149,7 @@ def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
     missing = [
         name
         for name in _BASE_MODEL_PROFILE
-        if name != "custom_chat_template" and name not in value
+        if name not in value
     ]
     if missing:
         raise InputNormalizationError(
@@ -169,13 +168,6 @@ def normalize_compact_model_profile(value: Any) -> dict[str, Any]:
         raise InputNormalizationError(
             "model_profile.recommended_reasoning_mode must be auto, off, or on."
         )
-
-    custom_chat_template = normalized.get("custom_chat_template", "")
-    if not isinstance(custom_chat_template, str):
-        raise InputNormalizationError(
-            "model_profile.custom_chat_template must be a string."
-        )
-    normalized["custom_chat_template"] = custom_chat_template
 
     integer_ranges = {
         "top_k": (0, 10_000),
@@ -401,6 +393,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         names = list(COMPACT_MODEL_PROFILES)
+        names.sort(key=lambda name: (name != "General", name.casefold()))
         return io.Schema(
             node_id="OllamaImageList_LlamaCppModelProfile",
             display_name="[llama.cpp] Model Profile",
@@ -412,15 +405,6 @@ class LlamaCppModelProfileNode(io.ComfyNode):
             inputs=[
                 io.Combo.Input(
                     "profile", options=[*names, "Custom"], default="General"
-                ),
-                io.String.Input(
-                    "custom_chat_template",
-                    optional=True,
-                    force_input=True,
-                    tooltip=(
-                        "Optional custom Jinja chat template connected as an input socket. "
-                        "When provided, it overrides the GGUF metadata chat template."
-                    ),
                 ),
                 io.Combo.Input(
                     "custom_handler",
@@ -490,11 +474,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
         min_p: float,
         repeat_penalty: float,
         presence_penalty: float,
-        custom_chat_template: str = "",
     ) -> io.NodeOutput:
-        resolved_template = str(
-            unwrap_optional_scalar("custom_chat_template", custom_chat_template, "")
-        )
         if profile == "Custom":
             value = {
                 "handler": custom_handler,
@@ -505,7 +485,6 @@ class LlamaCppModelProfileNode(io.ComfyNode):
                 "min_p": min_p,
                 "presence_penalty": presence_penalty,
                 "repeat_penalty": repeat_penalty,
-                "custom_chat_template": resolved_template,
             }
         else:
             try:
@@ -514,7 +493,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
                 raise InputNormalizationError(
                     f"Unknown Llama.cpp Compact profile: {profile}"
                 ) from exc
-            value = {**base, "custom_chat_template": resolved_template}
+            value = base
         return io.NodeOutput(normalize_compact_model_profile(value))
 
 
@@ -1073,7 +1052,6 @@ def build_compact_session_kwargs(
     image_min_tokens: Any,
     image_max_tokens: Any,
     verbose: Any,
-    custom_handler: Any = "auto",
     custom_chat_template: Any = "",
 ) -> dict[str, Any]:
     """Resolve Compact node fields that must remain fixed for one session."""
@@ -1103,14 +1081,6 @@ def build_compact_session_kwargs(
         unwrap_required_scalar("model_profile", model_profile)
     )
     profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
-    selected_handler = unwrap_optional_scalar(
-        "custom_handler", custom_handler, "auto"
-    )
-    if selected_handler not in HANDLER_NAMES:
-        raise InputNormalizationError(
-            f"custom_handler must be one of {', '.join(HANDLER_NAMES)}."
-        )
-    compact_model_profile["handler"] = selected_handler
     selected_template = unwrap_optional_scalar(
         "custom_chat_template", custom_chat_template, ""
     )
