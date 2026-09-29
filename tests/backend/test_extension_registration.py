@@ -224,7 +224,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppCreateSession",
         "OllamaImageList_LlamaCppCreateRuntimeSession",
         "OllamaImageList_LlamaCppConnectSession",
-        "OllamaImageList_LlamaCppCreateQuestion",
         "OllamaImageList_LlamaCppCreateQuestionFromInput",
         "OllamaImageList_LlamaCppDecideSession",
         "OllamaImageList_LlamaCppSessionGenerate",
@@ -253,7 +252,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Create Native Session",
         "[llama.cpp] Create Runtime Session",
         "[llama.cpp] Connect Session",
-        "[llama.cpp] Create Question",
         "[llama.cpp] Create Question From Input",
         "[llama.cpp] Decide (Session)",
         "[llama.cpp] Generate (Session)",
@@ -282,7 +280,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/session",
         "llama_cpp/session",
         "llama_cpp/session",
-        "llama_cpp/decision",
         "llama_cpp/decision",
         "llama_cpp/decision",
         "llama_cpp/generate",
@@ -1165,21 +1162,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert connect_inputs["model"].data_type == "string"
     assert connect_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
-    )
-    _, create_question_schema = registered[
-        "OllamaImageList_LlamaCppCreateQuestion"
-    ]
-    assert [field.name for field in create_question_schema.inputs] == [
-        "question",
-        "inputcount",
-        *(f"answer_{index}" for index in range(1, 27)),
-    ]
-    assert create_question_schema.inputs[0].options["multiline"] is True
-    assert create_question_schema.inputs[1].options["min"] == 2
-    assert create_question_schema.inputs[1].options["max"] == 26
-    assert all(field.options["optional"] is True for field in create_question_schema.inputs[2:])
-    assert create_question_schema.outputs[0].data_type == (
-        "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
     )
     _, create_question_input_schema = registered[
         "OllamaImageList_LlamaCppCreateQuestionFromInput"
@@ -2449,21 +2431,12 @@ def import_llama_cpp_decision_nodes(monkeypatch):
     return importlib.import_module("backend.nodes.llama_cpp_decision")
 
 
-def test_llama_cpp_question_nodes_share_validation_and_preserve_list_order(monkeypatch):
+def test_llama_cpp_question_input_preserves_list_order(monkeypatch):
     decision_nodes = import_llama_cpp_decision_nodes(monkeypatch)
-    create_question = decision_nodes.LlamaCppCreateQuestionNode
     from_input = decision_nodes.LlamaCppCreateQuestionFromInputNode
-    direct = create_question.execute(
-        question="Which option?",
-        inputcount=3,
-        answer_1="first",
-        answer_2="second",
-        answer_3="third",
-        answer_4="ignored after count",
-    )[0]
     listed = from_input.execute(["Which option?"], ["first", "second", "third"])[0]
 
-    assert direct == listed == {
+    assert listed == {
         "question": "Which option?",
         "answer": ["first", "second", "third"],
     }
@@ -2487,10 +2460,6 @@ def test_llama_cpp_question_payload_rejects_invalid_values(monkeypatch):
     for question, answers, message in invalid_values:
         with pytest.raises(InputNormalizationError, match=message):
             make_payload(question, answers)
-    with pytest.raises(InputNormalizationError, match="integer from 2 to 26"):
-        decision_nodes.LlamaCppCreateQuestionNode.execute(
-            question="question", inputcount=1, answer_1="first", answer_2="second"
-        )
     with pytest.raises(InputNormalizationError, match="between 2 and 26"):
         make_payload("question", [f"answer {index}" for index in range(27)])
 

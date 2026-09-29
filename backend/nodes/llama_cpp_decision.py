@@ -57,48 +57,6 @@ def _question_from_input_lists(question: Any, answers: Any) -> dict[str, Any]:
     return make_question_payload(question[0], answers)
 
 
-class LlamaCppCreateQuestionNode(io.ComfyNode):
-    @classmethod
-    def define_schema(cls) -> io.Schema:
-        return io.Schema(
-            node_id="OllamaImageList_LlamaCppCreateQuestion",
-            display_name="[llama.cpp] Create Question",
-            category=f"{BASE_CATEGORY}/decision",
-            description=(
-                "Builds a decision question with 2–26 answers. Hidden answers remain saved "
-                "when inputcount is reduced and return when it is increased."
-            ),
-            is_experimental=True,
-            inputs=[
-                io.String.Input(
-                    "question", default="", multiline=True, dynamic_prompts=False
-                ),
-                io.Int.Input("inputcount", default=2, min=2, max=MAX_ANSWERS, step=1),
-                *[
-                    io.String.Input(
-                        f"answer_{index}",
-                        default="",
-                        optional=True,
-                        dynamic_prompts=False,
-                    )
-                    for index in range(1, MAX_ANSWERS + 1)
-                ],
-            ],
-            outputs=[LlamaCppQuestionType.Output("question")],
-        )
-
-    @classmethod
-    def execute(cls, question: Any, inputcount: Any, **answers: Any) -> io.NodeOutput:
-        resolved_count = unwrap_required_scalar("inputcount", inputcount)
-        if type(resolved_count) is not int or not 2 <= resolved_count <= MAX_ANSWERS:
-            raise InputNormalizationError("inputcount must be an integer from 2 to 26.")
-        values = [
-            answers.get(f"answer_{index}", "")
-            for index in range(1, resolved_count + 1)
-        ]
-        return io.NodeOutput(make_question_payload(question, values))
-
-
 class LlamaCppCreateQuestionFromInputNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -189,7 +147,7 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
         payload = unwrap_required_scalar("question", question)
         if not isinstance(payload, Mapping) or set(payload) != {"question", "answer"}:
             raise InputNormalizationError(
-                "question must come from a [llama.cpp] Create Question node."
+                "question must come from a [llama.cpp] Create Question From Input node."
             )
         validated = make_question_payload(payload["question"], payload["answer"])
         resolved_system = unwrap_required_scalar("system", system)
@@ -226,7 +184,6 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
 
 
 __all__ = [
-    "LlamaCppCreateQuestionNode",
     "LlamaCppCreateQuestionFromInputNode",
     "LlamaCppDecideSessionNode",
     "LlamaCppQuestionType",

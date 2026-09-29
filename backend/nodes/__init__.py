@@ -12,7 +12,6 @@ from .llama_cpp_compact import (
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsNode
 from .llama_cpp_decision import (
     LlamaCppCreateQuestionFromInputNode,
-    LlamaCppCreateQuestionNode,
     LlamaCppDecideSessionNode,
 )
 from .llama_cpp_generate import LlamaCppImageListGenerateNode
@@ -41,7 +40,6 @@ __all__ = [
     "LlamaCppCreateSessionNode",
     "LlamaCppCreateRuntimeSessionNode",
     "LlamaCppConnectSessionNode",
-    "LlamaCppCreateQuestionNode",
     "LlamaCppCreateQuestionFromInputNode",
     "LlamaCppDecideSessionNode",
     "LlamaCppModelProfileNode",

@@ -111,7 +111,7 @@ Connect **Unload Session** to the session and connect the loop's final `timing` 
 
 Decision nodes require the optional `llama` dependencies, including `makoto-decision`. **[llama.cpp] Create Native Session** uses the JamePeng `llama-cpp-python` chat-prefill API. **[llama.cpp] Create Runtime Session** formats the decision through the workflow-owned `llama-server` chat template, then uses `/tokenize` and grammar-constrained `/completion` to score candidates. **Connect Session** remains unsupported.
 
-**[llama.cpp] Create Question** accepts one question and 2–26 answer strings. Set `inputcount`, click **Update inputs**, then fill the visible `answer_N` widgets. Reducing the count hides extra answers without deleting their saved values; increasing it restores them. **[llama.cpp] Create Question From Input** accepts one `STRING` question and a flat ComfyUI `STRING` list output. It rejects multiple question values and nested answer lists.
+**[llama.cpp] Create Question From Input** accepts one `STRING` question and a flat ComfyUI `STRING` list output. It rejects multiple question values and nested answer lists.
 
 Connect the question output and a Native or Runtime Session to **[llama.cpp] Decide (Session)**. It returns the selected original answer, an input-ordered `probabilities_json` object, and the same session handle for the next operation. The `system` and `context` text are labeled and prepended to the decision context; `makoto-decision` does not provide a separate system-role input here.
 

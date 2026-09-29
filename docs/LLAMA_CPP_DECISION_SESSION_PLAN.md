@@ -2,7 +2,9 @@
 
 ## 목표와 범위
 
-`makoto-decision`으로 지정된 답변 중 하나를 선택하고 각 답변의 점수 기반 확률을 출력한다. 기존 `[llama.cpp] Generate (Session)` 및 저장된 워크플로의 `node_id`, 입력, 출력은 유지한다. 새 결정 노드는 현재 Session 소켓을 재사용하며, 질문은 아래 두 생성 노드 중 하나에서 전용 데이터 소켓으로 공급한다.
+`makoto-decision`으로 지정된 답변 중 하나를 선택하고 각 답변의 점수 기반 확률을 출력한다. 기존 `[llama.cpp] Generate (Session)` 및 저장된 워크플로의 `node_id`, 입력, 출력은 유지한다. 새 결정 노드는 현재 Session 소켓을 재사용하며, 질문은 `Create Question From Input`에서 전용 데이터 소켓으로 공급한다.
+
+**범위 변경:** `[llama.cpp] Create Question`은 Nodes 2.0에서 제대로 작동하지 않아 제거했다.
 
 구현 담당 서브 에이전트는 저장소 `AGENTS.md`에 따라 **GPT-6 Luna / MAX**를 사용한다. 기존 미커밋 변경을 먼저 확인하고 보존한다. Python 실행에는 `uv`를 사용한다. 이 계획은 구현 지시서이며 현재 검증 실행을 승인하지 않는다.
 
@@ -10,12 +12,10 @@
 
 | 노드 표시 이름 | 핵심 입력 | 출력 |
 | --- | --- | --- |
-| `[llama.cpp] Create Question` | `question`(multiline STRING), `inputcount`(INT), `answer_1`…`answer_N`(singleline STRING), `Update inputs` 버튼 | `question` (`OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION`) |
 | `[llama.cpp] Create Question From Input` | `question`(STRING 연결), `answer`(ComfyUI STRING 목록 연결) | 동일한 `question` 소켓 |
 | `[llama.cpp] Decide (Session)` | `session`, `system`(multiline STRING), `context`(multiline STRING), `question`(전용 소켓) | `selected`(STRING), `probabilities_json`(STRING), `session`(기존 타입) |
 
-- 전용 소켓의 값은 `{"question": str, "answer": list[str]}`이다. 두 생성 노드는 동일한 값과 동일한 검증을 사용한다. `answer`의 순서와 표시 문자열을 그대로 보존한다.
-- `Create Question`은 최소 2개, 최대 26개의 답변을 허용한다. `inputcount`를 바꾼 뒤 `Update inputs`를 누르면 `answer_N` 위젯 수가 바뀐다. 버튼 자체는 저장하지 않고 개수와 답변 값은 저장 및 재로드한다. 개수를 줄여 제거한 값이 다시 늘릴 때 복구되는지는 구현 전에 정하고 문서화한다. 연결 소켓을 늘리는 Autogrow로 이 UI를 대체하지 않는다.
+- 전용 소켓의 값은 `{"question": str, "answer": list[str]}`이다. 생성 노드는 이 값을 검증하고 `answer`의 순서와 표시 문자열을 보존한다.
 - `Create Question From Input`의 `answer`는 ComfyUI의 **STRING 타입 목록 출력**을 받는다. Python 리스트 한 개를 일반 STRING 출력에 실어 보내는 것과는 다른 계약이다. `is_input_list=True` 사용 시 `question`도 목록으로 전달되므로 단일 값인지 검사해 꺼낸다. 여러 `question` 값이나 중첩된 `answer` 목록을 조용히 합치지 않는다.
 - 공통 검증은 빈 질문, 2개 미만 또는 26개 초과 답변, 빈 답변, 중복 답변을 거부한다. 사용자 입력 파라미터와 반환 키는 `snake_case`로 쓴다.
 - 결정 노드는 `Choices.letters(*answer)`와 `Decision(question=..., context=..., choices=...)`와 같은 후보 순서를 사용하고 `selected`에는 A/B 같은 후보 토큰이 아닌 원래 답변 문자열을 반환한다. `probabilities_json`은 입력 순서의 `{답변: 확률}` 객체이다. Native의 값은 후보 raw logits의 softmax이고 Runtime의 값은 grammar 제약 completion의 후보 확률을 재정규화한 것이다. 어느 쪽도 보정된 정확도 확률이라고 표시하지 않는다.
@@ -24,17 +24,17 @@
 
 ## 구현 순서
 
-1. **현재 경로와 직렬화 확인.** `backend/nodes/llama_cpp_session.py`, `backend/backends/llama_cpp.py`의 Session 생성·재사용·잠금·정리 경로, `backend/extension.py`의 등록, `frontend/src/index.ts`와 기존 버튼 확장을 확인한다. 현재 설치된 `makoto-decision`/JamePeng fork의 `create_chat_prefill()` 계약을 확인한다. 새 `answer_N` 위젯 값이 실제 API prompt JSON에 포함되는지도 먼저 확인한다. 포함되지 않으면 UI에 보이는 개별 위젯은 유지하고, 직렬화되는 단일 내부 입력으로 답변 값을 운반한다. 실행 시 프런트엔드 상태만 읽는 설계는 금지한다.
-2. **질문 데이터 계약.** `backend/nodes/`에 두 생성 노드와 이름이 충돌하지 않는 전용 `io.Custom` 타입을 구현한다. 질문 값 생성·검증을 한 함수로 공유한다. `Create Question From Input`의 ComfyUI 목록 처리와 단일 질문 검사에 집중한다. 두 노드를 `backend/nodes/__init__.py`와 `backend/extension.py`에 등록한다.
-3. **동적 위젯.** `frontend/src/`에 `Create Question` 전용의 작은 확장을 추가하고 `index.ts`에서 등록한다. 기존 `addWidget("button", ...)` 패턴을 재사용한다. `inputcount`와 `answer_N`의 안정적인 이름, 저장·재로드, 버튼 중복 생성, 노드 복제, 개수 축소·확대를 처리한다. 브라우저 없이도 API prompt로 실행 가능한 전송 계약을 유지한다.
+1. **현재 경로와 직렬화 확인.** `backend/nodes/llama_cpp_session.py`, `backend/backends/llama_cpp.py`의 Session 생성·재사용·잠금·정리 경로와 `backend/extension.py` 등록을 확인한다. 현재 설치된 `makoto-decision`/JamePeng fork의 `create_chat_prefill()` 계약을 확인한다. 연결된 STRING 목록 입력이 prompt JSON에 올바르게 전달되어야 한다.
+2. **질문 데이터 계약.** `backend/nodes/`에 `Create Question From Input`과 이름이 충돌하지 않는 전용 `io.Custom` 타입을 구현한다. 질문 값 생성·검증을 한 함수로 공유하고, ComfyUI 목록 처리와 단일 질문 검사를 수행한다. 노드를 `backend/nodes/__init__.py`와 `backend/extension.py`에 등록한다.
+3. **프런트엔드 확장.** 별도 프런트엔드 확장은 필요하지 않다. 입력 노드 스키마와 ComfyUI STRING 목록 연결을 사용한다.
 4. **결정 실행.** Native Session은 기존 모델 인스턴스를 재사용해 `LlamaCppEvaluator.evaluate()`를 호출한다. 최초 작업이 결정일 때도 모델 준비가 가능해야 한다. Runtime Session은 보유 중인 서버에서 `/apply-template`로 프로필 템플릿을 적용하고, 후보 토큰을 확인한 뒤 grammar 제약된 1-token `/completion`을 요청한다. `top_probs`를 의미 선택지에 매핑하고 재정규화한다. 두 경로 모두 기존 Session 핸들과 unload/prompt-end 수명주기를 유지한다. `Generate (Session)`의 스키마와 결과는 변경하지 않는다.
-5. **등록·문서·체크.** `tests/backend/test_extension_registration.py`의 노드 등록/스키마 기대값과 `docs/LLAMA_CPP.md`의 사용법을 갱신한다. 새 검사에는 두 질문 생성 경로의 동일한 출력, 목록 입력, 값/개수 오류, 선택된 원래 답변과 확률 순서, Native/Runtime Session 재사용 및 종료, Runtime 서버 응답 파싱, Connect Session 거부를 포함한다. 프런트엔드는 값 보존과 prompt 직렬화 검사를 남긴다.
+5. **등록·문서·체크.** `tests/backend/test_extension_registration.py`의 노드 등록/스키마 기대값과 `docs/LLAMA_CPP.md`의 사용법을 갱신한다. 새 검사에는 목록 입력, 값 오류, 선택된 원래 답변과 확률 순서, Native/Runtime Session 재사용 및 종료, Runtime 서버 응답 파싱, Connect Session 거부를 포함한다.
 
 ## 중단 조건과 검증 경계
 
 - Native Session에서 JamePeng fork의 `create_chat_prefill()` 또는 선택한 핸들러의 `prefill`이 없으면 명확히 실패한다. 일반 채팅 생성과 `logprobs`로 조용히 우회하지 않는다. Runtime Session에서 `/tokenize`, grammar 제약 `/completion`, `post_sampling_probs`를 지원하지 않으면 명확히 실패한다.
 - 후보 기호 A–Z가 각각 정확히 한 토큰으로 인코딩되지 않거나 서로 같은 토큰 ID로 매핑되면 실행을 중단하고 오류를 낸다. 입력 순서와 선택지 확률의 대응을 추측하지 않는다.
-- ComfyUI API가 동적 위젯을 prompt에 안전하게 직렬화하지 못하면 1단계의 내부 직렬화 입력 방식을 사용한다. 그 방식도 재로드/복제에 실패하면 UI 구현을 멈추고 원인을 보고한다.
+- ComfyUI API가 연결된 STRING 목록을 올바르게 전달하지 않으면 구현을 멈추고 원인을 보고한다.
 - 사용자가 검증을 요청하기 전에는 명령을 실행하지 않는다. 요청받은 테스트는 저장소 규칙대로 `bun run test:agent`를 사용한다. 전체 검증은 마지막에 부모 에이전트 또는 사용자가 한 번 수행한다. 실제 ComfyUI 브라우저, GGUF, GPU, 다중 실행, VRAM 회수는 `docs/TESTING.md`에 따른 별도 수동 확인으로 보고한다.
 
 ## 구현 상태
