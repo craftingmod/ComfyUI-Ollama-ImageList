@@ -327,6 +327,17 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert {
         schema.node_id for schema in schemas if getattr(schema, "is_dev_only", False)
     } == hidden_legacy_ids
+    deprecated_compact_ids = {
+        "OllamaImageList_LlamaCppNGramSpeculativeConfig",
+        "OllamaImageList_LlamaCppProfiledGenerate",
+        "OllamaImageList_LlamaCppSequentialGenerate",
+    }
+    assert {
+        schema.node_id for schema in schemas if schema.category == "llama_cpp/compact"
+    } == deprecated_compact_ids
+    assert {
+        schema.node_id for schema in schemas if getattr(schema, "is_deprecated", False)
+    } >= deprecated_compact_ids
 
     minimax_class, minimax_schema = registered[
         "OllamaImageList_MiniMaxSystemPromptPreset"

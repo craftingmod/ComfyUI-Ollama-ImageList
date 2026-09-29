@@ -669,6 +669,7 @@ class LlamaCppNGramSpeculativeConfigNode(io.ComfyNode):
             node_id="OllamaImageList_LlamaCppNGramSpeculativeConfig",
             display_name="[llama.cpp] N-gram Speculative Config",
             category=COMPACT_CATEGORY,
+            is_deprecated=True,
             description=(
                 "Produces the shared Compact speculative input using model-free "
                 "prompt-history N-gram drafting."
@@ -1465,6 +1466,7 @@ class LlamaCppProfiledGenerateNode(_LlamaCppGenerateNodeBase):
             node_id="OllamaImageList_LlamaCppProfiledGenerate",
             display_name="[llama.cpp] Generate",
             category=COMPACT_CATEGORY,
+            is_deprecated=True,
             description=(
                 "Runs one multimodal llama.cpp completion using separate Compact model "
                 "and hardware profiles plus optional reasoning and speculative configs."
@@ -1486,6 +1488,7 @@ class LlamaCppSequentialGenerateNode(_LlamaCppGenerateNodeBase):
             node_id="OllamaImageList_LlamaCppSequentialGenerate",
             display_name="[llama.cpp] Sequential Generate",
             category=COMPACT_CATEGORY,
+            is_deprecated=True,
             description=(
                 "Loads llama.cpp once, resets context before every independent item, "
                 "runs the input list sequentially, and unloads once after the sequence."

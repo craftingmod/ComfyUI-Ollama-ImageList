@@ -232,7 +232,7 @@ tuning behind separate typed connections:
 ```
 
 N-gram Speculative Config, Generate, and Sequential Generate live under
-`llama_cpp / compact`. Sequential Generate
+`llama_cpp / compact` and are marked deprecated. Sequential Generate
 receives the complete input list in one call, loads the model once, calls `Llama.reset()`
 before every independent completion on native-speculative forks, and otherwise clears the
 underlying context memory before setting `n_tokens=0`. It retains results as data lists and
