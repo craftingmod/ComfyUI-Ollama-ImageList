@@ -84,7 +84,7 @@ class LlamaCppPrefillProfileNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppPrefillProfile",
+            node_id="LlamaCppMtmd_PrefillProfile",
             display_name="[llama.cpp] Prefill Profile",
             category="llama_cpp/profile",
             description=(

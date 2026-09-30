@@ -6,7 +6,7 @@
 
 ## 노드와 소유권 계약
 
-- 새 노드는 `OllamaImageList_LlamaCppCreateRuntimeSession` ID로 등록하고 기존 `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` 소켓을 출력한다. 기존 Create/Connect/Generate/Unload 노드 ID와 저장된 워크플로 계약은 유지한다. 모든 새 파라미터 이름은 `snake_case`로 둔다.
+- Create Runtime Session은 `LlamaCppMtmd_CreateRuntimeSession` ID를 사용하고 기존 `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` 소켓을 출력한다. 새 ID를 적용하면서 이전 Create Runtime Session ID와의 워크플로 호환 등록은 두지 않는다. 모든 새 파라미터 이름은 `snake_case`로 둔다.
 - 실행 파일은 기존 `_resolve_llama_executable()` 경로를 사용한다. `PATH`의 `llama`가 우선이고, 없으면 완료된 Internal runtime 설치본을 사용한다. 둘 다 없으면 모델을 로드하거나 세션을 출력하기 전에 명확한 오류를 낸다. Internal runtime의 `auto_start`, 설정 포트, 실행 중 프로세스에는 손대지 않는다.
 - 각 Create Runtime Session 실행은 자신만의 supervisor와 `127.0.0.1` 로컬 포트를 소유한다. 포트는 OS가 할당한 빈 포트를 선택하고 충돌로 시작하지 못하면 오류를 반환하며, 다른 프로세스를 종료하지 않는다. 기존 supervisor의 lifetime pipe, 자식 환경 구성, 종료 대기/강제 종료 방식을 재사용하되 전역 daemon의 `_process`와 `_lock` 상태에는 등록하지 않는다.
 - 지정된 단일 GGUF와 선택적 mmproj를 서버 실행 명령에 전달한다. 서버 프로세스가 살아 있고 `/health`가 `ok`일 때만 세션을 출력한다. 시작 실패나 준비 시간 초과 시 자신이 시작한 프로세스를 정리한다. 같은 세션의 Generate 호출은 모델이 로드된 서버를 재사용한다.

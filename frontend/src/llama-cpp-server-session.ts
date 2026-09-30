@@ -4,7 +4,7 @@ import type { ComfyNodeLike, ComfyWidget } from "./comfy-types.ts"
 import { getWidget } from "./comfy-types.ts"
 import { EXTENSION_NAMES, PROJECT_NAME } from "./constants.ts"
 
-const NODE_CLASS = "OllamaImageList_LlamaCppConnectSession"
+const NODE_CLASS = "LlamaCppMtmd_ConnectSession"
 const MODELS_ROUTE = "/ollama_image_list/llama_cpp/models"
 const requestSequence: unique symbol = Symbol("llamaCppModelsRequestSequence")
 

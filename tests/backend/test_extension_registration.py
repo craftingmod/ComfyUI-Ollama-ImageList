@@ -218,20 +218,20 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
         "OllamaImageList_LlamaCppModelProfile",
         "OllamaImageList_LlamaCppHardwareRuntimeProfile",
-        "OllamaImageList_LlamaCppPrefillProfile",
+        "LlamaCppMtmd_PrefillProfile",
         "OllamaImageList_LlamaCppReasoningConfig",
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
         "OllamaImageList_LlamaCppNativeSpeculativeConfig",
-        "OllamaImageList_LlamaCppCreateSession",
-        "OllamaImageList_LlamaCppCreateRuntimeSession",
-        "OllamaImageList_LlamaCppConnectSession",
-        "OllamaImageList_LlamaCppCreateQuestionFromInput",
-        "OllamaImageList_LlamaCppDecideSession",
-        "OllamaImageList_LlamaCppSessionGenerate",
-        "OllamaImageList_LlamaCppUnloadSession",
+        "LlamaCppMtmd_CreateSession",
+        "LlamaCppMtmd_CreateRuntimeSession",
+        "LlamaCppMtmd_ConnectSession",
+        "LlamaCppMtmd_CreateQuestionFromInput",
+        "LlamaCppMtmd_DecideSession",
+        "LlamaCppMtmd_SessionGenerate",
+        "LlamaCppMtmd_UnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
         "OllamaImageList_LlamaCppSequentialGenerate",
-        "OllamaImageList_LlamaCppSessionGenerateSequential",
+        "LlamaCppMtmd_SessionGenerateSequential",
         "OllamaImageList_LlamaCppGenerate",
         "OllamaImageList_LlamaCppMediaDiagnostics",
         "OllamaImageList_MuseGlimmerResponseParser",
@@ -853,7 +853,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert custom_hardware_profile["type_v"] == "Q4_0"
 
     prefill_class, prefill_schema = registered[
-        "OllamaImageList_LlamaCppPrefillProfile"
+        "LlamaCppMtmd_PrefillProfile"
     ]
     assert [field.name for field in prefill_schema.inputs] == [
         "profile",
@@ -1149,7 +1149,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert compact_inputs["speculative"].options["optional"] is True
 
     create_session_class, create_session_schema = registered[
-        "OllamaImageList_LlamaCppCreateSession"
+        "LlamaCppMtmd_CreateSession"
     ]
     assert create_session_schema.is_input_list is True
     assert create_session_schema.not_idempotent is True
@@ -1171,10 +1171,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     _, create_runtime_session_schema = registered[
-        "OllamaImageList_LlamaCppCreateRuntimeSession"
+        "LlamaCppMtmd_CreateRuntimeSession"
     ]
     assert create_runtime_session_schema.node_id == (
-        "OllamaImageList_LlamaCppCreateRuntimeSession"
+        "LlamaCppMtmd_CreateRuntimeSession"
     )
     assert create_runtime_session_schema.is_input_list is True
     assert create_runtime_session_schema.not_idempotent is True
@@ -1207,7 +1207,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert create_runtime_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
-    _, connect_session_schema = registered["OllamaImageList_LlamaCppConnectSession"]
+    _, connect_session_schema = registered["LlamaCppMtmd_ConnectSession"]
     assert connect_session_schema.is_input_list is True
     assert connect_session_schema.not_idempotent is True
     assert connect_session_schema.is_experimental is True
@@ -1226,7 +1226,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     _, create_question_input_schema = registered[
-        "OllamaImageList_LlamaCppCreateQuestionFromInput"
+        "LlamaCppMtmd_CreateQuestionFromInput"
     ]
     assert create_question_input_schema.is_input_list is True
     assert [field.name for field in create_question_input_schema.inputs] == [
@@ -1240,7 +1240,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert create_question_input_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
     )
-    _, decide_schema = registered["OllamaImageList_LlamaCppDecideSession"]
+    _, decide_schema = registered["LlamaCppMtmd_DecideSession"]
     assert decide_schema.is_input_list is True
     assert [field.name for field in decide_schema.inputs] == [
         "session",
@@ -1264,7 +1264,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     session_generate_class, session_generate_schema = registered[
-        "OllamaImageList_LlamaCppSessionGenerate"
+        "LlamaCppMtmd_SessionGenerate"
     ]
     assert session_generate_schema.is_input_list is True
     assert [field.name for field in session_generate_schema.inputs] == [
@@ -1301,7 +1301,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
     )
     unload_session_class, unload_session_schema = registered[
-        "OllamaImageList_LlamaCppUnloadSession"
+        "LlamaCppMtmd_UnloadSession"
     ]
     assert unload_session_schema.is_output_node is True
     assert unload_session_schema.outputs == []

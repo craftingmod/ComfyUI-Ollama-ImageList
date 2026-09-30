@@ -357,7 +357,7 @@ class LlamaCppConnectSessionNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppConnectSession",
+            node_id="LlamaCppMtmd_ConnectSession",
             display_name="[llama.cpp] Connect Session",
             category=f"{BASE_CATEGORY}/session",
             description=(
@@ -430,7 +430,7 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         model_options, mmproj_options = _gguf_options()
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppCreateSession",
+            node_id="LlamaCppMtmd_CreateSession",
             display_name="[llama.cpp] Create Native Session",
             category=f"{BASE_CATEGORY}/session",
             description=(
@@ -503,7 +503,7 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         model_options, mmproj_options = _gguf_options()
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppCreateRuntimeSession",
+            node_id="LlamaCppMtmd_CreateRuntimeSession",
             display_name="[llama.cpp] Create Runtime Session",
             category=f"{BASE_CATEGORY}/session",
             description=(
@@ -616,7 +616,7 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppSessionGenerate",
+            node_id="LlamaCppMtmd_SessionGenerate",
             display_name="[llama.cpp] Generate (Session)",
             category=f"{BASE_CATEGORY}/generate",
             description=(
@@ -696,7 +696,7 @@ class LlamaCppSessionSequentialGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppSessionGenerateSequential",
+            node_id="LlamaCppMtmd_SessionGenerateSequential",
             display_name="[llama.cpp] Generate (Sequential)",
             category=f"{BASE_CATEGORY}/generate",
             description=(
@@ -797,7 +797,7 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppUnloadSession",
+            node_id="LlamaCppMtmd_UnloadSession",
             display_name="[llama.cpp] Unload Session",
             category=f"{BASE_CATEGORY}/session",
             description=(

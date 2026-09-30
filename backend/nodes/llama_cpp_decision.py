@@ -59,7 +59,7 @@ class LlamaCppCreateQuestionFromInputNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppCreateQuestionFromInput",
+            node_id="LlamaCppMtmd_CreateQuestionFromInput",
             display_name="[llama.cpp] Create Question From Input",
             category=f"{BASE_CATEGORY}/decision",
             description=(
@@ -89,7 +89,7 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppDecideSession",
+            node_id="LlamaCppMtmd_DecideSession",
             display_name="[llama.cpp] Decide (Session)",
             category=f"{BASE_CATEGORY}/decision",
             description=(
