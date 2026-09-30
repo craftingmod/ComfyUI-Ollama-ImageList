@@ -14,7 +14,12 @@ from urllib.request import Request, urlopen
 
 from ..core import BackendError, InputNormalizationError, MediaBundle
 from ..llama_cpp_session_cleanup import track_session, untrack_session
-from .llama_cpp import LlamaCppResult, _data_uri, _extract_response
+from .llama_cpp import (
+    LlamaCppDecisionResult,
+    LlamaCppResult,
+    _data_uri,
+    _extract_response,
+)
 
 Transport = Callable[[str, str, bytes | None, float], tuple[int, bytes]]
 _BASE64_RUN = re.compile(
@@ -393,11 +398,14 @@ class LlamaCppServerSession:
         context: str,
         answers: list[str],
         model_profile: dict[str, Any] | None = None,
-    ) -> tuple[str, dict[str, float]]:
+        seed: int = -1,
+        media: MediaBundle | None = None,
+    ) -> LlamaCppDecisionResult:
         if self._closed:
             raise BackendError(
                 "The llama.cpp server session has already been unloaded."
             )
+        media = media or MediaBundle()
         if not isinstance(question, str) or not question.strip():
             raise InputNormalizationError("question must be a non-empty string.")
         if not isinstance(context, str):
@@ -441,7 +449,11 @@ class LlamaCppServerSession:
                     + ", ".join(choice.target for choice in choices),
                 )
             )
-            decision_prompt = "\n\n".join((context, "\n\n".join(prompt_sections)))
+            context_sections = [context] if context else []
+            if media.items:
+                context_sections.append(" ".join("<__media__>" for _ in media.items))
+            context_sections.append("\n\n".join(prompt_sections))
+            decision_prompt = "\n\n".join(context_sections)
             grammar = "root ::= " + " | ".join(
                 f'"{choice.target}"' for choice in choices
             )
@@ -497,6 +509,16 @@ class LlamaCppServerSession:
                 "post_sampling_probs": True,
                 "grammar": grammar,
             }
+            if media.items:
+                request["prompt"] = {
+                    "prompt_string": prompt,
+                    "multimodal_data": [
+                        base64.b64encode(item.payload).decode("ascii")
+                        for item in media.items
+                    ],
+                }
+            if seed >= 0:
+                request["seed"] = int(seed)
             if model_profile is not None:
                 request.update(
                     temperature=model_profile["temperature"],
@@ -506,6 +528,7 @@ class LlamaCppServerSession:
                     repeat_penalty=model_profile["repeat_penalty"],
                     presence_penalty=model_profile["presence_penalty"],
                 )
+            started = time.perf_counter()
             response_body = _request(
                 url=_endpoint_url(self.url, "/completion"),
                 method="POST",
@@ -516,6 +539,7 @@ class LlamaCppServerSession:
                 api_key=self._api_key,
                 transport=self._transport,
             )
+            elapsed = time.perf_counter() - started
             try:
                 response = json.loads(response_body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -591,8 +615,52 @@ class LlamaCppServerSession:
                 for answer, probability in probabilities.items()
             }
             selected = max(probabilities, key=probabilities.__getitem__)
+            execution_index = self._execution_count
             self._execution_count += 1
-            return selected, probabilities
+            manifest = media.manifest()
+            has_media = bool(media.items)
+            return LlamaCppDecisionResult(
+                selected=selected,
+                probabilities=probabilities,
+                metrics={
+                    "decision_seconds": elapsed,
+                    "server_timings": response.get("timings", {}),
+                    "model_unloaded": False,
+                    "session": {
+                        "execution_index": execution_index,
+                        "model_reused": execution_index > 0,
+                        "unload_required": True,
+                        "remote": True,
+                    },
+                },
+                media_diagnostics={
+                    "schema_version": 1,
+                    "backend": "llama.cpp-server",
+                    "model": self.model,
+                    "handler": "server",
+                    "capabilities": {
+                        "vision": False,
+                        "audio": False,
+                        "video": False,
+                    },
+                    "requested": manifest,
+                    "evaluated": {
+                        "media_count": 0,
+                        "image_count": 0,
+                        "audio_count": 0,
+                        "video_count": 0,
+                    },
+                    "mtmd": {
+                        "strict_pipeline": False,
+                        "completion_succeeded": True,
+                        "all_media_evaluated": not has_media,
+                        "verification": "unverified_remote"
+                        if has_media
+                        else "no_media",
+                    },
+                    "model_unloaded_after_response": False,
+                },
+            )
         except (BackendError, InputNormalizationError):
             raise
         except Exception as exc:

@@ -4,6 +4,7 @@ import base64
 import gc
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import partial
 from importlib import import_module
@@ -84,6 +85,18 @@ class LlamaCppResult:
     raw: dict[str, Any]
     metrics: dict[str, Any]
     media_diagnostics: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class LlamaCppDecisionResult:
+    selected: str
+    probabilities: dict[str, float]
+    metrics: dict[str, Any]
+    media_diagnostics: dict[str, Any]
+
+    def __iter__(self) -> Iterator[Any]:
+        yield self.selected
+        yield self.probabilities
 
 
 def _close_resources(resources: tuple[Any, ...]) -> list[Exception]:
@@ -325,9 +338,11 @@ class LlamaCppSession:
         context: str,
         answers: list[str],
         model_profile: dict[str, Any] | None = None,
-    ) -> tuple[str, dict[str, float]]:
+        media: MediaBundle | None = None,
+    ) -> LlamaCppDecisionResult:
         if self._closed:
             raise BackendError("The Llama.cpp session has already been unloaded.")
+        media = media or MediaBundle()
         try:
             from makoto_decision import Choices, Decision
             from makoto_decision.evaluators import (
@@ -361,6 +376,7 @@ class LlamaCppSession:
                 **self._configuration,
                 **_model_profile_overrides(model_profile),
             }
+            configuration["handler"] = self._configuration.get("handler", "auto")
             choices = Choices.letters(*answers)
             decision = Decision(
                 choices=choices,
@@ -368,7 +384,9 @@ class LlamaCppSession:
                 question=question,
             )
             with _NATIVE_EXECUTION_LOCK:
-                self._initialize_for_decision(configuration)
+                fallback_handler, model_path, mmproj_path = (
+                    self._initialize_for_decision(configuration, media)
+                )
                 llama = self._native_session.llm
                 if llama is None:
                     raise BackendError("The Llama.cpp decision session has no model.")
@@ -410,15 +428,42 @@ class LlamaCppSession:
                     token_ids[token_id] = choice.target
 
                 llama.reset()
-                result = LlamaCppEvaluator(llama).evaluate(decision)
+                started = time.perf_counter()
+                evaluator_llama = (
+                    _DecisionMediaPrefill(llama, context, media)
+                    if media.items
+                    else llama
+                )
+                result = LlamaCppEvaluator(evaluator_llama).evaluate(decision)
                 if result.selected is None:
                     raise BackendError("Llama.cpp decision did not select an answer.")
                 probabilities = result.probabilities
                 ordered_probabilities = {
                     answer: float(probabilities[answer]) for answer in answers
                 }
+                elapsed = time.perf_counter() - started
+                execution_index = self._execution_count
                 self._execution_count += 1
-                return result.selected, ordered_probabilities
+                return LlamaCppDecisionResult(
+                    selected=result.selected,
+                    probabilities=ordered_probabilities,
+                    metrics={
+                        "decision_seconds": elapsed,
+                        "model_unloaded": False,
+                        "session": {
+                            "execution_index": execution_index,
+                            "model_reused": execution_index > 0,
+                            "unload_required": True,
+                        },
+                    },
+                    media_diagnostics=_capture_media_diagnostics(
+                        llm=llama,
+                        fallback_handler=fallback_handler,
+                        media=media,
+                        model_path=model_path,
+                        mmproj_path=mmproj_path,
+                    ),
+                )
         except Exception as exc:
             self.close()
             if isinstance(exc, (BackendError, InputNormalizationError)):
@@ -432,9 +477,13 @@ class LlamaCppSession:
             raise BackendError(f"llama.cpp decision failed: {exc}") from exc
 
     def _initialize_for_decision(
-        self, configuration: dict[str, Any] | None = None
-    ) -> None:
+        self,
+        configuration: dict[str, Any] | None = None,
+        media: MediaBundle | None = None,
+    ) -> tuple[Any | None, str, str | None]:
         configuration = self._configuration if configuration is None else configuration
+        media = media or MediaBundle()
+        has_media = bool(media.items)
         model_path = _resolve_file(
             str(configuration.get("model_path", "")),
             label="model_path",
@@ -442,6 +491,11 @@ class LlamaCppSession:
         )
         n_ctx = int(configuration.get("n_ctx", 8192))
         n_batch = int(configuration.get("n_batch", 512))
+        mmproj_path = _resolve_file(
+            str(configuration.get("mmproj_path", "")),
+            label="mmproj_path",
+            required=has_media,
+        )
         gpu_layers = str(configuration.get("gpu_layers", "all"))
         if gpu_layers not in {"auto", "all", "cpu"}:
             raise InputNormalizationError("gpu_layers must be auto, all, or cpu.")
@@ -481,7 +535,7 @@ class LlamaCppSession:
             draft_n_gpu_layers=configuration.get("draft_n_gpu_layers", "all"),
             draft_backend_sampling=configuration.get("draft_backend_sampling", True),
             verbose=verbose,
-            has_media=False,
+            has_media=has_media,
             gpu_layers=gpu_layers,
             n_ctx=n_ctx,
         )
@@ -520,11 +574,11 @@ class LlamaCppSession:
             bool(configuration.get("override_image_max_tokens", False)),
             int(configuration.get("image_max_tokens", 1120)),
         )
-        model_kwargs, _ = _native_model_kwargs(
+        model_kwargs, chat_handler = _native_model_kwargs(
             self._bindings,
             model_path=model_path,
-            mmproj_path=None,
-            has_media=False,
+            mmproj_path=mmproj_path,
+            has_media=has_media,
             handler=handler,
             verbose=verbose,
             thinking=thinking,
@@ -547,14 +601,25 @@ class LlamaCppSession:
             ngram_configuration=ngram_configuration,
             native_speculative_api=native_speculative_api,
         )
+        if has_media:
+            _validate_multimodal_batch_settings(
+                handler=handler,
+                media=media,
+                n_ctx=n_ctx,
+                n_batch=n_batch,
+                n_ubatch=n_ubatch_override,
+                image_min_tokens=image_min_tokens_override,
+                image_max_tokens=image_max_tokens_override,
+            )
         adapter = self._native_session.create(**model_kwargs)
-        _install_text_template_handler(
-            self._bindings,
-            adapter,
-            thinking=thinking,
-            reasoning_strength=effective_reasoning_strength,
-            custom_chat_template=custom_chat_template,
-        )
+        if not has_media:
+            _install_text_template_handler(
+                self._bindings,
+                adapter,
+                thinking=thinking,
+                reasoning_strength=effective_reasoning_strength,
+                custom_chat_template=custom_chat_template,
+            )
         if (
             native_configuration is not None
             and native_configuration["mtp_provider"] == "internal"
@@ -571,6 +636,7 @@ class LlamaCppSession:
                     "Selected Qwen 3.5+ target GGUF has no usable embedded NextN/MTP "
                     "layers."
                 )
+        return chat_handler, model_path, mmproj_path
 
     def close(self) -> None:
         if self._closed:
@@ -986,6 +1052,70 @@ def _build_messages(
     else:
         messages.append({"role": "user", "content": prompt})
     return messages
+
+
+def _append_media_to_decision_messages(
+    messages: list[dict[str, Any]], context: str, media: MediaBundle
+) -> list[dict[str, Any]]:
+    media_parts = _build_messages("", "", media)[-1]["content"][1:]
+    adapted = [dict(message) for message in messages]
+    user_index = next(
+        (
+            index
+            for index in range(len(adapted) - 1, -1, -1)
+            if adapted[index].get("role") == "user"
+        ),
+        None,
+    )
+    if user_index is None:
+        raise BackendError("Decision prefill did not produce a user message.")
+    content = adapted[user_index].get("content")
+    parts = (
+        [{"type": "text", "text": content}]
+        if isinstance(content, str)
+        else list(content)
+        if isinstance(content, list)
+        else None
+    )
+    if parts is None:
+        raise BackendError("Decision prefill returned unsupported message content.")
+
+    if context:
+        for index, part in enumerate(parts):
+            if not isinstance(part, dict) or part.get("type") != "text":
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and context in text:
+                before, _, after = text.partition(context)
+                replacement = [{"type": "text", "text": before + context}]
+                replacement.extend(media_parts)
+                if after:
+                    replacement.append({"type": "text", "text": after})
+                parts[index : index + 1] = replacement
+                adapted[user_index]["content"] = parts
+                return adapted
+
+    adapted[user_index]["content"] = media_parts + parts
+    return adapted
+
+
+class _DecisionMediaPrefill:
+    def __init__(self, llama: Any, context: str, media: MediaBundle):
+        self._llama = llama
+        self._context = context
+        self._media = media
+
+    def tokenize(
+        self, text: bytes, *, add_bos: bool = True, special: bool = True
+    ) -> Any:
+        return self._llama.tokenize(text, add_bos=add_bos, special=special)
+
+    def create_chat_prefill(self, *, messages: list[dict[str, Any]]) -> Any:
+        return self._llama.create_chat_prefill(
+            messages=_append_media_to_decision_messages(
+                messages, self._context, self._media
+            )
+        )
 
 
 def _adapt_messages_for_model_template(

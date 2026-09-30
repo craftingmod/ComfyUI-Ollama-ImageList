@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from backend.core import InputNormalizationError
+from backend.core import InputNormalizationError, MediaBundle
 from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 
 
@@ -564,7 +564,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "metrics_json",
         "image_manifest_json",
     ]
-    assert generate_schema.outputs[-1].options["display_name"] == "image manifest"
+    assert generate_schema.outputs[-1].options["display_name"] == "image_manifest_json"
     generate_module = importlib.import_module("backend.nodes.ollama_generate")
     image_item = SimpleNamespace(
         payload=b"png",
@@ -1238,19 +1238,30 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "system",
         "context",
         "question",
+        "images",
+        "audio",
+        "video",
+        "video_with_audio",
+        "seed",
         "model_profile",
+        "session_unload",
     ]
     assert [field.name for field in decide_schema.outputs] == [
         "selected",
         "probabilities_json",
+        "metrics_json",
+        "media_diagnostics",
         "session",
     ]
     assert decide_schema.inputs[0].data_type == "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
-    assert decide_schema.inputs[-1].data_type == (
+    assert decide_schema.inputs[-2].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
     )
-    assert decide_schema.inputs[-1].options["optional"] is True
+    assert decide_schema.inputs[-2].options["optional"] is True
     assert decide_schema.inputs[3].data_type == ("OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION")
+    assert decide_schema.outputs[-2].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
+    )
     assert decide_schema.outputs[-1].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
@@ -2413,14 +2424,40 @@ def test_llama_cpp_decide_node_preserves_answer_labels_and_probability_order(
 
     assert result[0] == "second option"
     assert list(json.loads(result[1])) == ["first option", "second option"]
-    assert result[2] is session
+    assert result[4] is session
     assert calls == [
         {
             "question": "Choose",
             "context": "System:\nsystem rules\n\nContext:\nsupporting context",
             "answers": ["first option", "second option"],
+            "media": MediaBundle(),
         }
     ]
+
+    server_calls = []
+
+    class FakeConnectSession:
+        def decide(self, **values):
+            server_calls.append(values)
+            return "first option", {"first option": 0.8, "second option": 0.2}
+
+    monkeypatch.setattr(
+        decision_nodes, "LlamaCppServerSession", FakeConnectSession
+    )
+    remote_session = FakeConnectSession()
+    remote_result = decision_nodes.LlamaCppDecideSessionNode.execute(
+        [remote_session],
+        ["system rules"],
+        ["supporting context"],
+        [payload],
+        images=[solid_image(1, 1, 1, 3, 0.5)],
+        seed=[123],
+    )
+    assert remote_result[0] == "first option"
+    assert remote_result[4] is remote_session
+    assert len(server_calls[0]["media"].items) == 1
+    assert server_calls[0]["seed"] == 123
+
     with pytest.raises(InputNormalizationError, match="Create Native Session"):
         decision_nodes.LlamaCppDecideSessionNode.execute(
             [object()], [""], [""], [payload]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from time import perf_counter
 from typing import Any
 
 try:
@@ -9,10 +10,11 @@ try:
 except ImportError:  # pragma: no cover - compatibility with newer ComfyUI builds
     from comfy_api.latest import io
 
-from ..backends.llama_cpp import LlamaCppSession
-from ..backends.llama_cpp_server import OwnedLlamaCppServerSession
+from ..backends.llama_cpp import LlamaCppDecisionResult, LlamaCppSession
+from ..backends.llama_cpp_server import LlamaCppServerSession
 from ..core import (
     InputNormalizationError,
+    normalize_media,
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
@@ -21,6 +23,7 @@ from .llama_cpp_compact import (
     LlamaCppModelProfileType,
     normalize_compact_model_profile,
 )
+from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_session import LlamaCppSessionType
 
 LlamaCppQuestionType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION")
@@ -94,8 +97,8 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
             category=f"{BASE_CATEGORY}/decision",
             description=(
                 "Scores letter-token choices with a Native Session prefill or a Runtime "
-                "Session's constrained llama-server completion. Connect Sessions are "
-                "not supported."
+                "or Connect Session's constrained llama-server completion. Optional media "
+                "is added to the context; question and answers remain text-only."
             ),
             is_input_list=True,
             not_idempotent=True,
@@ -109,6 +112,20 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
                     "context", default="", multiline=True, dynamic_prompts=False
                 ),
                 LlamaCppQuestionType.Input("question"),
+                io.Image.Input("images", optional=True),
+                io.Audio.Input("audio", optional=True),
+                io.Video.Input("video", optional=True),
+                io.Boolean.Input("video_with_audio", default=False),
+                io.Int.Input(
+                    "seed",
+                    default=-1,
+                    min=-1,
+                    max=0xFFFFFFFF,
+                    step=1,
+                    tooltip=(
+                        "Runtime completion seed; Native prefill scoring is deterministic."
+                    ),
+                ),
                 LlamaCppModelProfileType.Input(
                     "model_profile",
                     optional=True,
@@ -117,11 +134,22 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
                         "on/off reasoning settings per request."
                     ),
                 ),
+                io.Boolean.Input(
+                    "session_unload",
+                    default=False,
+                    label_on="Unload",
+                    label_off="Keep",
+                    tooltip="Unload the session after the decision completes.",
+                ),
             ],
             outputs=[
                 io.String.Output("selected"),
                 io.String.Output(
                     "probabilities_json", display_name="probabilities_json"
+                ),
+                io.String.Output("metrics_json", display_name="metrics"),
+                LlamaCppMediaDiagnosticsType.Output(
+                    "media_diagnostics", display_name="media_diagnostics"
                 ),
                 LlamaCppSessionType.Output("session", display_name="session"),
             ],
@@ -134,15 +162,21 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
         system: Any,
         context: Any,
         question: Any,
+        images: Any = None,
+        audio: Any = None,
+        video: Any = None,
+        video_with_audio: Any = False,
+        seed: Any = -1,
         model_profile: Any = None,
+        session_unload: Any = False,
     ) -> io.NodeOutput:
         resolved_session = unwrap_required_scalar("session", session)
         if not isinstance(
-            resolved_session, (LlamaCppSession, OwnedLlamaCppServerSession)
+            resolved_session, (LlamaCppSession, LlamaCppServerSession)
         ):
             raise InputNormalizationError(
                 "Decide requires [llama.cpp] Create Native Session or "
-                "Create Runtime Session. Connect Sessions are not supported."
+                "a llama.cpp server session."
             )
         payload = unwrap_required_scalar("question", question)
         if not isinstance(payload, Mapping) or set(payload) != {"question", "answer"}:
@@ -167,20 +201,77 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
             f"Context:\n{resolved_context}" if resolved_context else "",
         ]
         decision_context = "\n\n".join(part for part in context_parts if part)
+        media = normalize_media(
+            images=images,
+            audio=audio,
+            video=video,
+            video_with_audio=bool(
+                unwrap_required_scalar("video_with_audio", video_with_audio)
+            ),
+            audio_sample_rate=16_000,
+            audio_channels=1,
+        )
         request = {
             "question": validated["question"],
             "context": decision_context,
             "answers": validated["answer"],
+            "media": media,
         }
+        resolved_seed = int(unwrap_required_scalar("seed", seed))
+        if resolved_seed < -1 or resolved_seed > 0xFFFFFFFF:
+            raise InputNormalizationError("seed must be between -1 and 4294967295.")
+        if (
+            isinstance(resolved_session, LlamaCppServerSession) and resolved_seed >= 0
+        ):
+            request["seed"] = resolved_seed
         if profile is not None:
             request["model_profile"] = profile
-        selected, probabilities = resolved_session.decide(**request)
+        started = perf_counter()
+        decision = resolved_session.decide(**request)
+        elapsed_ms = (perf_counter() - started) * 1000
+        if isinstance(decision, LlamaCppDecisionResult):
+            selected = decision.selected
+            probabilities = decision.probabilities
+            metrics = dict(decision.metrics)
+            media_diagnostics = dict(decision.media_diagnostics)
+        else:
+            selected, probabilities = decision
+            metrics = {"decision_duration_ms": elapsed_ms}
+            media_diagnostics = {
+                "schema_version": 1,
+                "backend": "llama.cpp-decision",
+                "requested": media.manifest(),
+                "evaluated": {
+                    "image_count": 0,
+                    "audio_count": 0,
+                    "video_count": 0,
+                },
+                "mtmd": {
+                    "completion_succeeded": True,
+                    "all_media_evaluated": not media.items,
+                    "verification": "no_media" if not media.items else "unverified",
+                },
+                "model_unloaded_after_response": False,
+            }
         ordered_probabilities = {
             answer: probabilities[answer] for answer in validated["answer"]
         }
+        unloaded = bool(unwrap_required_scalar("session_unload", session_unload))
+        if unloaded:
+            resolved_session.close()
+        metrics.update(
+            operation="decide",
+            seed=resolved_seed,
+            model_unloaded=unloaded,
+        )
+        if isinstance(metrics.get("session"), dict):
+            metrics["session"]["unload_required"] = not unloaded
+        media_diagnostics["model_unloaded_after_response"] = unloaded
         return io.NodeOutput(
             selected,
             json.dumps(ordered_probabilities, ensure_ascii=False, indent=2),
+            json.dumps(metrics, ensure_ascii=False, indent=2),
+            media_diagnostics,
             resolved_session,
         )
 
