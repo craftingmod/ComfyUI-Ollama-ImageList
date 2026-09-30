@@ -7,6 +7,7 @@ export default defineConfig({
     "**/*.md",
     "presets/**",
     "workflows/**",
+    "subgraphs/**",
     "package.json",
   ],
   tabWidth: 2,
