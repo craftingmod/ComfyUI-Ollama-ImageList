@@ -38,8 +38,6 @@ shared_models:
 
 Both `model_path` and `mmproj_path` show the complete GGUF inventory. Filenames are not used to reject user selections. The projector Combo provides `[none]` and places filenames containing `mmproj` first as a convenience. An `mtp-*.gguf` file is normally a speculative-decoding draft model, not a multimodal projector.
 
-The experimental Speculative Generate node adds a `draft_model` Combo from the same inventory directly below `mmproj_path`. It stably prioritizes filenames containing `dflash`, `dspark`, `draft`, or `mtp`, but does not infer target compatibility from a filename.
-
 After adding files or changing `extra_model_paths.yaml`, restart ComfyUI or refresh the node definitions. A saved relative selection is resolved through ComfyUI's registered model paths again at execution time.
 
 ## Optional local llama.cpp server
@@ -85,15 +83,15 @@ When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shu
 
 ## Workflow-owned runtime sessions
 
-`[llama.cpp] Create Native Session`, `[llama.cpp] Create Runtime Session`, `[llama.cpp] Connect Session`, and `[llama.cpp] Unload Session` are in `llama_cpp/session`; `[llama.cpp] Generate (Session)` and `[llama.cpp] Generate (Sequential)` are in `llama_cpp/generate`.
+`[llama.cpp] Create Native Session`, `[llama.cpp] Create Runtime Session`, `[llama.cpp] Connect Session`, and `[llama.cpp] Unload Session` are in `llama_cpp/session`; `[llama.cpp] Generate` and `[llama.cpp] Generate (Sequential)` are in `llama_cpp/generate`.
 
-**[llama.cpp] Create Native Session** takes its handler from the connected Model Profile by default; its `custom_handler` input can override that choice. It also owns the optional `custom_chat_template` setting. A Generate (Session) Model Profile can override sampling and reasoning per request, but its handler is ignored because the session model and handler are initialized at creation.
+**[llama.cpp] Create Native Session** takes its handler from the connected Model Profile by default; its `custom_handler` input can override that choice. It also owns the optional `custom_chat_template` setting. A Generate Model Profile can override sampling and reasoning per request, but its handler is ignored because the session model and handler are initialized at creation.
 
-**[llama.cpp] Generate (Session)** and **[llama.cpp] Decide (Session)** also accept an optional `model_profile`. On Native Sessions, Generate uses it for per-request sampling and reasoning; the handler remains the one selected when the session was created. Server-backed sessions apply the profile's sampling values and explicit `on`/`off` reasoning mode per request; the server handler and custom Jinja template remain fixed at server startup.
+**[llama.cpp] Generate** and **[llama.cpp] Decide** also accept an optional `model_profile`. On Native Sessions, Generate uses it for per-request sampling and reasoning; the handler remains the one selected when the session was created. Server-backed sessions apply the profile's sampling values and explicit `on`/`off` reasoning mode per request; the server handler and custom Jinja template remain fixed at server startup.
 
-**[llama.cpp] Generate (Sequential)** has the same inputs as **Generate (Session)**. It sends one request per IMAGE, AUDIO, or VIDEO item through the connected session, in modality order. A single `prompt` is shared across items; a prompt list must have one entry per item. Its five outputs are parallel lists. `session_unload` closes the session after the whole sequence.
+**[llama.cpp] Generate (Sequential)** has the same inputs as **[llama.cpp] Generate**. It sends one request per IMAGE, AUDIO, or VIDEO item through the connected session, in modality order. A single `prompt` is shared across items; a prompt list must have one entry per item. Its five outputs are parallel lists. `session_unload` closes the session after the whole sequence.
 
-`[llama.cpp] Create Runtime Session` starts a local `llama server` only when the workflow executes the node. It uses the existing `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` socket, so connect it to the existing **Generate (Session)** and **Unload Session** nodes. This path does not require `llama-cpp-python` or enable the always-on Internal runtime. It leaves the daemon's saved settings and running process alone.
+`[llama.cpp] Create Runtime Session` starts a local `llama server` only when the workflow executes the node. It uses the existing `OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION` socket, so connect it to the existing **Generate** and **Unload Session** nodes. This path does not require `llama-cpp-python` or enable the always-on Internal runtime. It leaves the daemon's saved settings and running process alone.
 
 Each runtime session assigns its own random API key to the server and keeps that key inside the session handle. Model-list and Generate requests include it automatically, so direct requests to protected server endpoints without the session's key are rejected.
 
@@ -105,7 +103,7 @@ Prefill Profile maps `n_batch` to `--batch-size`, positive `n_ubatch` to `--ubat
 
 Native speculative settings map to `--spec-type` (`draft-mtp`, `draft-dflash`, or `draft-dspark`), `--spec-draft-model`, `--spec-draft-n-max`, `--spec-draft-p-min`, `--spec-draft-ngl`, and the `--spec-draft-backend-sampling` / `--no-spec-draft-backend-sampling` pair. External MTP requires a draft GGUF, while internal MTP does not. N-gram `k` uses `ngram-map-k` with `--spec-ngram-map-k-size-n`, `--spec-ngram-map-k-size-m`, and `--spec-ngram-map-k-min-hits`; `k4v` uses `ngram-map-k4v` with `--spec-ngram-map-k4v-size-n`, `--spec-ngram-map-k4v-size-m`, and `--spec-ngram-map-k4v-min-hits`. Those options receive `ngram_size`, `num_pred_tokens`, and `ngram_min_hits`. `ngram_max_entries_per_key` is accepted but ignored. Off omits speculative options. The session's sampling, hardware, reasoning, and speculative settings remain fixed; Generate's existing request inputs such as `max_tokens`, `seed`, and `stop` still apply per request. `verbose` enables `--verbose`. See the [llama.cpp server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) for the server option reference.
 
-Connect **Unload Session** to the session and connect the loop's final `timing` result to its `timing` input so unload runs after the last Generate. Unload closes the owned server; an interrupted workflow also closes tracked sessions at prompt end. If ComfyUI exits abnormally, the supervisor's lifetime pipe detects process exit and shuts down its child. These ownership rules apply only to Runtime Session handles: **Connect Session** retains its existing external-server `/models/unload` behavior and never owns or stops that server.
+Connect **Unload Session** to the session and connect the loop's final `timing` result to its `timing` input so unload runs after the last Generate. Unload passes that value through its `timing` output and closes the owned server. An interrupted workflow also closes tracked sessions at prompt end. If ComfyUI exits abnormally, the supervisor's lifetime pipe detects process exit and shuts down its child. These ownership rules apply only to Runtime Session handles: **Connect Session** retains its existing external-server `/models/unload` behavior and never owns or stops that server.
 
 ## Decision sessions
 
@@ -113,7 +111,7 @@ Decision nodes require the optional `llama` dependencies, including `makoto-deci
 
 **[llama.cpp] Create Question From Input** accepts one `STRING` question and a flat ComfyUI `STRING` list output. It rejects multiple question values and nested answer lists.
 
-Connect the question output and a Native or Runtime Session to **[llama.cpp] Decide (Session)**. It returns the selected original answer, an input-ordered `probabilities_json` object, and the same session handle for the next operation. The `system` and `context` text are labeled and prepended to the decision context; `makoto-decision` does not provide a separate system-role input here.
+Connect the question output and a Native or Runtime Session to **[llama.cpp] Decide**. It returns the selected original answer, an input-ordered `probabilities_json` object, and the same session handle for the next operation. The `system` and `context` text are labeled and prepended to the decision context; `makoto-decision` does not provide a separate system-role input here.
 
 The decision uses `A`–`Z` as candidate targets. Before scoring, each target must tokenize to one distinct token ID; multi-token targets, duplicate token IDs, or missing server probability fields fail the execution. Native probabilities are a softmax over candidate logits. Runtime probabilities come from constrained completion, then are renormalized over the requested candidates; they are not raw logits or calibrated confidence estimates. Decision inputs are text-only.
 
@@ -153,7 +151,7 @@ Media group order is always IMAGE, then AUDIO, then VIDEO. Order inside each gro
 | AUDIO | Lossless PCM16 WAV data URI in an `input_audio` part | Requires an audio-capable model/projector/template. |
 | VIDEO | Original encoded ComfyUI stream in an internal `video` part | Native `libmtmd` decoding requires `MTMD_VIDEO` in the wheel build. `video_with_audio` optionally extracts the first embedded audio track with PyAV and adds it as an `input_audio` part. |
 
-Generate (Session) and the compact Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. In either sequential node, the extracted audio is paired with its VIDEO item in the same request; explicitly connected AUDIO items remain separate execution items.
+Generate and the compact Generate nodes expose `video_with_audio` (default `false`). When enabled, PyAV (`av>=16.0.0`) decodes the first embedded audio track, which is converted to mono 16 kHz PCM16 WAV through the existing AUDIO normalization path. In either sequential node, the extracted audio is paired with its VIDEO item in the same request; explicitly connected AUDIO items remain separate execution items.
 
 ## Generate inputs
 
@@ -393,11 +391,11 @@ A successful `mtmd_evaluated` receipt confirms capability checks, decoding, mark
 
 ## Native speculative decoding (Experimental)
 
-`[llama.cpp] Native Speculative Profile` is registered under `llama_cpp / profile` and connects to Compact Generate. The detailed `[llama.cpp] Speculative Generate (Experimental)` implementation remains in the source tree and test suite but is intentionally omitted from extension registration.
+`[llama.cpp] Native Speculative Profile` is registered under `llama_cpp / profile` and connects to Compact Generate.
 
-This node remains completely separate from the normal node's typed N-gram Preset: it has no `ngram_speculative` input and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
+The profile remains separate from Compact Generate's typed N-gram Preset and uses the official `SpecConfig`/`SpeculativeType` API. DFlash, DSpark, and external MTP require a separate draft GGUF. Internal MTP instead uses NextN layers embedded in the target and ignores the draft selector. A direct backend call that attempts to enable N-gram and any native provider together is rejected before either decoder is created.
 
-The node requires a fork wheel that provides `llama_cpp.llama_speculative.SpecConfig` and `SpeculativeType`, plus the corresponding native engines. The dependency is checked at the beginning of Speculative node execution. If it is missing or cannot load its native DLLs, that Job fails with an installation error before media normalization, GGUF validation, or model loading; node registration, ComfyUI startup, and non-speculative workflows do not import the experimental module. New code must pass `speculative=SpecConfig(...)` to `Llama`; the deprecated `draft_model=` callback path is not used. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
+Native speculative decoding requires a fork wheel that provides `llama_cpp.llama_speculative.SpecConfig` and `SpeculativeType`, plus the corresponding native engines. Compact Generate checks the dependency when a native preset is selected, before media normalization, GGUF validation, or model loading. Normal node registration and `preset=Off` execution do not import the native speculative module. The backend passes `speculative=SpecConfig(...)` to `Llama`; the deprecated `draft_model=` callback path is not used. Any wheel must match ComfyUI's exact Python, platform, CUDA runtime, and bundled native DLLs.
 
 Choose `preset=Off` for target-only generation; all Native Speculative Profile fields are disabled and the output is an off config. For External MTP, DFlash, or DSpark, choose a compatible GGUF in `draft_model`. Internal MTP uses no separate draft GGUF. `Custom` exposes `custom_spec_type` and `custom_mtp_provider`; the latter is enabled only for Custom. `draft_n_max` and `draft_p_min` are accepted for every non-Off preset. The target and draft pair is not validated by filename and an incompatible pair fails explicitly during initialization or generation.
 

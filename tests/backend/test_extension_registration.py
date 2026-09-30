@@ -8,7 +8,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from backend.core import BackendError, InputNormalizationError
+from backend.core import InputNormalizationError
 from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 
 
@@ -216,25 +216,25 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppSamplingPreset",
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
-        "OllamaImageList_LlamaCppModelProfile",
-        "OllamaImageList_LlamaCppHardwareRuntimeProfile",
+        "LlamaCppMtmd_ModelProfile",
+        "LlamaCppMtmd_HardwareRuntimeProfile",
         "LlamaCppMtmd_PrefillProfile",
-        "OllamaImageList_LlamaCppReasoningConfig",
+        "LlamaCppMtmd_ReasoningConfig",
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
-        "OllamaImageList_LlamaCppNativeSpeculativeConfig",
+        "LlamaCppMtmd_NativeSpeculativeConfig",
         "LlamaCppMtmd_CreateSession",
         "LlamaCppMtmd_CreateRuntimeSession",
         "LlamaCppMtmd_ConnectSession",
         "LlamaCppMtmd_CreateQuestionFromInput",
-        "LlamaCppMtmd_DecideSession",
-        "LlamaCppMtmd_SessionGenerate",
+        "LlamaCppMtmd_Decide",
+        "LlamaCppMtmd_Generate",
         "LlamaCppMtmd_UnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
         "OllamaImageList_LlamaCppSequentialGenerate",
-        "LlamaCppMtmd_SessionGenerateSequential",
+        "LlamaCppMtmd_GenerateSequential",
         "OllamaImageList_LlamaCppGenerate",
-        "OllamaImageList_LlamaCppMediaDiagnostics",
-        "OllamaImageList_MuseGlimmerResponseParser",
+        "LlamaCppMtmd_MediaDiagnostics",
+        "LlamaCppMtmd_MuseGlimmerResponseParser",
         "OllamaImageList_CLIPGenerateText",
     ]
     assert [schema.display_name for schema in schemas] == [
@@ -256,8 +256,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Create Runtime Session",
         "[llama.cpp] Connect Session",
         "[llama.cpp] Create Question From Input",
-        "[llama.cpp] Decide (Session)",
-        "[llama.cpp] Generate (Session)",
+        "[llama.cpp] Decide",
+        "[llama.cpp] Generate",
         "[llama.cpp] Unload Session",
         "[llama.cpp] Generate",
         "[llama.cpp] Sequential Generate",
@@ -423,7 +423,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ):
         jinja_class.execute("qwen_fixed.md")
 
-    muse_class, muse_schema = registered["OllamaImageList_MuseGlimmerResponseParser"]
+    muse_class, muse_schema = registered["LlamaCppMtmd_MuseGlimmerResponseParser"]
     assert [(field.name, field.data_type) for field in muse_schema.inputs] == [
         ("muse_response", "string"),
     ]
@@ -531,12 +531,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     options_dict, options_json = options_class.execute(**option_values)
     assert json.loads(options_json) == {
         "num_ctx": 8192,
-        "temperature": 0.2,
+        "temperature": 0.8,
         "stop": ["END"],
     }
     assert options_dict == {
         "num_ctx": 8192,
-        "temperature": 0.2,
+        "temperature": 0.8,
         "stop": ["END"],
     }
 
@@ -729,7 +729,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     )
 
     compact_profile_class, compact_profile_schema = registered[
-        "OllamaImageList_LlamaCppModelProfile"
+        "LlamaCppMtmd_ModelProfile"
     ]
     assert [field.name for field in compact_profile_schema.inputs] == [
         "profile",
@@ -817,7 +817,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     }
 
     hardware_class, hardware_schema = registered[
-        "OllamaImageList_LlamaCppHardwareRuntimeProfile"
+        "LlamaCppMtmd_HardwareRuntimeProfile"
     ]
     assert [field.name for field in hardware_schema.inputs] == [
         "gpu_layers",
@@ -911,7 +911,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     }
 
     reasoning_class, reasoning_schema = registered[
-        "OllamaImageList_LlamaCppReasoningConfig"
+        "LlamaCppMtmd_ReasoningConfig"
     ]
     assert [field.name for field in reasoning_schema.inputs] == [
         "reasoning_mode",
@@ -979,7 +979,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     }
 
     native_config_class, native_config_schema = registered[
-        "OllamaImageList_LlamaCppNativeSpeculativeConfig"
+        "LlamaCppMtmd_NativeSpeculativeConfig"
     ]
     assert native_config_schema.is_experimental is True
     native_inputs = {field.name: field for field in native_config_schema.inputs}
@@ -1240,7 +1240,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert create_question_input_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
     )
-    _, decide_schema = registered["LlamaCppMtmd_DecideSession"]
+    _, decide_schema = registered["LlamaCppMtmd_Decide"]
     assert decide_schema.is_input_list is True
     assert [field.name for field in decide_schema.inputs] == [
         "session",
@@ -1264,7 +1264,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
     session_generate_class, session_generate_schema = registered[
-        "LlamaCppMtmd_SessionGenerate"
+        "LlamaCppMtmd_Generate"
     ]
     assert session_generate_schema.is_input_list is True
     assert [field.name for field in session_generate_schema.inputs] == [
@@ -1304,7 +1304,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "LlamaCppMtmd_UnloadSession"
     ]
     assert unload_session_schema.is_output_node is True
-    assert unload_session_schema.outputs == []
+    assert [field.name for field in unload_session_schema.outputs] == ["timing"]
+    assert unload_session_schema.outputs[0].data_type == "*"
     assert [field.name for field in unload_session_schema.inputs] == [
         "session",
         "timing",
@@ -1443,77 +1444,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
     )
 
-    assert "OllamaImageList_LlamaCppSpeculativeGenerate" not in registered
-    speculative_module = importlib.import_module(
-        "backend.nodes.llama_cpp_speculative_generate"
-    )
-    speculative_class = speculative_module.LlamaCppSpeculativeGenerateNode
-    speculative_schema = speculative_class.define_schema()
-    assert speculative_schema.is_input_list is True
-    assert speculative_schema.not_idempotent is True
-    assert speculative_schema.is_experimental is True
-    speculative_inputs = {field.name: field for field in speculative_schema.inputs}
-    speculative_input_names = [field.name for field in speculative_schema.inputs]
-    assert speculative_input_names.index("mmproj_path") + 1 == (
-        speculative_input_names.index("draft_model")
-    )
-    assert speculative_inputs["draft_model"].options["options"] == [
-        "[none]",
-        "external/mtp-model-a.gguf",
-        "external/model-a.gguf",
-        "local/model-b.gguf",
-        "external/mmproj-model-a-f16.gguf",
-    ]
-    assert speculative_inputs["spec_type"].options["options"] == [
-        "none",
-        "draft-dflash",
-        "draft-dspark",
-        "draft-mtp",
-    ]
-    assert speculative_inputs["spec_type"].options["default"] == "none"
-    assert speculative_inputs["spec_n_max"].options["default"] == 2
-    assert speculative_inputs["spec_n_min"].options["default"] == 0
-    assert speculative_inputs["spec_p_min"].options["default"] == 0.0
-    assert speculative_inputs["mtp_provider"].options["options"] == [
-        "off",
-        "external",
-        "internal",
-    ]
-    assert speculative_inputs["mtp_provider"].options["default"] == "off"
-    assert "mtp_n_max" not in speculative_inputs
-    assert "mtp_n_min" not in speculative_inputs
-    assert "mtp_p_min" not in speculative_inputs
-    assert "mtp_verbose" not in speculative_inputs
-    assert speculative_input_names[7] == "mtp_provider"
-    assert speculative_inputs["sampling"].data_type == (
-        "OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING"
-    )
-    assert speculative_inputs["runtime"].data_type == (
-        "OLLAMA_IMAGE_LIST_LLAMA_CPP_GEMMA4_RUNTIME"
-    )
-    assert "ngram_speculative" not in speculative_inputs
-    assert speculative_inputs["reasoning_strength"].options["advanced"] is True
-    assert speculative_input_names.index("reasoning_strength") == (
-        speculative_input_names.index("thinking") + 1
-    )
-    assert speculative_input_names.index("reasoning_budget") == (
-        speculative_input_names.index("reasoning_strength") + 1
-    )
-    assert [field.name for field in speculative_schema.outputs] == [
-        "response",
-        "thinking",
-        "raw_json",
-        "metrics_json",
-        "media_diagnostics",
-    ]
-
     llama_module = importlib.import_module("backend.nodes.llama_cpp_generate")
     speculative_binding = object()
-    monkeypatch.setattr(
-        speculative_module,
-        "require_native_speculative",
-        lambda: speculative_binding,
-    )
     captured_speculative_call = {}
 
     def fake_run_chat(**kwargs):
@@ -1604,8 +1536,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert session_generate_output[0] == "session done"
     assert session_generate_output[-1] == {"model_unloaded_after_response": False}
     assert created_session.requests[0]["prompt"] == "prompt"
-    unload_session_class.execute([created_session], ["after loop"])
+    unload_output = unload_session_class.execute([created_session], ["after loop"])
     assert created_session.closed is True
+    assert unload_output[0] == ["after loop"]
     unload_session_class.execute([created_session])
 
     default_session_values = dict(create_session_values)
@@ -1839,90 +1772,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_output[0] == "done"
     assert captured_speculative_call["mmproj_path"] == ""
 
-    captured_speculative_call.clear()
-    speculative_values = {
-        field.name: [field.options["default"]]
-        for field in speculative_schema.inputs
-        if "default" in field.options
-    }
-    speculative_values.update(
-        model_path=["external/model-a.gguf"],
-        mmproj_path=["[none]"],
-        draft_model=["stale/draft.gguf"],
-    )
-
-    def unexpected_speculative_dependency():
-        raise AssertionError("spec_type=none imported the speculative dependency")
-
-    monkeypatch.setattr(
-        speculative_module,
-        "require_native_speculative",
-        unexpected_speculative_dependency,
-    )
-    speculative_output = speculative_class.execute(**speculative_values)
-    assert speculative_output[0] == "done"
-    assert captured_speculative_call["draft_model_path"] == ""
-    assert captured_speculative_call["spec_type"] == "none"
-    assert captured_speculative_call["reasoning_strength"] == "auto"
-    assert captured_speculative_call["reasoning_budget"] == 0
-    assert "speculative_api" not in captured_speculative_call
-
-    monkeypatch.setattr(
-        speculative_module,
-        "require_native_speculative",
-        lambda: speculative_binding,
-    )
-    captured_speculative_call.clear()
-    speculative_values.update(
-        draft_model=["external/mtp-model-a.gguf"],
-        spec_type=["draft-dflash"],
-        mtp_provider=["internal"],
-    )
-    speculative_output = speculative_class.execute(**speculative_values)
-    assert speculative_output[0] == "done"
-    assert captured_speculative_call["draft_model_path"] == (
-        "D:/SharedModels/LLM/external/mtp-model-a.gguf"
-    )
-    assert captured_speculative_call["spec_type"] == "draft-dflash"
-    assert captured_speculative_call["spec_n_max"] == 2
-    assert captured_speculative_call["spec_n_min"] == 0
-    assert captured_speculative_call["spec_p_min"] == 0.0
-    assert captured_speculative_call["mtp_provider"] == "off"
-    assert "mtp_n_max" not in captured_speculative_call
-    assert "mtp_n_min" not in captured_speculative_call
-    assert "mtp_p_min" not in captured_speculative_call
-    assert "mtp_verbose" not in captured_speculative_call
-    assert captured_speculative_call["speculative_api"] is speculative_binding
-    assert "ngram_speculative" not in captured_speculative_call
-
-    captured_speculative_call.clear()
-    speculative_values.update(
-        draft_model=["[none]"],
-        spec_type=["draft-mtp"],
-        mtp_provider=["internal"],
-    )
-    speculative_output = speculative_class.execute(**speculative_values)
-    assert speculative_output[0] == "done"
-    assert captured_speculative_call["draft_model_path"] == ""
-    assert captured_speculative_call["mtp_provider"] == "internal"
-
-    def missing_speculative_api():
-        raise BackendError("native speculative dependency is not installed")
-
-    def unexpected_media_normalization(**_kwargs):
-        raise AssertionError("media normalization ran before the dependency check")
-
-    monkeypatch.setattr(
-        speculative_module,
-        "require_native_speculative",
-        missing_speculative_api,
-    )
-    monkeypatch.setattr(llama_module, "normalize_media", unexpected_media_normalization)
-    captured_speculative_call.clear()
-    with pytest.raises(BackendError, match="dependency is not installed"):
-        speculative_class.execute(**speculative_values)
-    assert captured_speculative_call == {}
-
     assert llama_module._resolve_sampling_values(
         temperature=[0.1],
         top_p=[0.8],
@@ -2005,7 +1854,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         )
 
     diagnostics_class, diagnostics_schema = registered[
-        "OllamaImageList_LlamaCppMediaDiagnostics"
+        "LlamaCppMtmd_MediaDiagnostics"
     ]
     assert diagnostics_schema.inputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
@@ -2459,7 +2308,7 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
             {
                 "handler": "auto",
                 "recommended_reasoning_mode": "auto",
-                "temperature": 0.2,
+                "temperature": 0.8,
                 "top_p": 0.95,
                 "top_k": 40,
                 "min_p": 0.05,

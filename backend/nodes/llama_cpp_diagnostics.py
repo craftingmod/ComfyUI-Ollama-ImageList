@@ -86,7 +86,7 @@ class LlamaCppMediaDiagnosticsNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppMediaDiagnostics",
+            node_id="LlamaCppMtmd_MediaDiagnostics",
             display_name="[llama.cpp] Media Diagnostics",
             category="llama_cpp/utils",
             description=(

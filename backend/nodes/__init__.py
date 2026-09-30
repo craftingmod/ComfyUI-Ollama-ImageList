@@ -27,7 +27,6 @@ from .llama_cpp_session import (
     LlamaCppSessionSequentialGenerateNode,
     LlamaCppUnloadSessionNode,
 )
-from .llama_cpp_speculative_generate import LlamaCppSpeculativeGenerateNode
 from .minimax_prompt import MiniMaxSystemPromptPresetNode
 from .muse_glimmer_response import MuseGlimmerResponseParserNode
 from .ollama_connectivity import OllamaImageListConnectivityNode
@@ -57,7 +56,6 @@ __all__ = [
     "LlamaCppSamplingPresetNode",
     "LlamaCppSessionGenerateNode",
     "LlamaCppSessionSequentialGenerateNode",
-    "LlamaCppSpeculativeGenerateNode",
     "LlamaCppUnloadSessionNode",
     "MuseGlimmerResponseParserNode",
     "MiniMaxSystemPromptPresetNode",

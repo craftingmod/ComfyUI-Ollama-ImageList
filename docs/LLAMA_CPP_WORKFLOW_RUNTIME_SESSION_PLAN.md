@@ -2,7 +2,7 @@
 
 ## 목표
 
-`[llama.cpp] Create Runtime Session`을 추가한다. 워크플로가 이 노드를 실행할 때만 로컬 `llama server`를 시작하고, 기존 `[llama.cpp] Generate (Session)`과 `[llama.cpp] Unload Session`을 사용해 생성 후 종료한다. `llama_cpp_python` 설치나 Internal runtime의 상시 활성화는 필요하지 않다.
+`[llama.cpp] Create Runtime Session`을 추가한다. 워크플로가 이 노드를 실행할 때만 로컬 `llama server`를 시작하고, 기존 `[llama.cpp] Generate`와 `[llama.cpp] Unload Session`을 사용해 생성 후 종료한다. `llama_cpp_python` 설치나 Internal runtime의 상시 활성화는 필요하지 않다.
 
 ## 노드와 소유권 계약
 
@@ -37,7 +37,7 @@
 | `speculative` N-gram | `k`/`k4v`를 각각 `ngram-map-k`/`ngram-map-k4v`로 변환하고 `ngram_size`, `num_pred_tokens`, `ngram_min_hits`를 해당 N-gram의 `size-n`, `size-m`, `min-hits` 옵션에 전달한다. `ngram_max_entries_per_key`는 입력은 받되 무시한다. |
 | `verbose` | 서버의 verbose 로깅 옵션에 대응시킨다. |
 
-`reasoning_mode=off`일 때는 effort와 budget을 전달하지 않는다. 프로필별 샘플링 및 reasoning 값은 워크플로 Session에 고정한다. 현재 `Generate (Session)`이 받는 요청별 입력과 서버 응답 소켓은 유지한다. `handler`와 `ngram_max_entries_per_key`처럼 무시하기로 한 필드 외에는 선택한 speculative 모드를 조용히 해제하거나 다른 방식으로 바꾸지 않는다.
+`reasoning_mode=off`일 때는 effort와 budget을 전달하지 않는다. 프로필별 샘플링 및 reasoning 값은 워크플로 Session에 고정한다. 현재 Generate 노드가 받는 요청별 입력과 서버 응답 소켓은 유지한다. `handler`와 `ngram_max_entries_per_key`처럼 무시하기로 한 필드 외에는 선택한 speculative 모드를 조용히 해제하거나 다른 방식으로 바꾸지 않는다.
 
 ## 작업 순서와 담당 위치
 
@@ -50,7 +50,7 @@
 ## 완료 기준
 
 - 실행 파일이 없으면 새 노드만 명확히 실패하며 서버 프로세스나 세션을 남기지 않는다.
-- PATH 또는 Internal 설치본이 있으면 워크플로 실행 중에만 모델이 로드된 로컬 서버가 열리고, 기존 Generate (Session)이 이를 사용한다.
+- PATH 또는 Internal 설치본이 있으면 워크플로 실행 중에만 모델이 로드된 로컬 서버가 열리고, 기존 Generate 노드가 이를 사용한다.
 - 명시적 Unload, 생성 오류, 프롬프트 종료, ComfyUI 비정상 종료에서 소유 서버가 정리된다. 이미 실행 중인 상시 daemon과 외부 Connect Session은 영향을 받지 않는다.
 - 기존 노드 ID·소켓·저장된 워크플로는 그대로 동작한다.
 

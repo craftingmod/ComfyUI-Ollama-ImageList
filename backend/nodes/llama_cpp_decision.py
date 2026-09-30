@@ -89,8 +89,8 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="LlamaCppMtmd_DecideSession",
-            display_name="[llama.cpp] Decide (Session)",
+            node_id="LlamaCppMtmd_Decide",
+            display_name="[llama.cpp] Decide",
             category=f"{BASE_CATEGORY}/decision",
             description=(
                 "Scores letter-token choices with a Native Session prefill or a Runtime "
@@ -141,7 +141,7 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
             resolved_session, (LlamaCppSession, OwnedLlamaCppServerSession)
         ):
             raise InputNormalizationError(
-                "Decide (Session) requires [llama.cpp] Create Native Session or "
+                "Decide requires [llama.cpp] Create Native Session or "
                 "Create Runtime Session. Connect Sessions are not supported."
             )
         payload = unwrap_required_scalar("question", question)

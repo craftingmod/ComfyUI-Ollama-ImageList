@@ -16,11 +16,11 @@ import {
 
 const NGRAM_PRESET_CLASS = "OllamaImageList_LlamaCppNGramSpeculativePreset"
 const COMPACT_NGRAM_CONFIG_CLASS = "OllamaImageList_LlamaCppNGramSpeculativeConfig"
-const COMPACT_MODEL_PROFILE_CLASS = "OllamaImageList_LlamaCppModelProfile"
-const COMPACT_HARDWARE_PROFILE_CLASS = "OllamaImageList_LlamaCppHardwareRuntimeProfile"
+const COMPACT_MODEL_PROFILE_CLASS = "LlamaCppMtmd_ModelProfile"
+const COMPACT_HARDWARE_PROFILE_CLASS = "LlamaCppMtmd_HardwareRuntimeProfile"
 const PREFILL_PROFILE_CLASS = "LlamaCppMtmd_PrefillProfile"
-const REASONING_CONFIG_CLASS = "OllamaImageList_LlamaCppReasoningConfig"
-const NATIVE_SPECULATIVE_CONFIG_CLASS = "OllamaImageList_LlamaCppNativeSpeculativeConfig"
+const REASONING_CONFIG_CLASS = "LlamaCppMtmd_ReasoningConfig"
+const NATIVE_SPECULATIVE_CONFIG_CLASS = "LlamaCppMtmd_NativeSpeculativeConfig"
 const GENERATE_CLASS = "OllamaImageList_LlamaCppGenerate"
 const SPECULATIVE_GENERATE_CLASS = "OllamaImageList_LlamaCppSpeculativeGenerate"
 

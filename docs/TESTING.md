@@ -52,7 +52,7 @@ Use an isolated ComfyUI instance with no active generation; restarting can inter
 
 Before publishing a llama.cpp build, manually verify in the target ComfyUI environment:
 
-1. Model Profile, Hardware Runtime Profile, Thinking / Reasoning Profile, and Native Speculative Profile appear under `llama_cpp / profile`; N-gram Speculative Config, Generate, and Sequential Generate appear under `llama_cpp / compact`; Diagnostics and Muse Parser appear under `utils`; the four registered legacy schemas are hidden from search/menu outside developer mode; and the detailed Speculative Generate node is not registered;
+1. Model Profile, Hardware Runtime Profile, Thinking / Reasoning Profile, and Native Speculative Profile appear under `llama_cpp / profile`; N-gram Speculative Config, Generate, and Sequential Generate appear under `llama_cpp / compact`; Diagnostics and Muse Parser appear under `utils`; and the four registered legacy schemas are hidden from search/menu outside developer mode;
 2. GGUF files from the local and any `extra_model_paths.yaml` `LLM` directories appear in both Combos;
 3. the selected main model and projector complete the intended IMAGE, AUDIO, and/or VIDEO request;
 4. Media Diagnostics reports the requested capability and evaluated item counts;

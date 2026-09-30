@@ -16,7 +16,7 @@ LlamaCppSamplingType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_SAMPLING")
 
 SAMPLING_PRESETS: dict[str, dict[str, float | int]] = {
     "Image analysis": {
-        "temperature": 0.2,
+        "temperature": 0.8,
         "top_p": 0.95,
         "top_k": 40,
         "min_p": 0.05,

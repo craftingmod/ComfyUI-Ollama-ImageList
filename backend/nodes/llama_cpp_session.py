@@ -616,8 +616,8 @@ class LlamaCppSessionGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="LlamaCppMtmd_SessionGenerate",
-            display_name="[llama.cpp] Generate (Session)",
+            node_id="LlamaCppMtmd_Generate",
+            display_name="[llama.cpp] Generate",
             category=f"{BASE_CATEGORY}/generate",
             description=(
                 "Runs one request on a local or server-backed llama.cpp session and "
@@ -696,7 +696,7 @@ class LlamaCppSessionSequentialGenerateNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="LlamaCppMtmd_SessionGenerateSequential",
+            node_id="LlamaCppMtmd_GenerateSequential",
             display_name="[llama.cpp] Generate (Sequential)",
             category=f"{BASE_CATEGORY}/generate",
             description=(
@@ -813,22 +813,21 @@ class LlamaCppUnloadSessionNode(io.ComfyNode):
                 io.Custom("*").Input(
                     "timing",
                     optional=True,
-                    tooltip="Optional execution dependency. Its value is ignored.",
+                    tooltip="Optional execution dependency passed through unchanged.",
                 ),
             ],
-            outputs=[],
+            outputs=[io.Custom("*").Output("timing")],
         )
 
     @classmethod
     def execute(cls, session: Any, timing: Any = None) -> io.NodeOutput:
-        del timing
         resolved_session = unwrap_required_scalar("session", session)
         if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
             raise TypeError(
                 "session must be a Llama.cpp Create or Connect Session output."
             )
         resolved_session.close()
-        return io.NodeOutput()
+        return io.NodeOutput(timing)
 
 
 __all__ = [

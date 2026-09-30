@@ -14,7 +14,7 @@ class MuseGlimmerResponseParserNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_MuseGlimmerResponseParser",
+            node_id="LlamaCppMtmd_MuseGlimmerResponseParser",
             display_name="Muse Glimmer Response Parser",
             category="llama_cpp/utils",
             description=(

@@ -94,7 +94,7 @@ def test_chat_sends_all_images_in_exactly_one_request_and_parses_outputs():
     assert request["stream"] is False
     assert request["think"] == "medium"
     assert request["format"] == "json"
-    assert request["options"] == {"temperature": 0.2, "seed": 7}
+    assert request["options"] == {"temperature": 0.8, "seed": 7}
     assert request["keep_alive"] == 0
     assert result.response == "완료"
     assert result.thinking == "검토"

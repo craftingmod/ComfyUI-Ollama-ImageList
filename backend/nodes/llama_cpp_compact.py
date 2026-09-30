@@ -36,11 +36,11 @@ from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_generate import (
     NO_DRAFT_OPTION,
     NO_MMPROJ_OPTION,
+    NO_MODEL_OPTION,
     _gguf_options,
     _resolve_gguf_selection,
 )
 from .llama_cpp_ngram_speculative import normalize_ngram_speculative
-from .llama_cpp_speculative_generate import _draft_gguf_options
 
 LlamaCppModelProfileType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE")
 LlamaCppHardwareRuntimeProfileType = io.Custom(
@@ -57,10 +57,28 @@ PROFILE_CATEGORY = f"{BASE_CATEGORY}/profile"
 COMPACT_CATEGORY = f"{BASE_CATEGORY}/compact"
 MODEL_PRESETS_DIRECTORY = Path(__file__).resolve().parents[2] / "presets" / "model"
 
+
+def _draft_gguf_options() -> list[str]:
+    model_options, _ = _gguf_options()
+    filenames = [name for name in model_options if name != NO_MODEL_OPTION]
+    prioritized = sorted(
+        filenames,
+        key=lambda filename: (
+            not any(
+                hint in Path(filename).name.casefold()
+                for hint in ("dflash", "dspark", "draft", "mtp")
+            ),
+        ),
+    )
+    if not prioritized:
+        return [NO_MODEL_OPTION]
+    return [NO_DRAFT_OPTION, *prioritized]
+
+
 _BASE_MODEL_PROFILE: dict[str, Any] = {
     "handler": "auto",
     "recommended_reasoning_mode": "auto",
-    "temperature": 0.2,
+    "temperature": 0.8,
     "top_p": 0.95,
     "top_k": 40,
     "min_p": 0.05,
@@ -398,7 +416,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
         names = list(COMPACT_MODEL_PROFILES)
         names.sort(key=lambda name: (name != "General", name.casefold()))
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppModelProfile",
+            node_id="LlamaCppMtmd_ModelProfile",
             display_name="[llama.cpp] Model Profile",
             category=PROFILE_CATEGORY,
             description=(
@@ -497,7 +515,7 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppHardwareRuntimeProfile",
+            node_id="LlamaCppMtmd_HardwareRuntimeProfile",
             display_name="[llama.cpp] Hardware Runtime Profile",
             category=PROFILE_CATEGORY,
             description=(
@@ -574,7 +592,7 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppReasoningConfig",
+            node_id="LlamaCppMtmd_ReasoningConfig",
             display_name="[llama.cpp] Thinking / Reasoning Profile",
             category=PROFILE_CATEGORY,
             description=(
@@ -712,7 +730,7 @@ class LlamaCppNativeSpeculativeConfigNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         draft_options = _draft_gguf_options()
         return io.Schema(
-            node_id="OllamaImageList_LlamaCppNativeSpeculativeConfig",
+            node_id="LlamaCppMtmd_NativeSpeculativeConfig",
             display_name="[llama.cpp] Native Speculative Profile",
             category=PROFILE_CATEGORY,
             description=(
