@@ -34,6 +34,12 @@ jobs:
       - name: Build frontend
         run: bun run build
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Populate Registry version from Git
+        run: bun scripts/project-version.ts
+
       - name: Publish Custom Node
         uses: Comfy-Org/publish-node-action@main
         with:
