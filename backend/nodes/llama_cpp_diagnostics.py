@@ -140,7 +140,17 @@ class LlamaCppMediaDiagnosticsNode(io.ComfyNode):
         )
 
 
+class LlamaCppLegacyMediaDiagnosticsNode(LlamaCppMediaDiagnosticsNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        schema = super().define_schema()
+        schema.node_id = "OllamaImageList_LlamaCppMediaDiagnostics"
+        schema.is_deprecated = True
+        return schema
+
+
 __all__ = [
+    "LlamaCppLegacyMediaDiagnosticsNode",
     "LlamaCppMediaDiagnosticsNode",
     "LlamaCppMediaDiagnosticsType",
     "format_media_diagnostics",

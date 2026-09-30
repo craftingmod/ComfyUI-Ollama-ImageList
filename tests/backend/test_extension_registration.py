@@ -217,9 +217,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppGemma4RuntimePreset",
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
         "LlamaCppMtmd_ModelProfile",
+        "OllamaImageList_LlamaCppModelProfile",
         "LlamaCppMtmd_HardwareRuntimeProfile",
         "LlamaCppMtmd_PrefillProfile",
         "LlamaCppMtmd_ReasoningConfig",
+        "OllamaImageList_LlamaCppReasoningConfig",
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
         "LlamaCppMtmd_NativeSpeculativeConfig",
         "LlamaCppMtmd_CreateSession",
@@ -237,7 +239,9 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "LlamaCppMtmd_GeneratePromptSequential",
         "OllamaImageList_LlamaCppGenerate",
         "LlamaCppMtmd_MediaDiagnostics",
+        "OllamaImageList_LlamaCppMediaDiagnostics",
         "LlamaCppMtmd_MuseGlimmerResponseParser",
+        "OllamaImageList_MuseGlimmerResponseParser",
         "OllamaImageList_CLIPGenerateText",
     ]
     assert [schema.display_name for schema in schemas] == [
@@ -250,9 +254,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Gemma 4 Runtime Preset",
         "[llama.cpp] N-gram Speculative Preset",
         "[llama.cpp] Model Profile",
+        "Llama.cpp Model Profile",
         "[llama.cpp] Hardware Runtime Profile",
         "[llama.cpp] Prefill Profile",
         "[llama.cpp] Thinking / Reasoning Profile",
+        "Llama.cpp Thinking / Reasoning Config",
         "[llama.cpp] N-gram Speculative Config",
         "[llama.cpp] Native Speculative Profile",
         "[llama.cpp] Create Native Session",
@@ -270,6 +276,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Generate (Prompt Sequential)",
         "[llama.cpp] Generate (Multimodal)",
         "[llama.cpp] Media Diagnostics",
+        "[llama.cpp] Media Diagnostics",
+        "Muse Glimmer Response Parser",
         "Muse Glimmer Response Parser",
         "CLIP Text Encode (Multimodal)",
     ]
@@ -286,6 +294,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/profile",
         "llama_cpp/profile",
         "llama_cpp/profile",
+        "llama_cpp/profile",
+        "llama_cpp/profile",
         "llama_cpp/compact",
         "llama_cpp/profile",
         "llama_cpp/session",
@@ -302,6 +312,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/generate",
         "llama_cpp/generate",
         "llama_cpp/legacy",
+        "llama_cpp/utils",
+        "llama_cpp/utils",
         "llama_cpp/utils",
         "llama_cpp/utils",
         "model/conditioning/multimodal",
@@ -350,6 +362,16 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert {
         schema.node_id for schema in schemas if getattr(schema, "is_deprecated", False)
     } >= deprecated_compact_ids
+    legacy_compatibility_ids = {
+        "OllamaImageList_LlamaCppMediaDiagnostics",
+        "OllamaImageList_MuseGlimmerResponseParser",
+        "OllamaImageList_LlamaCppReasoningConfig",
+        "OllamaImageList_LlamaCppModelProfile",
+    }
+    assert legacy_compatibility_ids <= registered.keys()
+    assert all(
+        registered[node_id][1].is_deprecated for node_id in legacy_compatibility_ids
+    )
 
     minimax_class, minimax_schema = registered[
         "OllamaImageList_MiniMaxSystemPromptPreset"
@@ -2702,3 +2724,146 @@ def test_prompt_sequential_reuses_one_bundle_and_validates_prompts(monkeypatch):
             )
     assert len(session.calls) == 2
     assert session.close_calls == 1
+
+
+def test_v061_legacy_nodes_keep_contract_outputs_and_deprecation(monkeypatch):
+    install_comfy_api_stub(monkeypatch)
+    for module_name in tuple(sys.modules):
+        if module_name == "backend.extension" or module_name.startswith("backend.nodes"):
+            monkeypatch.delitem(sys.modules, module_name)
+
+    extension_module = importlib.import_module("backend.extension")
+    extension = extension_module.OllamaImageListExtension()
+    node_classes = asyncio.run(extension.get_node_list())
+    legacy_ids = {
+        "OllamaImageList_LlamaCppMediaDiagnostics",
+        "OllamaImageList_MuseGlimmerResponseParser",
+        "OllamaImageList_LlamaCppReasoningConfig",
+        "OllamaImageList_LlamaCppModelProfile",
+    }
+    registered = {}
+    for node_class in node_classes:
+        schema = node_class.define_schema()
+        if schema.node_id in legacy_ids:
+            registered[schema.node_id] = (node_class, schema)
+
+    assert set(registered) == {
+        "OllamaImageList_LlamaCppMediaDiagnostics",
+        "OllamaImageList_MuseGlimmerResponseParser",
+        "OllamaImageList_LlamaCppReasoningConfig",
+        "OllamaImageList_LlamaCppModelProfile",
+    }
+    assert all(schema.is_deprecated for _, schema in registered.values())
+
+    model_class, model_schema = registered["OllamaImageList_LlamaCppModelProfile"]
+    assert [field.name for field in model_schema.inputs] == [
+        "profile",
+        "custom_handler",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "repeat_penalty",
+        "presence_penalty",
+    ]
+    assert model_schema.inputs[0].options["options"] == [
+        "General",
+        "Gemma 4 Vision",
+        "Muse Glimmer",
+        "Qwen 3.5 Thinking",
+        "Qwen 3.5 Non-thinking",
+        "Qwen 3 VL",
+        "Custom",
+    ]
+    assert model_schema.inputs[1].options["options"] == [
+        "auto",
+        "generic",
+        "gemma4",
+        "qwen3_vl",
+        "qwen25_vl",
+        "qwen3_asr",
+    ]
+    assert model_schema.inputs[2].options["default"] == 0.2
+    profile = model_class.execute(
+        "General", "auto", 0.2, 0.95, 40, 0.05, 1.0, 0.0
+    )[0]
+    assert profile == {
+        "handler": "auto",
+        "recommended_reasoning_mode": "auto",
+        "temperature": 0.2,
+        "top_p": 0.95,
+        "top_k": 40,
+        "min_p": 0.05,
+        "presence_penalty": 0.0,
+        "repeat_penalty": 1.0,
+    }
+    assert model_class.execute(
+        "Muse Glimmer", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
+    )[0]["handler"] == "auto"
+    assert model_class.execute(
+        "Qwen 3.5 Non-thinking", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
+    )[0]["handler"] == "auto"
+    qwen35_profile = model_class.execute(
+        "Qwen 3.5 Thinking", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
+    )[0]
+    assert qwen35_profile["handler"] == "auto"
+    assert qwen35_profile["recommended_reasoning_mode"] == "on"
+    custom_profile = model_class.execute(
+        "Custom", "gemma4", 0.6, 0.9, 24, 0.1, 1.2, 0.1
+    )[0]
+    assert custom_profile == {
+        "handler": "gemma4",
+        "recommended_reasoning_mode": "auto",
+        "temperature": 0.6,
+        "top_p": 0.9,
+        "top_k": 24,
+        "min_p": 0.1,
+        "presence_penalty": 0.1,
+        "repeat_penalty": 1.2,
+    }
+
+    reasoning_class, reasoning_schema = registered[
+        "OllamaImageList_LlamaCppReasoningConfig"
+    ]
+    assert [field.name for field in reasoning_schema.inputs] == [
+        "reasoning_mode",
+        "reasoning_effort",
+        "max_reasoning_tokens",
+    ]
+    assert reasoning_class.execute("on", "high", 1024)[0] == {
+        "reasoning_mode": "on",
+        "reasoning_effort": "high",
+        "max_reasoning_tokens": 1024,
+        "preserve_thinking": False,
+    }
+
+    diagnostics_class, diagnostics_schema = registered[
+        "OllamaImageList_LlamaCppMediaDiagnostics"
+    ]
+    assert [field.name for field in diagnostics_schema.outputs] == [
+        "all_media_evaluated",
+        "vision_available",
+        "audio_available",
+        "video_available",
+        "audio_count",
+        "image_count",
+        "video_count",
+        "json",
+        "formatted_text",
+    ]
+    diagnostics = {
+        "capabilities": {"vision": True},
+        "requested": {"image_count": 1},
+        "evaluated": {"image_count": 1},
+        "mtmd": {"all_media_evaluated": True},
+    }
+    assert diagnostics_class.execute(diagnostics)[:4] == (True, True, False, False)
+
+    parser_class, parser_schema = registered[
+        "OllamaImageList_MuseGlimmerResponseParser"
+    ]
+    assert [field.name for field in parser_schema.inputs] == ["muse_response"]
+    assert parser_class.execute(
+        " to=self<|message|>Think<|eom|>"
+        "<|start|>assistant to=user<|message|>Answer<|eot|>"
+    ) == ("Answer", "Think", "", True)

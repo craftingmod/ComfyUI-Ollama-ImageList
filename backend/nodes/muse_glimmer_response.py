@@ -65,4 +65,13 @@ class MuseGlimmerResponseParserNode(io.ComfyNode):
         )
 
 
-__all__ = ["MuseGlimmerResponseParserNode"]
+class LegacyMuseGlimmerResponseParserNode(MuseGlimmerResponseParserNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        schema = super().define_schema()
+        schema.node_id = "OllamaImageList_MuseGlimmerResponseParser"
+        schema.is_deprecated = True
+        return schema
+
+
+__all__ = ["LegacyMuseGlimmerResponseParserNode", "MuseGlimmerResponseParserNode"]

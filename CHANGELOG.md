@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Restored four deprecated v0.6.1 llama.cpp node IDs for saved-workflow compatibility, including the original Model Profile presets and three-input reasoning contract.
+
 ### Changed
 
 - Moved native llama.cpp node categories from `Ollama / llama_cpp` to top-level `llama_cpp`.

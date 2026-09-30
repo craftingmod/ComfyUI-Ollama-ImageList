@@ -86,6 +86,68 @@ _BASE_MODEL_PROFILE: dict[str, Any] = {
     "repeat_penalty": 1.0,
 }
 
+_LEGACY_MODEL_PROFILE_DEFAULTS: dict[str, Any] = {
+    "handler": "auto",
+    "recommended_reasoning_mode": "auto",
+    "temperature": 0.2,
+    "top_p": 0.95,
+    "top_k": 40,
+    "min_p": 0.05,
+    "presence_penalty": 0.0,
+    "repeat_penalty": 1.0,
+}
+_LEGACY_HANDLER_NAMES = (
+    "auto",
+    "generic",
+    "gemma4",
+    "qwen3_vl",
+    "qwen25_vl",
+    "qwen3_asr",
+)
+
+
+def _legacy_model_profile(**overrides: Any) -> dict[str, Any]:
+    return {**_LEGACY_MODEL_PROFILE_DEFAULTS, **overrides}
+
+
+LEGACY_COMPACT_MODEL_PROFILES: dict[str, dict[str, Any]] = {
+    "General": _legacy_model_profile(),
+    "Gemma 4 Vision": _legacy_model_profile(
+        handler="gemma4",
+        temperature=1.0,
+        top_k=64,
+        min_p=0.0,
+    ),
+    "Muse Glimmer": _legacy_model_profile(
+        temperature=1.0,
+        top_k=64,
+        min_p=0.0,
+    ),
+    "Qwen 3.5 Thinking": _legacy_model_profile(
+        recommended_reasoning_mode="on",
+        temperature=1.0,
+        top_k=20,
+        min_p=0.0,
+        presence_penalty=1.5,
+    ),
+    "Qwen 3.5 Non-thinking": _legacy_model_profile(
+        recommended_reasoning_mode="off",
+        temperature=0.7,
+        top_p=0.8,
+        top_k=20,
+        min_p=0.0,
+        presence_penalty=1.5,
+    ),
+    "Qwen 3 VL": _legacy_model_profile(
+        handler="qwen3_vl",
+        temperature=0.7,
+        top_p=0.8,
+        top_k=20,
+        min_p=0.0,
+        presence_penalty=1.5,
+    ),
+}
+
 _BASE_HARDWARE_PROFILE: dict[str, Any] = {
     "gpu_layers": "all",
     "main_gpu": 0,
@@ -511,6 +573,113 @@ class LlamaCppModelProfileNode(io.ComfyNode):
         return io.NodeOutput(normalize_compact_model_profile(value))
 
 
+class LlamaCppLegacyModelProfileNode(LlamaCppModelProfileNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        names = list(LEGACY_COMPACT_MODEL_PROFILES)
+        schema = io.Schema(
+            node_id="OllamaImageList_LlamaCppModelProfile",
+            display_name="Llama.cpp Model Profile",
+            category=PROFILE_CATEGORY,
+            description=(
+                "Deprecated v0.6.1 profile contract retained for saved workflows."
+            ),
+            inputs=[
+                io.Combo.Input(
+                    "profile", options=[*names, "Custom"], default="General"
+                ),
+                io.Combo.Input(
+                    "custom_handler",
+                    options=list(_LEGACY_HANDLER_NAMES),
+                    default="auto",
+                    advanced=True,
+                ),
+                io.Float.Input(
+                    "temperature",
+                    default=0.2,
+                    min=0.0,
+                    max=5.0,
+                    step=0.01,
+                    advanced=True,
+                ),
+                io.Float.Input(
+                    "top_p",
+                    default=0.95,
+                    min=0.0,
+                    max=1.0,
+                    step=0.01,
+                    advanced=True,
+                ),
+                io.Int.Input(
+                    "top_k", default=40, min=0, max=10_000, step=1, advanced=True
+                ),
+                io.Float.Input(
+                    "min_p",
+                    default=0.05,
+                    min=0.0,
+                    max=1.0,
+                    step=0.01,
+                    advanced=True,
+                ),
+                io.Float.Input(
+                    "repeat_penalty",
+                    default=1.0,
+                    min=0.0,
+                    max=5.0,
+                    step=0.01,
+                    advanced=True,
+                ),
+                io.Float.Input(
+                    "presence_penalty",
+                    default=0.0,
+                    min=-2.0,
+                    max=2.0,
+                    step=0.01,
+                    advanced=True,
+                ),
+            ],
+            outputs=[
+                LlamaCppModelProfileType.Output(
+                    "model_profile", display_name="model profile"
+                ),
+            ],
+            is_deprecated=True,
+        )
+        return schema
+
+    @classmethod
+    def execute(
+        cls,
+        profile: str,
+        custom_handler: str,
+        temperature: float,
+        top_p: float,
+        top_k: int,
+        min_p: float,
+        repeat_penalty: float,
+        presence_penalty: float,
+    ) -> io.NodeOutput:
+        if profile == "Custom":
+            value = {
+                "handler": custom_handler,
+                "recommended_reasoning_mode": "auto",
+                "temperature": temperature,
+                "top_p": top_p,
+                "top_k": top_k,
+                "min_p": min_p,
+                "presence_penalty": presence_penalty,
+                "repeat_penalty": repeat_penalty,
+            }
+        else:
+            try:
+                value = LEGACY_COMPACT_MODEL_PROFILES[profile]
+            except KeyError as exc:
+                raise InputNormalizationError(
+                    f"Unknown legacy Llama.cpp Compact profile: {profile}"
+                ) from exc
+        return io.NodeOutput(normalize_compact_model_profile(value))
+
+
 class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -662,6 +831,35 @@ class LlamaCppReasoningConfigNode(io.ComfyNode):
                     "preserve_thinking": preserve_thinking,
                 }
             )
+        )
+
+
+class LlamaCppLegacyReasoningConfigNode(LlamaCppReasoningConfigNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        schema = super().define_schema()
+        schema.node_id = "OllamaImageList_LlamaCppReasoningConfig"
+        schema.display_name = "Llama.cpp Thinking / Reasoning Config"
+        schema.category = PROFILE_CATEGORY
+        schema.description = (
+            "Deprecated three-input reasoning profile for saved workflows."
+        )
+        schema.inputs = schema.inputs[:3]
+        schema.is_deprecated = True
+        return schema
+
+    @classmethod
+    def execute(
+        cls,
+        reasoning_mode: str,
+        reasoning_effort: str,
+        max_reasoning_tokens: int,
+    ) -> io.NodeOutput:
+        return LlamaCppReasoningConfigNode.execute(
+            reasoning_mode,
+            reasoning_effort,
+            max_reasoning_tokens,
+            preserve_thinking=False,
         )
 
 
@@ -1502,6 +1700,8 @@ __all__ = [
     "DEFAULT_COMPACT_HARDWARE_PROFILE",
     "COMPACT_MODEL_PROFILES",
     "LlamaCppHardwareRuntimeProfileNode",
+    "LlamaCppLegacyModelProfileNode",
+    "LlamaCppLegacyReasoningConfigNode",
     "LlamaCppHardwareRuntimeProfileType",
     "LlamaCppModelProfileNode",
     "LlamaCppModelProfileType",

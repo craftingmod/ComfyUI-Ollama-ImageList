@@ -17,9 +17,11 @@ import {
 const NGRAM_PRESET_CLASS = "OllamaImageList_LlamaCppNGramSpeculativePreset"
 const COMPACT_NGRAM_CONFIG_CLASS = "OllamaImageList_LlamaCppNGramSpeculativeConfig"
 const COMPACT_MODEL_PROFILE_CLASS = "LlamaCppMtmd_ModelProfile"
+const LEGACY_MODEL_PROFILE_CLASS = "OllamaImageList_LlamaCppModelProfile"
 const COMPACT_HARDWARE_PROFILE_CLASS = "LlamaCppMtmd_HardwareRuntimeProfile"
 const PREFILL_PROFILE_CLASS = "LlamaCppMtmd_PrefillProfile"
 const REASONING_CONFIG_CLASS = "LlamaCppMtmd_ReasoningConfig"
+const LEGACY_REASONING_CONFIG_CLASS = "OllamaImageList_LlamaCppReasoningConfig"
 const NATIVE_SPECULATIVE_CONFIG_CLASS = "LlamaCppMtmd_NativeSpeculativeConfig"
 const GENERATE_CLASS = "OllamaImageList_LlamaCppGenerate"
 const SPECULATIVE_GENERATE_CLASS = "OllamaImageList_LlamaCppSpeculativeGenerate"
@@ -28,9 +30,11 @@ const HANDLED_CLASSES = new Set([
   NGRAM_PRESET_CLASS,
   COMPACT_NGRAM_CONFIG_CLASS,
   COMPACT_MODEL_PROFILE_CLASS,
+  LEGACY_MODEL_PROFILE_CLASS,
   COMPACT_HARDWARE_PROFILE_CLASS,
   PREFILL_PROFILE_CLASS,
   REASONING_CONFIG_CLASS,
+  LEGACY_REASONING_CONFIG_CLASS,
   NATIVE_SPECULATIVE_CONFIG_CLASS,
   GENERATE_CLASS,
   SPECULATIVE_GENERATE_CLASS,
@@ -82,13 +86,19 @@ function initializeSpeculativeGenerate(node: ComfyNodeLike): void {
 function initializeNode(node: ComfyNodeLike, className: string): void {
   if (className === NGRAM_PRESET_CLASS || className === COMPACT_NGRAM_CONFIG_CLASS) {
     initializeDeferred(node, "speculative_mode", updateNgramPresetWidgets)
-  } else if (className === COMPACT_MODEL_PROFILE_CLASS) {
+  } else if (
+    className === COMPACT_MODEL_PROFILE_CLASS ||
+    className === LEGACY_MODEL_PROFILE_CLASS
+  ) {
     initializeDeferred(node, "profile", updateCompactModelProfileWidgets)
   } else if (className === COMPACT_HARDWARE_PROFILE_CLASS) {
     initializeDeferred(node, "profile", updateCompactHardwareProfileWidgets)
   } else if (className === PREFILL_PROFILE_CLASS) {
     initializeDeferred(node, "profile", updatePrefillProfileWidgets)
-  } else if (className === REASONING_CONFIG_CLASS) {
+  } else if (
+    className === REASONING_CONFIG_CLASS ||
+    className === LEGACY_REASONING_CONFIG_CLASS
+  ) {
     initializeDeferred(node, "reasoning_mode", updateReasoningConfigWidgets)
   } else if (className === NATIVE_SPECULATIVE_CONFIG_CLASS) {
     initializeDeferred(node, "preset", updateNativeSpeculativeConfigWidgets)

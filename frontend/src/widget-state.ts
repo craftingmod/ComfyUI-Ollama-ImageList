@@ -35,6 +35,7 @@ export const COMPACT_HARDWARE_WIDGETS = [
   "use_mmap",
 ]
 export const COMPACT_MODEL_CUSTOM_WIDGETS = [
+  "custom_handler",
   "temperature",
   "top_p",
   "top_k",
