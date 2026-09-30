@@ -1,6 +1,7 @@
 # Development configuration and automation
 .agents/
 .github/
+.vscode/
 tests/
 docs/
 scripts/
@@ -15,3 +16,15 @@ uv.lock
 .python-version
 .gitattributes
 .gitignore
+
+## Additional dev files
+tsconfig.json
+ruff.toml
+package.json
+oxlint.config.ts
+oxfmt.config.ts
+bunfig.toml
+bun.lock
+.env.example
+frontend/
+CHANGELOG.md
