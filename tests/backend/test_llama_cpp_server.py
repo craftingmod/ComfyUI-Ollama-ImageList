@@ -267,9 +267,7 @@ def test_server_decide_cache_flag_and_media_first_order():
         assert request["top_p"] == 0.1
         assert request["min_p"] == 0.5
     assert results[0].selected == "first"
-    assert results[0].probabilities == pytest.approx(
-        {"first": 0.75, "second": 0.25}
-    )
+    assert results[0].probabilities == pytest.approx({"first": 0.75, "second": 0.25})
     assert completion_requests[1]["prompt"]["multimodal_data"] == [
         "aW1hZ2U=",
         "YXVkaW8=",
@@ -315,17 +313,21 @@ def test_server_decide_requires_probability_for_every_choice():
         if url.endswith("/apply-template"):
             return 200, b'{"prompt":"formatted"}'
         if url.endswith("/completion"):
-            return 200, json.dumps({
-                "content": "A",
-                "probs": [{
-                    "id": 11,
-                    "logprob": -0.2,
-                    "top_logprobs": [
-                        {"id": 11, "token": "A", "logprob": -0.2},
-                        {"id": 100, "token": "<|channel|>", "logprob": -3.0},
+            return 200, json.dumps(
+                {
+                    "content": "A",
+                    "probs": [
+                        {
+                            "id": 11,
+                            "logprob": -0.2,
+                            "top_logprobs": [
+                                {"id": 11, "token": "A", "logprob": -0.2},
+                                {"id": 100, "token": "<|channel|>", "logprob": -3.0},
+                            ],
+                        }
                     ],
-                }],
-            }).encode()
+                }
+            ).encode()
         return 200, b'{"status":"ok","success":true}'
 
     session = LlamaCppServerSession(
@@ -334,7 +336,8 @@ def test_server_decide_requires_probability_for_every_choice():
     try:
         with pytest.raises(BackendError) as caught:
             session.decide(
-                question="Private question", context="Private context",
+                question="Private question",
+                context="Private context",
                 answers=["first", "second"],
             )
         message = str(caught.value)
@@ -362,17 +365,21 @@ def test_server_decide_rejects_all_zero_probability_choice_tokens():
         if url.endswith("/apply-template"):
             return 200, b'{"prompt":"formatted"}'
         if url.endswith("/completion"):
-            return 200, json.dumps({
-                "content": "A",
-                "probs": [{
-                    "id": 11,
-                    "logprob": zero_logprob,
-                    "top_logprobs": [
-                        {"id": 11, "token": "A", "logprob": zero_logprob},
-                        {"id": 12, "token": "B", "logprob": zero_logprob},
+            return 200, json.dumps(
+                {
+                    "content": "A",
+                    "probs": [
+                        {
+                            "id": 11,
+                            "logprob": zero_logprob,
+                            "top_logprobs": [
+                                {"id": 11, "token": "A", "logprob": zero_logprob},
+                                {"id": 12, "token": "B", "logprob": zero_logprob},
+                            ],
+                        }
                     ],
-                }],
-            }).encode()
+                }
+            ).encode()
         return 200, b'{"status":"ok","success":true}'
 
     session = LlamaCppServerSession(

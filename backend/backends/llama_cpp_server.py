@@ -686,8 +686,7 @@ class LlamaCppServerSession:
                 )
             max_logprob = max(ordered_choice_logprobs)
             weights = [
-                math.exp(logprob - max_logprob)
-                for logprob in ordered_choice_logprobs
+                math.exp(logprob - max_logprob) for logprob in ordered_choice_logprobs
             ]
             total = math.fsum(weights)
             if not math.isfinite(total) or total <= 0.0:
