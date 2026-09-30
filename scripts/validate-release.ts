@@ -144,7 +144,7 @@ export async function validateRelease(projectRoot = projectDir): Promise<string[
     fs.readFile(Path.join(projectRoot, "pyproject.toml"), "utf8"),
     fs.readFile(Path.join(projectRoot, "package.json"), "utf8"),
     fs.readFile(Path.join(projectRoot, "frontend", "src", "constants.ts"), "utf8"),
-    fs.readFile(Path.join(projectRoot, "backend", "nodes", "example_normalize_text.py"), "utf8"),
+    fs.readFile(Path.join(projectRoot, "backend", "__init__.py"), "utf8"),
   ])
   const pyproject = Bun.TOML.parse(pyprojectSource) as ProjectConfig
   const packageJson = JSON.parse(packageSource) as { name?: unknown }

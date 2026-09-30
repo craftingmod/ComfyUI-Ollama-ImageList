@@ -107,7 +107,7 @@ export async function initializeTemplate(
   const pyprojectPath = Path.join(projectDir, "pyproject.toml")
   const packagePath = Path.join(projectDir, "package.json")
   const constantsPath = Path.join(projectDir, "frontend", "src", "constants.ts")
-  const nodePath = Path.join(projectDir, "backend", "nodes", "example_normalize_text.py")
+  const nodePath = Path.join(projectDir, "backend", "__init__.py")
   const [originalPyproject, originalPackage, originalConstants, originalNode] = await Promise.all([
     fs.readFile(pyprojectPath, "utf8"),
     fs.readFile(packagePath, "utf8"),
@@ -176,13 +176,13 @@ export async function initializeTemplate(
     originalNode,
     /^(PROJECT_ID\s*=\s*)["'][^"']+["']\s*$/m,
     projectId,
-    "PROJECT_ID in the example backend node",
+    "PROJECT_ID in backend/__init__.py",
   )
   updatedNode = replaceQuotedValue(
     updatedNode,
     /^(PROJECT_NAME\s*=\s*)["'][^"']+["']\s*$/m,
     projectName,
-    "PROJECT_NAME in the example backend node",
+    "PROJECT_NAME in backend/__init__.py",
   )
 
   await Promise.all([
