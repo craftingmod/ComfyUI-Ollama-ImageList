@@ -66,8 +66,7 @@ wheels = [
 
 [[package]]
 name = "ollama-image-list"
-version = "0.8.2"
-source = { virtual = "." }
+source = { editable = "." }
 
 [package.optional-dependencies]
 llama = [

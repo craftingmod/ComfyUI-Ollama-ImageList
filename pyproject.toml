@@ -13,6 +13,9 @@ license = { file = "LICENSE" }
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
 
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
+
 [tool.uv-dynamic-versioning]
 vcs = "git"
 strict = true
