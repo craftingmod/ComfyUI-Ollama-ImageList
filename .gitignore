@@ -7,6 +7,7 @@
 # Build
 dist/
 build/
+backend/_version.py
 coverage/
 
 # Environment
