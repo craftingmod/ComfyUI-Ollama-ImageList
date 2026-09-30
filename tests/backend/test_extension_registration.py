@@ -227,11 +227,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "LlamaCppMtmd_ConnectSession",
         "LlamaCppMtmd_CreateQuestionFromInput",
         "LlamaCppMtmd_Decide",
+        "LlamaCppMtmd_DecideMediaSequential",
+        "LlamaCppMtmd_DecidePromptSequential",
         "LlamaCppMtmd_Generate",
         "LlamaCppMtmd_UnloadSession",
         "OllamaImageList_LlamaCppProfiledGenerate",
         "OllamaImageList_LlamaCppSequentialGenerate",
         "LlamaCppMtmd_GenerateSequential",
+        "LlamaCppMtmd_GeneratePromptSequential",
         "OllamaImageList_LlamaCppGenerate",
         "LlamaCppMtmd_MediaDiagnostics",
         "LlamaCppMtmd_MuseGlimmerResponseParser",
@@ -257,11 +260,14 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] Connect Session",
         "[llama.cpp] Create Question From Input",
         "[llama.cpp] Decide",
+        "[llama.cpp] Decide (Media Sequential)",
+        "[llama.cpp] Decide (Prompt Sequential)",
         "[llama.cpp] Generate",
         "[llama.cpp] Unload Session",
         "[llama.cpp] Generate",
-        "[llama.cpp] Sequential Generate",
-        "[llama.cpp] Generate (Sequential)",
+        "[llama.cpp] Media Sequential Generate",
+        "[llama.cpp] Generate (Media Sequential)",
+        "[llama.cpp] Generate (Prompt Sequential)",
         "[llama.cpp] Generate (Multimodal)",
         "[llama.cpp] Media Diagnostics",
         "Muse Glimmer Response Parser",
@@ -287,10 +293,13 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/session",
         "llama_cpp/decision",
         "llama_cpp/decision",
+        "llama_cpp/decision",
+        "llama_cpp/decision",
         "llama_cpp/generate",
         "llama_cpp/session",
         "llama_cpp/compact",
         "llama_cpp/compact",
+        "llama_cpp/generate",
         "llama_cpp/generate",
         "llama_cpp/legacy",
         "llama_cpp/utils",
@@ -1265,6 +1274,60 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert decide_schema.outputs[-1].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
+    _, decide_media_schema = registered["LlamaCppMtmd_DecideMediaSequential"]
+    assert decide_media_schema.is_input_list is True
+    assert decide_media_schema.not_idempotent is True
+    assert [field.name for field in decide_media_schema.inputs] == [
+        field.name for field in decide_schema.inputs
+    ]
+    assert [field.name for field in decide_media_schema.outputs] == [
+        "selected",
+        "probabilities_json",
+        "metrics_json",
+        "media_diagnostics",
+        "session",
+    ]
+    assert all(
+        field.options["is_output_list"] is True
+        for field in decide_media_schema.outputs[:-1]
+    )
+    assert decide_media_schema.outputs[-1].options.get("is_output_list", False) is False
+    _, decide_prompt_schema = registered["LlamaCppMtmd_DecidePromptSequential"]
+    assert decide_prompt_schema.is_input_list is True
+    assert decide_prompt_schema.not_idempotent is True
+    assert [field.name for field in decide_prompt_schema.inputs] == [
+        "session",
+        "system",
+        "context",
+        "question",
+        "images",
+        "audio",
+        "video",
+        "video_with_audio",
+        "seed",
+        "model_profile",
+        "reuse_kv_cache",
+        "session_unload",
+    ]
+    prompt_reuse_input = {field.name: field for field in decide_prompt_schema.inputs}[
+        "reuse_kv_cache"
+    ]
+    assert prompt_reuse_input.data_type == "boolean"
+    assert prompt_reuse_input.options["default"] is True
+    assert [field.name for field in decide_prompt_schema.outputs] == [
+        "selected",
+        "probabilities_json",
+        "metrics_json",
+        "media_diagnostics",
+        "session",
+    ]
+    assert all(
+        field.options["is_output_list"] is True
+        for field in decide_prompt_schema.outputs[:-1]
+    )
+    assert (
+        decide_prompt_schema.outputs[-1].options.get("is_output_list", False) is False
+    )
     session_generate_class, session_generate_schema = registered[
         "LlamaCppMtmd_Generate"
     ]
@@ -1301,6 +1364,42 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert session_generate_schema.outputs[-1].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
+    )
+    prompt_sequential_class, prompt_sequential_schema = registered[
+        "LlamaCppMtmd_GeneratePromptSequential"
+    ]
+    assert prompt_sequential_schema.is_input_list is True
+    assert prompt_sequential_schema.not_idempotent is True
+    assert [field.name for field in prompt_sequential_schema.inputs] == [
+        "session",
+        "system",
+        "prompt",
+        "max_tokens",
+        "seed",
+        "stop",
+        "images",
+        "audio",
+        "video",
+        "video_with_audio",
+        "reuse_kv_cache",
+        "session_unload",
+        "model_profile",
+    ]
+    prompt_sequential_inputs = {
+        field.name: field for field in prompt_sequential_schema.inputs
+    }
+    assert prompt_sequential_inputs["reuse_kv_cache"].data_type == "boolean"
+    assert prompt_sequential_inputs["reuse_kv_cache"].options["default"] is True
+    assert [field.name for field in prompt_sequential_schema.outputs] == [
+        "response",
+        "thinking",
+        "raw_json",
+        "metrics_json",
+        "media_diagnostics",
+    ]
+    assert all(
+        field.options["is_output_list"] is True
+        for field in prompt_sequential_schema.outputs
     )
     unload_session_class, unload_session_schema = registered[
         "LlamaCppMtmd_UnloadSession"
@@ -2152,6 +2251,9 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
     assert option_value(arguments, "--reasoning-effort") == "high"
     assert option_value(arguments, "--reasoning-budget") == "321"
     assert "--reasoning-preserve" in arguments
+    assert json.loads(option_value(arguments, "--chat-template-kwargs")) == {
+        "preserve_thinking": True
+    }
     assert option_value(arguments, "--image-min-tokens") == "64"
     assert option_value(arguments, "--image-max-tokens") == "128"
     assert option_value(arguments, "--spec-type") == "draft-dflash"
@@ -2194,6 +2296,9 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
     assert option_value(zero_arguments, "--flash-attn") == "auto"
     assert option_value(zero_arguments, "--load-mode") == "mmap"
     assert option_value(zero_arguments, "--reasoning") == "on"
+    assert json.loads(option_value(zero_arguments, "--chat-template-kwargs")) == {
+        "preserve_thinking": False
+    }
     assert not {
         "--ubatch-size",
         "--threads",
@@ -2222,6 +2327,20 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
     assert option_value(off_arguments, "--reasoning") == "off"
     assert "--reasoning-effort" not in off_arguments
     assert "--reasoning-budget" not in off_arguments
+
+    preserve_off_arguments, _, _ = session_module._runtime_server_arguments(
+        **{**off_values, "reasoning_preserve_supported": True}
+    )
+    assert "--no-reasoning-preserve" in preserve_off_arguments
+    assert "--reasoning-preserve" not in preserve_off_arguments
+    absent_arguments, _, _ = session_module._runtime_server_arguments(
+        **{**base_values, "reasoning": None}
+    )
+    assert not {
+        "--chat-template-kwargs",
+        "--reasoning-preserve",
+        "--no-reasoning-preserve",
+    }.intersection(absent_arguments)
 
     for mode in ("k", "k4v"):
         mode_arguments = []
@@ -2441,9 +2560,7 @@ def test_llama_cpp_decide_node_preserves_answer_labels_and_probability_order(
             server_calls.append(values)
             return "first option", {"first option": 0.8, "second option": 0.2}
 
-    monkeypatch.setattr(
-        decision_nodes, "LlamaCppServerSession", FakeConnectSession
-    )
+    monkeypatch.setattr(decision_nodes, "LlamaCppServerSession", FakeConnectSession)
     remote_session = FakeConnectSession()
     remote_result = decision_nodes.LlamaCppDecideSessionNode.execute(
         [remote_session],
@@ -2462,3 +2579,126 @@ def test_llama_cpp_decide_node_preserves_answer_labels_and_probability_order(
         decision_nodes.LlamaCppDecideSessionNode.execute(
             [object()], [""], [""], [payload]
         )
+
+
+def import_llama_cpp_session_nodes(monkeypatch):
+    install_comfy_api_stub(monkeypatch)
+    for module_name in tuple(sys.modules):
+        if module_name == "backend.nodes" or module_name.startswith("backend.nodes."):
+            monkeypatch.delitem(sys.modules, module_name)
+    return importlib.import_module("backend.nodes.llama_cpp_session")
+
+
+def test_prompt_sequential_reuses_one_bundle_and_validates_prompts(monkeypatch):
+    session_module = import_llama_cpp_session_nodes(monkeypatch)
+    normalized_media = []
+    normalize = session_module.normalize_media
+
+    def normalize_once(**values):
+        bundle = normalize(**values)
+        normalized_media.append(bundle)
+        return bundle
+
+    monkeypatch.setattr(session_module, "normalize_media", normalize_once)
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+            self.close_calls = 0
+
+        def generate(self, **request):
+            self.calls.append(request)
+            prompt = request["prompt"]
+            return SimpleNamespace(
+                response=f"response:{prompt}",
+                thinking=f"thinking:{prompt}",
+                raw={"prompt": prompt},
+                metrics={
+                    "model_unloaded": False,
+                    "session": {"unload_required": True},
+                },
+                media_diagnostics={"prompt": prompt},
+            )
+
+        def close(self):
+            self.close_calls += 1
+
+    monkeypatch.setattr(session_module, "LlamaCppSession", FakeSession)
+    monkeypatch.setattr(session_module, "LlamaCppServerSession", FakeSession)
+    session = FakeSession()
+    result = session_module.LlamaCppSessionPromptSequentialGenerateNode.execute(
+        session=[session],
+        system=["system rules"],
+        prompt=["", "second prompt"],
+        max_tokens=[64],
+        seed=[123],
+        stop=["END"],
+        images=[
+            solid_image(1, 1, 1, 3, 0.25),
+            solid_image(1, 1, 1, 3, 0.75),
+        ],
+        video_with_audio=[False],
+        reuse_kv_cache=[False],
+        session_unload=[True],
+    )
+
+    assert len(normalized_media) == 1
+    assert len(normalized_media[0].items) == 2
+    assert [call["prompt"] for call in session.calls] == ["", "second prompt"]
+    assert all(call["media"] is normalized_media[0] for call in session.calls)
+    assert all(call["reuse_kv_cache"] is False for call in session.calls)
+    assert all(call["media_before_prompt"] is True for call in session.calls)
+    assert all(call["system"] == "system rules" for call in session.calls)
+    assert [call["max_tokens"] for call in session.calls] == [64, 64]
+    assert [call["seed"] for call in session.calls] == [123, 123]
+    assert [call["stop"] for call in session.calls] == ["END", "END"]
+    assert session.close_calls == 1
+    assert result[0] == ["response:", "response:second prompt"]
+    assert result[1] == ["thinking:", "thinking:second prompt"]
+    assert [json.loads(value)["prompt"] for value in result[2]] == [
+        "",
+        "second prompt",
+    ]
+    assert json.loads(result[3][0])["model_unloaded"] is not True
+    assert json.loads(result[3][1])["model_unloaded"] is True
+    assert result[4] == [
+        {"prompt": ""},
+        {"prompt": "second prompt", "model_unloaded_after_response": True},
+    ]
+
+    default_session = FakeSession()
+    session_module.LlamaCppSessionPromptSequentialGenerateNode.execute(
+        session=[default_session],
+        system=["system rules"],
+        prompt="default prompt",
+        max_tokens=[64],
+        seed=[123],
+        stop=[""],
+        session_unload=[False],
+    )
+    assert default_session.calls[0]["reuse_kv_cache"] is True
+    assert default_session.calls[0]["media"].items == ()
+    assert len(normalized_media) == 2
+    invalid_values = {
+        "session": [session],
+        "system": [""],
+        "max_tokens": [64],
+        "seed": [-1],
+        "stop": [""],
+        "reuse_kv_cache": [True],
+        "session_unload": [False],
+    }
+
+    with pytest.raises(InputNormalizationError, match="at least one prompt"):
+        session_module.LlamaCppSessionPromptSequentialGenerateNode.execute(
+            **invalid_values,
+            prompt=[],
+        )
+    for invalid_prompts in ([None], ["valid", ["nested"]], [1]):
+        with pytest.raises(InputNormalizationError, match="flat strings"):
+            session_module.LlamaCppSessionPromptSequentialGenerateNode.execute(
+                **invalid_values,
+                prompt=invalid_prompts,
+            )
+    assert len(session.calls) == 2
+    assert session.close_calls == 1

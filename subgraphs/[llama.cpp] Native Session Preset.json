@@ -1,13 +1,19 @@
 {
   "revision": 0,
-  "last_node_id": "7",
+  "last_node_id": "8",
   "last_link_id": 0,
   "nodes": [
     {
-      "id": 7,
-      "type": "a2ebe1b3-34c4-4cc9-bcbe-80b5803fb1cf",
-      "pos": [-305.99693387415425, 2056.8385872960453],
-      "size": [519.2981532384074, 362.00000804743246],
+      "id": 8,
+      "type": "bcaeec4f-0210-4c84-a088-919087b787a5",
+      "pos": [
+        -224.59970784030756,
+        1511.9415582826218
+      ],
+      "size": [
+        519.2981532384074,
+        362.00000804743246
+      ],
       "flags": {},
       "order": 0,
       "mode": 0,
@@ -97,16 +103,23 @@
             "name": "draft_n_max"
           },
           "link": null
+        },
+        {
+          "name": "custom_handler",
+          "type": "COMBO",
+          "widget": {
+            "name": "custom_handler"
+          },
+          "link": null
         }
       ],
       "outputs": [
         {
           "name": "session",
           "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION",
-          "links": null
+          "links": []
         }
       ],
-      "title": "[llama.cpp] Gemma4 runtime session",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.37.0",
@@ -122,7 +135,8 @@
         "medium",
         "Off",
         "[none]",
-        4
+        4,
+        "gemma4"
       ],
       "widgets_values_named": {
         "model_path": "Gemma4-12B\\gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
@@ -134,8 +148,10 @@
         "reasoning_effort": "medium",
         "preset": "Off",
         "draft_model": "[none]",
-        "draft_n_max": 4
-      }
+        "draft_n_max": 4,
+        "custom_handler": "gemma4"
+      },
+      "title": "[llama.cpp] Native Session Preset"
     }
   ],
   "links": [],
@@ -143,101 +159,173 @@
   "definitions": {
     "subgraphs": [
       {
-        "id": "a2ebe1b3-34c4-4cc9-bcbe-80b5803fb1cf",
+        "id": "bcaeec4f-0210-4c84-a088-919087b787a5",
         "version": 1,
         "state": {
           "lastGroupId": 1,
-          "lastNodeId": 7,
-          "lastLinkId": 26,
+          "lastNodeId": 9,
+          "lastLinkId": 36,
           "lastRerouteId": 0
         },
         "revision": 0,
         "config": {},
-        "name": "[llama.cpp] Gemma4 Runtime Session Preset",
+        "name": "[llama.cpp] Native Session Preset",
         "category": "llama_cpp",
         "inputNode": {
           "id": -10,
-          "bounding": [-732.7597483791271, 2199.6187914962716, 154.599609375, 248]
+          "bounding": [
+            -732.7597483791271,
+            2199.6187914962716,
+            154.599609375,
+            268
+          ]
         },
         "outputNode": {
           "id": -20,
-          "bounding": [610.496195650863, 2193.170792583519, 128, 68]
+          "bounding": [
+            610.496195650863,
+            2193.170792583519,
+            128,
+            68
+          ]
         },
         "inputs": [
           {
             "id": "72f39a76-5edd-4e0f-9395-3a806bb1cd85",
             "name": "model_path",
             "type": "COMBO",
-            "linkIds": [9],
-            "pos": [-602.1601390041271, 2223.6187914962716]
+            "linkIds": [
+              32
+            ],
+            "pos": [
+              -602.1601390041271,
+              2223.6187914962716
+            ]
           },
           {
             "id": "91c4f0fd-763b-4601-b311-0d72db813f62",
             "name": "mmproj_path",
             "type": "COMBO",
-            "linkIds": [10],
-            "pos": [-602.1601390041271, 2243.6187914962716]
+            "linkIds": [
+              33
+            ],
+            "pos": [
+              -602.1601390041271,
+              2243.6187914962716
+            ]
           },
           {
             "id": "fe871327-16b5-4aeb-8659-b6890cd7d66f",
             "name": "n_ctx",
             "type": "INT",
-            "linkIds": [11],
+            "linkIds": [
+              34
+            ],
             "label": "max_context",
-            "pos": [-602.1601390041271, 2263.6187914962716]
+            "pos": [
+              -602.1601390041271,
+              2263.6187914962716
+            ]
           },
           {
             "id": "8fc97a1c-e1db-4566-ab32-eb54c751ae88",
             "name": "profile_1",
             "type": "COMBO",
-            "linkIds": [24],
+            "linkIds": [
+              24
+            ],
             "label": "model_preset",
-            "pos": [-602.1601390041271, 2283.6187914962716]
+            "pos": [
+              -602.1601390041271,
+              2283.6187914962716
+            ]
           },
           {
             "id": "b077bc24-98dc-4f1c-8fcc-a0cb059164be",
             "name": "profile",
             "type": "COMBO",
-            "linkIds": [13],
+            "linkIds": [
+              13
+            ],
             "label": "context_preset",
-            "pos": [-602.1601390041271, 2303.6187914962716]
+            "pos": [
+              -602.1601390041271,
+              2303.6187914962716
+            ]
           },
           {
             "id": "3440b077-2be1-42a7-a264-b317aea033e8",
             "name": "reasoning_mode",
             "type": "COMBO",
-            "linkIds": [25],
-            "pos": [-602.1601390041271, 2323.6187914962716]
+            "linkIds": [
+              25
+            ],
+            "pos": [
+              -602.1601390041271,
+              2323.6187914962716
+            ]
           },
           {
             "id": "a401603b-cb50-4a79-a07a-45378bc2e0dc",
             "name": "reasoning_effort",
             "type": "COMBO",
-            "linkIds": [26],
-            "pos": [-602.1601390041271, 2343.6187914962716]
+            "linkIds": [
+              26
+            ],
+            "pos": [
+              -602.1601390041271,
+              2343.6187914962716
+            ]
           },
           {
             "id": "47ff75ef-3d25-4585-890b-a542928632a2",
             "name": "preset",
             "type": "COMBO",
-            "linkIds": [19],
+            "linkIds": [
+              19
+            ],
             "label": "speculative_profile",
-            "pos": [-602.1601390041271, 2363.6187914962716]
+            "pos": [
+              -602.1601390041271,
+              2363.6187914962716
+            ]
           },
           {
             "id": "272c49d5-c321-4e0a-b274-ae8f6afa18da",
             "name": "draft_model",
             "type": "COMBO",
-            "linkIds": [20],
+            "linkIds": [
+              20
+            ],
             "label": "speculative_model",
-            "pos": [-602.1601390041271, 2383.6187914962716]
+            "pos": [
+              -602.1601390041271,
+              2383.6187914962716
+            ]
           },
           {
             "id": "09220908-97ad-4f1c-9c54-edee4bae7141",
             "name": "draft_n_max",
             "type": "INT",
-            "linkIds": [21],
-            "pos": [-602.1601390041271, 2403.6187914962716]
+            "linkIds": [
+              21
+            ],
+            "pos": [
+              -602.1601390041271,
+              2403.6187914962716
+            ]
+          },
+          {
+            "id": "6fdf6a2f-8cc5-4174-a7a8-d3f9205029aa",
+            "name": "custom_handler",
+            "type": "COMBO",
+            "linkIds": [
+              36
+            ],
+            "pos": [
+              -602.1601390041271,
+              2423.6187914962716
+            ]
           }
         ],
         "outputs": [
@@ -245,8 +333,13 @@
             "id": "dd1127be-447d-41ea-91b2-e1724977a70a",
             "name": "session",
             "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION",
-            "linkIds": [22],
-            "pos": [634.496195650863, 2217.170792583519]
+            "linkIds": [
+              35
+            ],
+            "pos": [
+              634.496195650863,
+              2217.170792583519
+            ]
           }
         ],
         "widgets": [],
@@ -254,10 +347,16 @@
           {
             "id": 1,
             "type": "LlamaCppMtmd_ModelProfile",
-            "pos": [-259.21510994062305, 1675.698771340974],
-            "size": [270, 202],
+            "pos": [
+              -259.21510994062305,
+              1675.698771340974
+            ],
+            "size": [
+              270,
+              202
+            ],
             "flags": {},
-            "order": 3,
+            "order": 1,
             "mode": 0,
             "showAdvanced": true,
             "inputs": [
@@ -330,15 +429,25 @@
                 "localized_name": "model profile",
                 "name": "model profile",
                 "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE",
-                "links": [1]
+                "links": [
+                  27
+                ]
               }
             ],
             "properties": {
               "cnr_id": "ollama-image-list",
-              "ver": "72eafb404e41a627df3f3ea9a579dc20a2c21aaf",
+              "ver": "e6e541c29192ed80c67efef16cb4eddbdcfda914",
               "Node name for S&R": "LlamaCppMtmd_ModelProfile"
             },
-            "widgets_values": ["General", 0.8, 0.95, 40, 0.05, 1, 0],
+            "widgets_values": [
+              "General",
+              0.8,
+              0.95,
+              40,
+              0.05,
+              1,
+              0
+            ],
             "widgets_values_named": {
               "profile": "General",
               "temperature": 0.8,
@@ -354,10 +463,16 @@
           {
             "id": 2,
             "type": "LlamaCppMtmd_PrefillProfile",
-            "pos": [-257.20317043872933, 2002.664112200142],
-            "size": [271.40234375, 154],
+            "pos": [
+              -257.20317043872933,
+              2002.664112200142
+            ],
+            "size": [
+              271.40234375,
+              154
+            ],
             "flags": {},
-            "order": 4,
+            "order": 2,
             "mode": 0,
             "inputs": [
               {
@@ -408,18 +523,26 @@
             ],
             "outputs": [
               {
-                "localized_name": "prefill profile",
-                "name": "prefill profile",
+                "localized_name": "prefill_profile",
+                "name": "prefill_profile",
                 "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE",
-                "links": [2]
+                "links": [
+                  28
+                ]
               }
             ],
             "properties": {
               "cnr_id": "ollama-image-list",
-              "ver": "72eafb404e41a627df3f3ea9a579dc20a2c21aaf",
+              "ver": "e6e541c29192ed80c67efef16cb4eddbdcfda914",
               "Node name for S&R": "LlamaCppMtmd_PrefillProfile"
             },
-            "widgets_values": ["Custom", 512, 0, 0, 0],
+            "widgets_values": [
+              "Custom",
+              512,
+              0,
+              0,
+              0
+            ],
             "widgets_values_named": {
               "profile": "Custom",
               "n_batch": 512,
@@ -431,126 +554,16 @@
             "bgcolor": "#3f5159"
           },
           {
-            "id": 3,
-            "type": "LlamaCppMtmd_CreateRuntimeSession",
-            "pos": [181.12535461204658, 2096.178956808735],
-            "size": [335.6783203125, 230],
-            "flags": {},
-            "order": 5,
-            "mode": 0,
-            "inputs": [
-              {
-                "localized_name": "model_profile",
-                "name": "model_profile",
-                "shape": 7,
-                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE",
-                "link": 1
-              },
-              {
-                "localized_name": "custom_chat_template",
-                "name": "custom_chat_template",
-                "shape": 7,
-                "type": "STRING",
-                "link": null
-              },
-              {
-                "localized_name": "hardware_profile",
-                "name": "hardware_profile",
-                "shape": 7,
-                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE",
-                "link": 3
-              },
-              {
-                "localized_name": "reasoning",
-                "name": "reasoning",
-                "shape": 7,
-                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG",
-                "link": 4
-              },
-              {
-                "localized_name": "speculative",
-                "name": "speculative",
-                "shape": 7,
-                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG",
-                "link": 5
-              },
-              {
-                "localized_name": "prefill_profile",
-                "name": "prefill_profile",
-                "shape": 7,
-                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE",
-                "link": 2
-              },
-              {
-                "localized_name": "model_path",
-                "name": "model_path",
-                "type": "COMBO",
-                "widget": {
-                  "name": "model_path"
-                },
-                "link": 9
-              },
-              {
-                "localized_name": "mmproj_path",
-                "name": "mmproj_path",
-                "type": "COMBO",
-                "widget": {
-                  "name": "mmproj_path"
-                },
-                "link": 10
-              },
-              {
-                "localized_name": "n_ctx",
-                "name": "n_ctx",
-                "type": "INT",
-                "widget": {
-                  "name": "n_ctx"
-                },
-                "link": 11
-              },
-              {
-                "localized_name": "verbose",
-                "name": "verbose",
-                "type": "BOOLEAN",
-                "widget": {
-                  "name": "verbose"
-                },
-                "link": null
-              }
-            ],
-            "outputs": [
-              {
-                "localized_name": "session",
-                "name": "session",
-                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION",
-                "links": [22]
-              }
-            ],
-            "properties": {
-              "cnr_id": "ollama-image-list",
-              "ver": "72eafb404e41a627df3f3ea9a579dc20a2c21aaf",
-              "Node name for S&R": "LlamaCppMtmd_CreateRuntimeSession"
-            },
-            "widgets_values": [
-              "GGUF\\bartowski\\google_gemma-4-E4B-it-GGUF\\google_gemma-4-E4B-it-Q4_K_M.gguf",
-              "[none]",
-              8192,
-              false
-            ],
-            "widgets_values_named": {
-              "model_path": "GGUF\\bartowski\\google_gemma-4-E4B-it-GGUF\\google_gemma-4-E4B-it-Q4_K_M.gguf",
-              "mmproj_path": "[none]",
-              "n_ctx": 8192,
-              "verbose": false
-            },
-            "color": "#232",
-            "bgcolor": "#353"
-          },
-          {
             "id": 4,
             "type": "LlamaCppMtmd_HardwareRuntimeProfile",
-            "pos": [-307.34245535567595, 2376.863167358525],
-            "size": [346.5611328125, 202],
+            "pos": [
+              -307.34245535567595,
+              2376.863167358525
+            ],
+            "size": [
+              346.5611328125,
+              202
+            ],
             "flags": {},
             "order": 0,
             "mode": 0,
@@ -625,15 +638,25 @@
                 "localized_name": "hardware profile",
                 "name": "hardware profile",
                 "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE",
-                "links": [3]
+                "links": [
+                  29
+                ]
               }
             ],
             "properties": {
               "cnr_id": "ollama-image-list",
-              "ver": "72eafb404e41a627df3f3ea9a579dc20a2c21aaf",
+              "ver": "e6e541c29192ed80c67efef16cb4eddbdcfda914",
               "Node name for S&R": "LlamaCppMtmd_HardwareRuntimeProfile"
             },
-            "widgets_values": ["auto", "Q8_0", "Q8_0", 0, 0, "auto", true],
+            "widgets_values": [
+              "auto",
+              "Q8_0",
+              "Q8_0",
+              0,
+              0,
+              "auto",
+              true
+            ],
             "widgets_values_named": {
               "gpu_layers": "auto",
               "type_k": "Q8_0",
@@ -649,10 +672,16 @@
           {
             "id": 5,
             "type": "LlamaCppMtmd_ReasoningConfig",
-            "pos": [-321.1094730098764, 2720.6464099835025],
-            "size": [363.370703125, 130],
+            "pos": [
+              -321.1094730098764,
+              2720.6464099835025
+            ],
+            "size": [
+              363.370703125,
+              130
+            ],
             "flags": {},
-            "order": 1,
+            "order": 3,
             "mode": 0,
             "inputs": [
               {
@@ -697,15 +726,22 @@
                 "localized_name": "reasoning",
                 "name": "reasoning",
                 "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG",
-                "links": [4]
+                "links": [
+                  30
+                ]
               }
             ],
             "properties": {
               "cnr_id": "ollama-image-list",
-              "ver": "72eafb404e41a627df3f3ea9a579dc20a2c21aaf",
+              "ver": "e6e541c29192ed80c67efef16cb4eddbdcfda914",
               "Node name for S&R": "LlamaCppMtmd_ReasoningConfig"
             },
-            "widgets_values": ["on", "auto", 0, false],
+            "widgets_values": [
+              "on",
+              "auto",
+              0,
+              false
+            ],
             "widgets_values_named": {
               "reasoning_mode": "on",
               "reasoning_effort": "auto",
@@ -718,10 +754,16 @@
           {
             "id": 6,
             "type": "LlamaCppMtmd_NativeSpeculativeConfig",
-            "pos": [-312.3468160547534, 2953.6342919141316],
-            "size": [347.319921875, 226],
+            "pos": [
+              -312.3468160547534,
+              2953.6342919141316
+            ],
+            "size": [
+              347.319921875,
+              226
+            ],
             "flags": {},
-            "order": 2,
+            "order": 4,
             "mode": 0,
             "inputs": [
               {
@@ -802,15 +844,26 @@
                 "localized_name": "speculative",
                 "name": "speculative",
                 "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG",
-                "links": [5]
+                "links": [
+                  31
+                ]
               }
             ],
             "properties": {
               "cnr_id": "ollama-image-list",
-              "ver": "72eafb404e41a627df3f3ea9a579dc20a2c21aaf",
+              "ver": "e6e541c29192ed80c67efef16cb4eddbdcfda914",
               "Node name for S&R": "LlamaCppMtmd_NativeSpeculativeConfig"
             },
-            "widgets_values": ["Custom", "[none]", 4, "draft-dflash", "off", 0, "all", true],
+            "widgets_values": [
+              "Custom",
+              "[none]",
+              4,
+              "draft-dflash",
+              "off",
+              0,
+              "all",
+              true
+            ],
             "widgets_values_named": {
               "preset": "Custom",
               "draft_model": "[none]",
@@ -823,90 +876,158 @@
             },
             "color": "#332922",
             "bgcolor": "#593930"
+          },
+          {
+            "id": 9,
+            "type": "LlamaCppMtmd_CreateSession",
+            "pos": [
+              194.57847657234043,
+              2092.119799771447
+            ],
+            "size": [
+              323.858984375,
+              254
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model_profile",
+                "name": "model_profile",
+                "shape": 7,
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE",
+                "link": 27
+              },
+              {
+                "localized_name": "custom_chat_template",
+                "name": "custom_chat_template",
+                "shape": 7,
+                "type": "STRING",
+                "link": null
+              },
+              {
+                "localized_name": "hardware_profile",
+                "name": "hardware_profile",
+                "shape": 7,
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE",
+                "link": 29
+              },
+              {
+                "localized_name": "reasoning",
+                "name": "reasoning",
+                "shape": 7,
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG",
+                "link": 30
+              },
+              {
+                "localized_name": "speculative",
+                "name": "speculative",
+                "shape": 7,
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG",
+                "link": 31
+              },
+              {
+                "localized_name": "prefill_profile",
+                "name": "prefill_profile",
+                "shape": 7,
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE",
+                "link": 28
+              },
+              {
+                "localized_name": "model_path",
+                "name": "model_path",
+                "type": "COMBO",
+                "widget": {
+                  "name": "model_path"
+                },
+                "link": 32
+              },
+              {
+                "localized_name": "mmproj_path",
+                "name": "mmproj_path",
+                "type": "COMBO",
+                "widget": {
+                  "name": "mmproj_path"
+                },
+                "link": 33
+              },
+              {
+                "localized_name": "custom_handler",
+                "name": "custom_handler",
+                "type": "COMBO",
+                "widget": {
+                  "name": "custom_handler"
+                },
+                "link": 36
+              },
+              {
+                "localized_name": "n_ctx",
+                "name": "n_ctx",
+                "type": "INT",
+                "widget": {
+                  "name": "n_ctx"
+                },
+                "link": 34
+              },
+              {
+                "localized_name": "verbose",
+                "name": "verbose",
+                "type": "BOOLEAN",
+                "widget": {
+                  "name": "verbose"
+                },
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "session",
+                "name": "session",
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION",
+                "links": [
+                  35
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "ollama-image-list",
+              "ver": "e6e541c29192ed80c67efef16cb4eddbdcfda914",
+              "Node name for S&R": "LlamaCppMtmd_CreateSession"
+            },
+            "widgets_values": [
+              "GGUF\\bartowski\\google_gemma-4-E4B-it-GGUF\\google_gemma-4-E4B-it-Q4_K_M.gguf",
+              "[none]",
+              "auto",
+              8192,
+              false
+            ],
+            "widgets_values_named": {
+              "model_path": "GGUF\\bartowski\\google_gemma-4-E4B-it-GGUF\\google_gemma-4-E4B-it-Q4_K_M.gguf",
+              "mmproj_path": "[none]",
+              "custom_handler": "auto",
+              "n_ctx": 8192,
+              "verbose": false
+            },
+            "color": "#223",
+            "bgcolor": "#335"
           }
         ],
         "groups": [
           {
             "id": 1,
             "title": "Profiles",
-            "bounding": [-410, 1598.2428603064257, 500.45228525935283, 1608.0919077606375],
+            "bounding": [
+              -410,
+              1598.2428603064257,
+              500.45228525935283,
+              1608.0919077606375
+            ],
             "color": "#3f789e",
             "flags": {}
           }
         ],
         "links": [
-          {
-            "id": 1,
-            "origin_id": 1,
-            "origin_slot": 0,
-            "target_id": 3,
-            "target_slot": 0,
-            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
-          },
-          {
-            "id": 3,
-            "origin_id": 4,
-            "origin_slot": 0,
-            "target_id": 3,
-            "target_slot": 2,
-            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
-          },
-          {
-            "id": 4,
-            "origin_id": 5,
-            "origin_slot": 0,
-            "target_id": 3,
-            "target_slot": 3,
-            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
-          },
-          {
-            "id": 5,
-            "origin_id": 6,
-            "origin_slot": 0,
-            "target_id": 3,
-            "target_slot": 4,
-            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
-          },
-          {
-            "id": 2,
-            "origin_id": 2,
-            "origin_slot": 0,
-            "target_id": 3,
-            "target_slot": 5,
-            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE"
-          },
-          {
-            "id": 22,
-            "origin_id": 3,
-            "origin_slot": 0,
-            "target_id": -20,
-            "target_slot": 0,
-            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
-          },
-          {
-            "id": 9,
-            "origin_id": -10,
-            "origin_slot": 0,
-            "target_id": 3,
-            "target_slot": 6,
-            "type": "COMBO"
-          },
-          {
-            "id": 10,
-            "origin_id": -10,
-            "origin_slot": 1,
-            "target_id": 3,
-            "target_slot": 7,
-            "type": "COMBO"
-          },
-          {
-            "id": 11,
-            "origin_id": -10,
-            "origin_slot": 2,
-            "target_id": 3,
-            "target_slot": 8,
-            "type": "INT"
-          },
           {
             "id": 24,
             "origin_id": -10,
@@ -962,6 +1083,86 @@
             "target_id": 6,
             "target_slot": 2,
             "type": "INT"
+          },
+          {
+            "id": 27,
+            "origin_id": 1,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 0,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
+          },
+          {
+            "id": 28,
+            "origin_id": 2,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 5,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE"
+          },
+          {
+            "id": 29,
+            "origin_id": 4,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 2,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
+          },
+          {
+            "id": 30,
+            "origin_id": 5,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 3,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
+          },
+          {
+            "id": 31,
+            "origin_id": 6,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 4,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SPECULATIVE_CONFIG"
+          },
+          {
+            "id": 32,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 6,
+            "type": "COMBO"
+          },
+          {
+            "id": 33,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": 9,
+            "target_slot": 7,
+            "type": "COMBO"
+          },
+          {
+            "id": 34,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": 9,
+            "target_slot": 9,
+            "type": "INT"
+          },
+          {
+            "id": 35,
+            "origin_id": 9,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 0,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
+          },
+          {
+            "id": 36,
+            "origin_id": -10,
+            "origin_slot": 10,
+            "target_id": 9,
+            "target_slot": 8,
+            "type": "COMBO"
           }
         ],
         "extra": {}

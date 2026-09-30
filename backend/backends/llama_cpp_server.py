@@ -26,6 +26,7 @@ _BASE64_RUN = re.compile(
     r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{128,}={0,2}(?![A-Za-z0-9+/])"
 )
 _REQUEST_TIMEOUT_SECONDS = 300.0
+_FLOAT32_LOWEST_LOG_PROBABILITY = -3.4028234663852886e38
 
 
 class _ClosableProcess(Protocol):
@@ -181,7 +182,11 @@ def list_server_models(
 
 
 def _build_messages(
-    system: str, prompt: str, media: MediaBundle
+    system: str,
+    prompt: str,
+    media: MediaBundle,
+    *,
+    media_before_prompt: bool = False,
 ) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if system:
@@ -190,7 +195,8 @@ def _build_messages(
         messages.append({"role": "user", "content": prompt})
         return messages
 
-    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    prompt_part = {"type": "text", "text": prompt}
+    content: list[dict[str, Any]] = [] if media_before_prompt else [prompt_part]
     for item in media.items:
         if item.kind == "image":
             part = {
@@ -215,6 +221,8 @@ def _build_messages(
                 f"The llama.cpp server node does not support {item.kind} media."
             )
         content.append(part)
+    if media_before_prompt:
+        content.append(prompt_part)
     messages.append({"role": "user", "content": content})
     return messages
 
@@ -262,6 +270,7 @@ class LlamaCppServerSession:
         self._close_lock = Lock()
         self._execution_count = 0
         self._decision_token_ids: dict[str, int] = {}
+        self._decision_vocab_size: int | None = None
         track_session(self)
 
     @property
@@ -278,6 +287,8 @@ class LlamaCppServerSession:
         seed: int,
         stop: str,
         model_profile: dict[str, Any] | None = None,
+        reuse_kv_cache: bool | None = None,
+        media_before_prompt: bool = False,
     ) -> LlamaCppResult:
         if self._closed:
             raise BackendError(
@@ -287,13 +298,24 @@ class LlamaCppServerSession:
             raise InputNormalizationError("model cannot be empty.")
         if max_tokens <= 0:
             raise InputNormalizationError("max_tokens must be greater than zero.")
+        if reuse_kv_cache is not None and not isinstance(reuse_kv_cache, bool):
+            raise InputNormalizationError("reuse_kv_cache must be a boolean.")
+        if not isinstance(media_before_prompt, bool):
+            raise InputNormalizationError("media_before_prompt must be a boolean.")
 
         request: dict[str, Any] = {
             "model": self.model,
-            "messages": _build_messages(system, prompt, media),
+            "messages": _build_messages(
+                system,
+                prompt,
+                media,
+                media_before_prompt=media_before_prompt,
+            ),
             "max_tokens": int(max_tokens),
             "stream": False,
         }
+        if reuse_kv_cache is not None:
+            request["cache_prompt"] = reuse_kv_cache
         if model_profile is not None:
             # ponytail: Handler/template are launch-bound; changes need a restart.
             request.update(
@@ -400,12 +422,18 @@ class LlamaCppServerSession:
         model_profile: dict[str, Any] | None = None,
         seed: int = -1,
         media: MediaBundle | None = None,
+        reuse_kv_cache: bool | None = None,
+        media_before_prompt: bool = False,
     ) -> LlamaCppDecisionResult:
         if self._closed:
             raise BackendError(
                 "The llama.cpp server session has already been unloaded."
             )
         media = media or MediaBundle()
+        if reuse_kv_cache is not None and not isinstance(reuse_kv_cache, bool):
+            raise InputNormalizationError("reuse_kv_cache must be a boolean.")
+        if not isinstance(media_before_prompt, bool):
+            raise InputNormalizationError("media_before_prompt must be a boolean.")
         if not isinstance(question, str) or not question.strip():
             raise InputNormalizationError("question must be a non-empty string.")
         if not isinstance(context, str):
@@ -429,6 +457,7 @@ class LlamaCppServerSession:
 
         try:
             choices = Choices.letters(*answers)
+            vocab_size = self._get_decision_vocab_size()
             token_to_answer: dict[int, str] = {}
             for choice in choices:
                 token_id = self._decision_token_id(choice.target)
@@ -450,9 +479,8 @@ class LlamaCppServerSession:
                 )
             )
             context_sections = [context] if context else []
-            if media.items:
-                context_sections.append(" ".join("<__media__>" for _ in media.items))
-            context_sections.append("\n\n".join(prompt_sections))
+            question_prompt = "\n\n".join(prompt_sections)
+            context_sections.append(question_prompt)
             decision_prompt = "\n\n".join(context_sections)
             grammar = "root ::= " + " | ".join(
                 f'"{choice.target}"' for choice in choices
@@ -460,6 +488,19 @@ class LlamaCppServerSession:
             template_request: dict[str, Any] = {
                 "messages": [{"role": "user", "content": decision_prompt}]
             }
+            if media.items:
+                media_parts = _build_messages("", "", media)[-1]["content"][1:]
+                context_parts = (
+                    [{"type": "text", "text": context + "\n\n"}] if context else []
+                )
+                content = (
+                    media_parts + context_parts
+                    if media_before_prompt
+                    else context_parts + media_parts
+                )
+                content.append({"type": "text", "text": question_prompt})
+                # Let the server insert its active, possibly randomized media marker.
+                template_request["messages"][0]["content"] = content
             if (
                 model_profile is not None
                 and model_profile["recommended_reasoning_mode"] != "auto"
@@ -505,8 +546,12 @@ class LlamaCppServerSession:
                 "dry_multiplier": 0.0,
                 "xtc_probability": 0.0,
                 "mirostat": 0,
-                "n_probs": len(choices),
-                "post_sampling_probs": True,
+                # Request raw pre-sampling log probabilities for the entire
+                # vocabulary: post-sampling top-N can contain non-choice tokens
+                # and omit a canonical choice after grammar/sampler processing.
+                "n_probs": vocab_size,
+                "post_sampling_probs": False,
+                "backend_sampling": False,
                 "grammar": grammar,
             }
             if media.items:
@@ -517,6 +562,8 @@ class LlamaCppServerSession:
                         for item in media.items
                     ],
                 }
+            if reuse_kv_cache is not None:
+                request["cache_prompt"] = reuse_kv_cache
             if seed >= 0:
                 request["seed"] = int(seed)
             if model_profile is not None:
@@ -567,53 +614,92 @@ class LlamaCppServerSession:
                     "llama.cpp server decision response must contain one token "
                     "probability step."
                 )
-            top_probs = probability_steps[0]
-            if isinstance(top_probs, dict):
-                top_probs = top_probs.get("top_probs")
-            if not isinstance(top_probs, list):
+            top_logprobs = probability_steps[0]
+            if isinstance(top_logprobs, dict):
+                top_logprobs = top_logprobs.get("top_logprobs")
+            if not isinstance(top_logprobs, list):
                 raise BackendError(
-                    "llama.cpp server decision response is missing top_probs."
+                    "llama.cpp server decision response is missing top_logprobs."
                 )
 
-            probabilities = {answer: 0.0 for answer in answers}
+            choice_logprobs: dict[int, float] = {}
             seen_token_ids: set[int] = set()
-            for item in top_probs:
+            for item in top_logprobs:
                 if not isinstance(item, dict):
                     raise BackendError(
                         "llama.cpp server returned an invalid decision probability."
                     )
                 token_id = item.get("id")
-                probability = item.get("prob")
-                if type(token_id) is not int or token_id not in token_to_answer:
+                logprob = item.get("logprob")
+                if type(token_id) is not int or not 0 <= token_id < vocab_size:
                     raise BackendError(
-                        "llama.cpp server returned a token outside the decision choices."
+                        "llama.cpp server returned an invalid decision token ID."
+                        f" generated={generated!r}, vocab_size={vocab_size},"
+                        f" candidate={item!r}"
                     )
                 if token_id in seen_token_ids:
                     raise BackendError(
                         "llama.cpp server returned a duplicate decision token."
                     )
                 if (
-                    isinstance(probability, bool)
-                    or not isinstance(probability, (int, float))
-                    or not math.isfinite(probability)
-                    or not 0.0 <= probability <= 1.0
+                    isinstance(logprob, bool)
+                    or not isinstance(logprob, (int, float))
+                    or not math.isfinite(logprob)
+                    or logprob > 0.0
                 ):
                     raise BackendError(
                         "llama.cpp server returned an invalid decision probability."
                     )
                 seen_token_ids.add(token_id)
-                probabilities[token_to_answer[token_id]] = float(probability)
+                if token_id in token_to_answer:
+                    choice_logprobs[token_id] = float(logprob)
 
-            total = sum(probabilities.values())
-            if total <= 0.0:
+            missing_targets = [
+                choice.target
+                for choice in choices
+                if self._decision_token_ids[choice.target] not in choice_logprobs
+            ]
+            if missing_targets:
+                expected_tokens = {
+                    choice.target: self._decision_token_ids[choice.target]
+                    for choice in choices
+                }
                 raise BackendError(
-                    "llama.cpp server returned no positive probability mass for "
+                    "llama.cpp server did not return probability values for every "
+                    "decision choice."
+                    f" generated={generated!r}, missing_targets={missing_targets!r},"
+                    f" expected_tokens={expected_tokens!r},"
+                    f" received_candidates={len(top_logprobs)}, vocab_size={vocab_size}"
+                )
+
+            ordered_choice_logprobs = [
+                choice_logprobs[self._decision_token_ids[choice.target]]
+                for choice in choices
+            ]
+            if all(
+                logprob == _FLOAT32_LOWEST_LOG_PROBABILITY
+                for logprob in ordered_choice_logprobs
+            ):
+                raise BackendError(
+                    "llama.cpp server returned zero probability mass for every "
+                    "decision choice."
+                )
+            max_logprob = max(ordered_choice_logprobs)
+            weights = [
+                math.exp(logprob - max_logprob)
+                for logprob in ordered_choice_logprobs
+            ]
+            total = math.fsum(weights)
+            if not math.isfinite(total) or total <= 0.0:
+                raise BackendError(
+                    "llama.cpp server returned no usable probability mass for "
                     "the decision choices."
                 )
             probabilities = {
-                answer: probability / total
-                for answer, probability in probabilities.items()
+                choice.value: weight / total
+                for choice, weight in zip(choices, weights, strict=True)
             }
+
             selected = max(probabilities, key=probabilities.__getitem__)
             execution_index = self._execution_count
             self._execution_count += 1
@@ -665,6 +751,53 @@ class LlamaCppServerSession:
             raise
         except Exception as exc:
             raise BackendError(f"llama.cpp server decision failed: {exc}") from exc
+
+    def _get_decision_vocab_size(self) -> int:
+        if self._decision_vocab_size is not None:
+            return self._decision_vocab_size
+
+        response_body = _request(
+            url=_endpoint_url(self.url, "/v1/models"),
+            method="GET",
+            timeout_seconds=10.0,
+            api_key=self._api_key,
+            transport=self._transport,
+        )
+        try:
+            response = json.loads(response_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BackendError(
+                "llama.cpp server returned an invalid decision model-info response."
+            ) from exc
+        models = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(models, list) or not models:
+            raise BackendError(
+                "llama.cpp server model-info response did not contain a data array."
+            )
+        matching_models = [
+            item
+            for item in models
+            if isinstance(item, dict) and item.get("id") == self.model
+        ]
+        if len(matching_models) == 1:
+            model_info = matching_models[0]
+        elif not matching_models and len(models) == 1 and isinstance(models[0], dict):
+            # The direct llama-server contract exposes exactly one loaded model;
+            # accept its sole entry if it reports a different alias than this handle.
+            model_info = models[0]
+        else:
+            raise BackendError(
+                "llama.cpp server model-info response did not identify this session's "
+                "model unambiguously."
+            )
+        metadata = model_info.get("meta")
+        vocab_size = metadata.get("n_vocab") if isinstance(metadata, dict) else None
+        if type(vocab_size) is not int or not 0 < vocab_size <= 2_147_483_647:
+            raise BackendError(
+                "llama.cpp server model-info response is missing a valid meta.n_vocab."
+            )
+        self._decision_vocab_size = vocab_size
+        return vocab_size
 
     def _decision_token_id(self, target: str) -> int:
         cached = self._decision_token_ids.get(target)

@@ -11,6 +11,8 @@ from .llama_cpp_compact import (
 )
 from .llama_cpp_decision import (
     LlamaCppCreateQuestionFromInputNode,
+    LlamaCppDecideMediaSequentialNode,
+    LlamaCppDecidePromptSequentialNode,
     LlamaCppDecideSessionNode,
 )
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsNode
@@ -24,6 +26,7 @@ from .llama_cpp_session import (
     LlamaCppCreateRuntimeSessionNode,
     LlamaCppCreateSessionNode,
     LlamaCppSessionGenerateNode,
+    LlamaCppSessionPromptSequentialGenerateNode,
     LlamaCppSessionSequentialGenerateNode,
     LlamaCppUnloadSessionNode,
 )
@@ -42,6 +45,8 @@ __all__ = [
     "LlamaCppCreateRuntimeSessionNode",
     "LlamaCppConnectSessionNode",
     "LlamaCppCreateQuestionFromInputNode",
+    "LlamaCppDecideMediaSequentialNode",
+    "LlamaCppDecidePromptSequentialNode",
     "LlamaCppDecideSessionNode",
     "LlamaCppModelProfileNode",
     "LlamaCppNGramSpeculativeConfigNode",
@@ -55,6 +60,7 @@ __all__ = [
     "LlamaCppGemma4RuntimePresetNode",
     "LlamaCppSamplingPresetNode",
     "LlamaCppSessionGenerateNode",
+    "LlamaCppSessionPromptSequentialGenerateNode",
     "LlamaCppSessionSequentialGenerateNode",
     "LlamaCppUnloadSessionNode",
     "MuseGlimmerResponseParserNode",

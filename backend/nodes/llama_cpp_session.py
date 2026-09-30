@@ -111,6 +111,39 @@ def _session_generate_outputs(*, is_output_list: bool = False) -> list[Any]:
     ]
 
 
+def _session_prompt_generate_inputs() -> list[Any]:
+    inputs = _session_generate_inputs()
+    inputs.insert(
+        -2,
+        io.Boolean.Input(
+            "reuse_kv_cache",
+            default=True,
+            tooltip="Attempt common-prefix KV reuse across independent prompts.",
+        ),
+    )
+    return inputs
+
+
+def _session_sequence_outputs(
+    session: Any, results: list[Any], *, unload_after_sequence: bool
+) -> io.NodeOutput:
+    if unload_after_sequence:
+        session.close()
+        results[-1].metrics["model_unloaded"] = True
+        results[-1].metrics["session"]["unload_required"] = False
+        results[-1].media_diagnostics["model_unloaded_after_response"] = True
+    return io.NodeOutput(
+        [result.response for result in results],
+        [result.thinking for result in results],
+        [json.dumps(result.raw, ensure_ascii=False, indent=2) for result in results],
+        [
+            json.dumps(result.metrics, ensure_ascii=False, indent=2)
+            for result in results
+        ],
+        [result.media_diagnostics for result in results],
+    )
+
+
 def _runtime_server_arguments(
     *,
     model_path: Any,
@@ -266,12 +299,21 @@ def _runtime_server_arguments(
             arguments.extend(
                 ("--reasoning-budget", str(reasoning_config["max_reasoning_tokens"]))
             )
-    if reasoning_preserve_supported:
-        arguments.append(
-            "--reasoning-preserve"
-            if reasoning_config["preserve_thinking"]
-            else "--no-reasoning-preserve"
+    if reasoning is not None:
+        arguments.extend(
+            (
+                "--chat-template-kwargs",
+                json.dumps(
+                    {"preserve_thinking": reasoning_config["preserve_thinking"]}
+                ),
+            )
         )
+        if reasoning_preserve_supported:
+            arguments.append(
+                "--reasoning-preserve"
+                if reasoning_config["preserve_thinking"]
+                else "--no-reasoning-preserve"
+            )
     if capacity is not None:
         for name in ("image_min_tokens", "image_max_tokens"):
             value = capacity[name]
@@ -697,7 +739,7 @@ class LlamaCppSessionSequentialGenerateNode(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="LlamaCppMtmd_GenerateSequential",
-            display_name="[llama.cpp] Generate (Sequential)",
+            display_name="[llama.cpp] Generate (Media Sequential)",
             category=f"{BASE_CATEGORY}/generate",
             description=(
                 "Runs one independent IMAGE, AUDIO, or VIDEO request at a time on "
@@ -772,24 +814,110 @@ class LlamaCppSessionSequentialGenerateNode(io.ComfyNode):
             )
             for bundle, item_prompt in zip(bundles, prompts, strict=True)
         ]
-        if unload_after_sequence:
-            resolved_session.close()
-            results[-1].metrics["model_unloaded"] = True
-            results[-1].metrics["session"]["unload_required"] = False
-            results[-1].media_diagnostics["model_unloaded_after_response"] = True
+        return _session_sequence_outputs(
+            resolved_session,
+            results,
+            unload_after_sequence=unload_after_sequence,
+        )
 
-        return io.NodeOutput(
-            [result.response for result in results],
-            [result.thinking for result in results],
-            [
-                json.dumps(result.raw, ensure_ascii=False, indent=2)
-                for result in results
-            ],
-            [
-                json.dumps(result.metrics, ensure_ascii=False, indent=2)
-                for result in results
-            ],
-            [result.media_diagnostics for result in results],
+
+class LlamaCppSessionPromptSequentialGenerateNode(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="LlamaCppMtmd_GeneratePromptSequential",
+            display_name="[llama.cpp] Generate (Prompt Sequential)",
+            category=f"{BASE_CATEGORY}/generate",
+            description=(
+                "Runs each prompt independently against the same complete media "
+                "bundle and returns five parallel output lists. Common-prefix KV "
+                "reuse is attempted by default."
+            ),
+            is_input_list=True,
+            not_idempotent=True,
+            is_experimental=True,
+            inputs=_session_prompt_generate_inputs(),
+            outputs=_session_generate_outputs(is_output_list=True),
+        )
+
+    @classmethod
+    def execute(
+        cls,
+        session: Any,
+        system: Any,
+        prompt: Any,
+        max_tokens: Any,
+        seed: Any,
+        stop: Any,
+        images: Any = None,
+        audio: Any = None,
+        video: Any = None,
+        video_with_audio: Any = False,
+        reuse_kv_cache: Any = True,
+        session_unload: Any = False,
+        model_profile: Any = None,
+    ) -> io.NodeOutput:
+        resolved_session = unwrap_required_scalar("session", session)
+        if not isinstance(resolved_session, (LlamaCppSession, LlamaCppServerSession)):
+            raise TypeError(
+                "session must be a Llama.cpp Create or Connect Session output."
+            )
+
+        prompts = prompt if isinstance(prompt, (list, tuple)) else [prompt]
+        if not prompts:
+            raise InputNormalizationError(
+                "Prompt Sequential Generate requires at least one prompt."
+            )
+        if any(not isinstance(value, str) for value in prompts):
+            raise InputNormalizationError(
+                "Prompt Sequential Generate prompts must be flat strings."
+            )
+
+        bundle = normalize_media(
+            images=images,
+            audio=audio,
+            video=video,
+            video_with_audio=bool(
+                unwrap_required_scalar("video_with_audio", video_with_audio)
+            ),
+            audio_sample_rate=16_000,
+            audio_channels=1,
+        )
+        profile_value = unwrap_optional_scalar("model_profile", model_profile, None)
+        profile = (
+            normalize_compact_model_profile(profile_value)
+            if profile_value is not None
+            else None
+        )
+        reuse_value = unwrap_required_scalar("reuse_kv_cache", reuse_kv_cache)
+        if not isinstance(reuse_value, bool):
+            raise InputNormalizationError("reuse_kv_cache must be a boolean.")
+        unload_after_sequence = bool(
+            unwrap_required_scalar("session_unload", session_unload)
+        )
+        common_request = {
+            "system": str(unwrap_required_scalar("system", system)),
+            "max_tokens": int(unwrap_required_scalar("max_tokens", max_tokens)),
+            "seed": int(unwrap_required_scalar("seed", seed)),
+            "stop": str(unwrap_required_scalar("stop", stop)),
+        }
+        if profile is not None:
+            common_request["model_profile"] = profile
+
+        results = [
+            resolved_session.generate(
+                **common_request,
+                prompt=item_prompt,
+                media=bundle,
+                reuse_kv_cache=reuse_value,
+                media_before_prompt=True,
+            )
+            for item_prompt in prompts
+        ]
+        return _session_sequence_outputs(
+            resolved_session,
+            results,
+            unload_after_sequence=unload_after_sequence,
         )
 
 

@@ -26,6 +26,24 @@ from tests.backend.tensor_stub import VideoInputStub, silent_audio, solid_image
 NATIVE_EVENTS = []
 
 
+def test_decision_output_rule_preserves_existing_system_and_messages():
+    for content in ("", "User instruction"):
+        messages = [
+            {"role": "system", "content": content},
+            {"role": "user", "content": "Question"},
+        ]
+        adapted = llama_cpp_backend._with_decision_output_rule(messages)
+        assert adapted[0]["content"].endswith(llama_cpp_backend._DECISION_OUTPUT_RULE)
+        assert content in adapted[0]["content"]
+        assert adapted[1] == messages[1]
+        assert messages[0]["content"] == content
+    adapted = llama_cpp_backend._with_decision_output_rule([messages[1]])
+    assert adapted[0] == {
+        "role": "system",
+        "content": llama_cpp_backend._DECISION_OUTPUT_RULE,
+    }
+
+
 class FakeMTMDHandler:
     is_support_vision = True
     is_support_audio = True
@@ -1293,6 +1311,67 @@ def test_retained_session_reuses_model_until_prompt_end_unload(tmp_path):
     assert instance.close_count == 1
 
 
+def test_retained_session_allows_kv_prefix_reuse_with_media_before_prompt(tmp_path):
+    model, mmproj = gguf_files(tmp_path)
+    session = LlamaCppSession(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="auto",
+        bindings=make_bindings(),
+    )
+    media = normalize_images(solid_image(1, 1, 1, 3, 0.5))
+
+    try:
+        session.generate(
+            system="",
+            prompt="first question",
+            media=media,
+            max_tokens=8,
+            seed=-1,
+            stop="",
+        )
+        session.generate(
+            system="",
+            prompt="second question",
+            media=media,
+            max_tokens=8,
+            seed=-1,
+            stop="",
+            media_before_prompt=True,
+            reuse_kv_cache=True,
+        )
+        session.generate(
+            system="",
+            prompt="legacy question",
+            media=media,
+            max_tokens=8,
+            seed=-1,
+            stop="",
+        )
+
+        instance = FakeLlama.instances[0]
+        assert len(FakeLlama.instances) == 1
+        assert instance.reset_count == 2
+        assert [
+            part["type"]
+            for part in instance.completion_kwargs_history[0]["messages"][-1]["content"]
+        ] == ["text", "image_url"]
+        assert [
+            part["type"]
+            for part in instance.completion_kwargs_history[1]["messages"][-1]["content"]
+        ] == ["image_url", "text"]
+        assert [
+            part["type"]
+            for part in instance.completion_kwargs_history[2]["messages"][-1]["content"]
+        ] == ["text", "image_url"]
+        assert all(
+            "reuse_kv_cache" not in kwargs
+            for kwargs in instance.completion_kwargs_history
+        )
+    finally:
+        session.close()
+
+
 def test_retained_session_decides_with_prefill_then_reuses_model_for_generate(tmp_path):
     pytest.importorskip("makoto_decision")
     model, _ = gguf_files(tmp_path)
@@ -1337,13 +1416,60 @@ def test_retained_session_decides_with_prefill_then_reuses_model_for_generate(tm
         assert instance.prefill_count == 2
         assert (
             "Context: Keep the answer concise."
-            in instance.prefill_messages[0][0]["content"]
+            in instance.prefill_messages[0][-1]["content"]
         )
+        for messages in instance.prefill_messages:
+            assert messages[0]["role"] == "system"
+            assert "Return exactly one choice label" in messages[0]["content"]
         assert instance.closed is False
     finally:
         session.close()
 
     assert instance.closed is True
+
+
+def test_retained_session_decide_allows_media_prefix_reuse(tmp_path):
+    pytest.importorskip("makoto_decision")
+    model, mmproj = gguf_files(tmp_path)
+    session = LlamaCppSession(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler="generic",
+        bindings=make_bindings(generic=FakeHandler),
+    )
+    media = normalize_images(solid_image(1, 1, 1, 3, 0.5))
+
+    try:
+        for index, (reuse_kv_cache, media_before_prompt) in enumerate(
+            ((False, False), (True, True), (False, True))
+        ):
+            session.decide(
+                question=f"Question {index}",
+                context="Shared context",
+                answers=["first", "second"],
+                media=media,
+                reuse_kv_cache=reuse_kv_cache,
+                media_before_prompt=media_before_prompt,
+            )
+
+        instance = FakeLlama.instances[0]
+        assert instance.reset_count == 2
+        legacy_parts = instance.prefill_messages[0][-1]["content"]
+        assert [part["type"] for part in legacy_parts] == [
+            "text",
+            "image_url",
+            "text",
+        ]
+        assert legacy_parts[0]["text"] == "Shared context"
+        media_first_parts = instance.prefill_messages[1][-1]["content"]
+        assert [part["type"] for part in media_first_parts] == [
+            "image_url",
+            "text",
+        ]
+        third_parts = instance.prefill_messages[2][-1]["content"]
+        assert third_parts[0]["type"] == "image_url"
+    finally:
+        session.close()
 
 
 def test_retained_session_rejects_duplicate_choice_tokens_and_missing_prefill(

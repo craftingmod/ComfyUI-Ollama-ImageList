@@ -1484,7 +1484,7 @@ class LlamaCppSequentialGenerateNode(_LlamaCppGenerateNodeBase):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="OllamaImageList_LlamaCppSequentialGenerate",
-            display_name="[llama.cpp] Sequential Generate",
+            display_name="[llama.cpp] Media Sequential Generate",
             category=COMPACT_CATEGORY,
             is_deprecated=True,
             description=(

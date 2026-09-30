@@ -40,6 +40,10 @@ _SPECULATIVE_TYPES = {"draft-dflash", "draft-dspark"}
 _MTP_PROVIDERS = {"off", "external", "internal"}
 _DEFAULT_N_UBATCH = 512
 _NATIVE_EXECUTION_LOCK = RLock()
+_DECISION_OUTPUT_RULE = (
+    "Return exactly one choice label (A, B, ...). "
+    "Do not include explanations or any other text."
+)
 _LOGGER = logging.getLogger(__name__)
 _JAMEPENG_RELEASES_URL = "https://github.com/JamePeng/llama-cpp-python/releases/"
 _VISION_INSTALL_GUIDE_URL = (
@@ -199,8 +203,10 @@ class _LlamaPublicAdapter:
             callable=callable(handler),
         )
 
-    def create_chat_completion(self, **kwargs: Any) -> Any:
-        if self._before_completion is not None:
+    def create_chat_completion(
+        self, *, reuse_kv_cache: bool = False, **kwargs: Any
+    ) -> Any:
+        if self._before_completion is not None and not reuse_kv_cache:
             self._before_completion()
         return self._llama.create_chat_completion(**kwargs)
 
@@ -298,6 +304,12 @@ class LlamaCppSession:
     def generate(self, **request: Any) -> LlamaCppResult:
         if self._closed:
             raise BackendError("The Llama.cpp session has already been unloaded.")
+        reuse_kv_cache = request.pop("reuse_kv_cache", False)
+        media_before_prompt = request.pop("media_before_prompt", False)
+        if not isinstance(reuse_kv_cache, bool):
+            raise InputNormalizationError("reuse_kv_cache must be a boolean.")
+        if not isinstance(media_before_prompt, bool):
+            raise InputNormalizationError("media_before_prompt must be a boolean.")
         model_profile = request.pop("model_profile", None)
         configuration = self._configuration
         if model_profile is not None:
@@ -316,6 +328,8 @@ class LlamaCppSession:
         try:
             result = run_chat(
                 bindings=self._bindings,
+                reuse_kv_cache=reuse_kv_cache,
+                media_before_prompt=media_before_prompt,
                 **configuration,
                 **request,
             )
@@ -339,9 +353,16 @@ class LlamaCppSession:
         answers: list[str],
         model_profile: dict[str, Any] | None = None,
         media: MediaBundle | None = None,
+        *,
+        reuse_kv_cache: bool = False,
+        media_before_prompt: bool = False,
     ) -> LlamaCppDecisionResult:
         if self._closed:
             raise BackendError("The Llama.cpp session has already been unloaded.")
+        if not isinstance(reuse_kv_cache, bool):
+            raise InputNormalizationError("reuse_kv_cache must be a boolean.")
+        if not isinstance(media_before_prompt, bool):
+            raise InputNormalizationError("media_before_prompt must be a boolean.")
         media = media or MediaBundle()
         try:
             from makoto_decision import Choices, Decision
@@ -427,12 +448,14 @@ class LlamaCppSession:
                         )
                     token_ids[token_id] = choice.target
 
-                llama.reset()
+                if not reuse_kv_cache:
+                    llama.reset()
                 started = time.perf_counter()
-                evaluator_llama = (
-                    _DecisionMediaPrefill(llama, context, media)
-                    if media.items
-                    else llama
+                evaluator_llama = _DecisionMediaPrefill(
+                    llama,
+                    context,
+                    media,
+                    media_before_prompt=media_before_prompt,
                 )
                 result = LlamaCppEvaluator(evaluator_llama).evaluate(decision)
                 if result.selected is None:
@@ -1007,14 +1030,19 @@ def _data_uri(mime_type: str, payload: bytes) -> str:
 
 
 def _build_messages(
-    system: str, prompt: str, media: MediaBundle
+    system: str,
+    prompt: str,
+    media: MediaBundle,
+    *,
+    media_before_prompt: bool = False,
 ) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     if system:
         messages.append({"role": "system", "content": system})
 
     if media.items:
-        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        prompt_part = {"type": "text", "text": prompt}
+        content: list[dict[str, Any]] = [] if media_before_prompt else [prompt_part]
         for item in media.items:
             if item.kind == "image":
                 content.append(
@@ -1048,6 +1076,8 @@ def _build_messages(
                 raise InputNormalizationError(
                     f"The llama.cpp multimodal node does not support {item.kind} media."
                 )
+        if media_before_prompt:
+            content.append(prompt_part)
         messages.append({"role": "user", "content": content})
     else:
         messages.append({"role": "user", "content": prompt})
@@ -1055,7 +1085,11 @@ def _build_messages(
 
 
 def _append_media_to_decision_messages(
-    messages: list[dict[str, Any]], context: str, media: MediaBundle
+    messages: list[dict[str, Any]],
+    context: str,
+    media: MediaBundle,
+    *,
+    media_before_prompt: bool = False,
 ) -> list[dict[str, Any]]:
     media_parts = _build_messages("", "", media)[-1]["content"][1:]
     adapted = [dict(message) for message in messages]
@@ -1080,7 +1114,7 @@ def _append_media_to_decision_messages(
     if parts is None:
         raise BackendError("Decision prefill returned unsupported message content.")
 
-    if context:
+    if context and not media_before_prompt:
         for index, part in enumerate(parts):
             if not isinstance(part, dict) or part.get("type") != "text":
                 continue
@@ -1099,11 +1133,40 @@ def _append_media_to_decision_messages(
     return adapted
 
 
+def _with_decision_output_rule(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    adapted = [dict(message) for message in messages]
+    for message in adapted:
+        if message.get("role") == "system":
+            content = message.get("content", "")
+            if isinstance(content, list):
+                message["content"] = content + [
+                    {"type": "text", "text": _DECISION_OUTPUT_RULE}
+                ]
+            else:
+                message["content"] = (
+                    f"{content}\n\n{_DECISION_OUTPUT_RULE}"
+                    if content
+                    else _DECISION_OUTPUT_RULE
+                )
+            return adapted
+    return [{"role": "system", "content": _DECISION_OUTPUT_RULE}, *adapted]
+
+
 class _DecisionMediaPrefill:
-    def __init__(self, llama: Any, context: str, media: MediaBundle):
+    def __init__(
+        self,
+        llama: Any,
+        context: str,
+        media: MediaBundle,
+        *,
+        media_before_prompt: bool = False,
+    ):
         self._llama = llama
         self._context = context
         self._media = media
+        self._media_before_prompt = media_before_prompt
 
     def tokenize(
         self, text: bytes, *, add_bos: bool = True, special: bool = True
@@ -1111,10 +1174,15 @@ class _DecisionMediaPrefill:
         return self._llama.tokenize(text, add_bos=add_bos, special=special)
 
     def create_chat_prefill(self, *, messages: list[dict[str, Any]]) -> Any:
-        return self._llama.create_chat_prefill(
-            messages=_append_media_to_decision_messages(
-                messages, self._context, self._media
+        if self._media.items:
+            messages = _append_media_to_decision_messages(
+                messages,
+                self._context,
+                self._media,
+                media_before_prompt=self._media_before_prompt,
             )
+        return self._llama.create_chat_prefill(
+            messages=_with_decision_output_rule(messages)
         )
 
 
@@ -1690,7 +1758,13 @@ def run_chat(
     bindings: LlamaCppBindings | None = None,
     speculative_api: NativeSpeculativeBindings | None = None,
     custom_chat_template: str = "",
+    reuse_kv_cache: bool = False,
+    media_before_prompt: bool = False,
 ) -> LlamaCppResult:
+    if not isinstance(reuse_kv_cache, bool):
+        raise InputNormalizationError("reuse_kv_cache must be a boolean.")
+    if not isinstance(media_before_prompt, bool):
+        raise InputNormalizationError("media_before_prompt must be a boolean.")
     effective_reasoning_strength = _effective_reasoning_strength(
         bool(thinking),
         reasoning_strength,
@@ -1774,7 +1848,9 @@ def run_chat(
         image_max_tokens=image_max_tokens_override,
     )
 
-    messages = _build_messages(system, prompt, media)
+    messages = _build_messages(
+        system, prompt, media, media_before_prompt=media_before_prompt
+    )
     native = bindings or _import_bindings()
     native_speculative_api = None
     if (
@@ -1910,7 +1986,10 @@ def run_chat(
                 custom_chat_template=custom_chat_template,
             )
             completion_kwargs.update(budget_arguments)
-            completion = llm.create_chat_completion(**completion_kwargs)
+            completion = llm.create_chat_completion(
+                reuse_kv_cache=reuse_kv_cache,
+                **completion_kwargs,
+            )
             generation_seconds = time.perf_counter() - generation_started
             if not isinstance(completion, dict):
                 raise BackendError(
