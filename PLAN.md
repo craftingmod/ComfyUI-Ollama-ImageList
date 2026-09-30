@@ -4,7 +4,7 @@
 
 ## 1. 프로젝트 개요
 
-프로젝트명은 `ComfyUI-Ollama-ImageList`로 한다. 이 프로젝트는 ComfyUI의 이미지 배치와 data list를 혼동하지 않고, 서로 다른 해상도의 이미지 여러 장을 하나의 Ollama 요청으로 전달하는 데 목적이 있다.
+프로젝트명은 `ComfyUI-llama-multimodal`로 한다. 이 프로젝트는 ComfyUI의 이미지 배치와 data list를 혼동하지 않고, 서로 다른 해상도의 이미지 여러 장을 하나의 Ollama 요청으로 전달하는 데 목적이 있다.
 
 1차 백엔드는 Ollama REST API이며, 2차 백엔드로 `llama-cpp-python` 네이티브 실행을 선택적으로 제공할 수 있도록 코어와 백엔드 계층을 분리한다.
 
@@ -325,7 +325,7 @@ MediaItem(image/png bytes)
 ## 7. 제안 디렉터리 구조
 
 ```text
-ComfyUI-Ollama-ImageList/
+ComfyUI-llama-multimodal/
 ├─ __init__.py
 ├─ pyproject.toml
 ├─ requirements.txt
@@ -604,7 +604,7 @@ example workflow에는 최소 다음 5개를 포함한다.
 권장 초기 결정은 다음과 같다.
 
 ```text
-프로젝트명: ComfyUI-Ollama-ImageList
+프로젝트명: ComfyUI-llama-multimodal
 백엔드 우선순위: Ollama REST → llama-cpp-python optional
 ComfyUI list 처리: INPUT_IS_LIST=True
 Ollama endpoint: /api/chat

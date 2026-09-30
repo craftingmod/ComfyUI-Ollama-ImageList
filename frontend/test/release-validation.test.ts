@@ -8,15 +8,15 @@ import { validateRelease, validateReleaseMetadata } from "../../scripts/validate
 const metadata = {
   packageName: "ollama-image-list",
   projectName: "ollama-image-list",
-  repository: "https://github.com/craftingmod/ComfyUI-Ollama-ImageList",
+  repository: "https://github.com/craftingmod/ComfyUI-llama-multimodal",
   publisherId: "alyac",
   displayName: "Ollama-ImageList",
-  icon: "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Ollama-ImageList/assets/icon.svg",
+  icon: "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-llama-multimodal/assets/icon.svg",
   frontendProjectId: "ollama-image-list",
   frontendProjectName: "Ollama-ImageList",
   backendProjectId: "ollama-image-list",
   backendProjectName: "Ollama-ImageList",
-  githubRepository: "craftingmod/ComfyUI-Ollama-ImageList",
+  githubRepository: "craftingmod/ComfyUI-llama-multimodal",
 }
 
 describe("release metadata validation", () => {

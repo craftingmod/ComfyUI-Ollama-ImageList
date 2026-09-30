@@ -38,7 +38,7 @@ Requires ComfyUI 0.19.3 or later.
 
 * ComfyUI Manager
 
-Search for `llama multimodal` and install `llama-multimodal`.
+Search for `llama multimodal` and install `ComfyUI-llama-multimodal`.
 
 * Comfy CLI
 
@@ -50,7 +50,7 @@ comfy node install ollama-image-list
 
 ```sh
 cd ComfyUI/custom_nodes
-git clone https://github.com/craftingmod/ComfyUI-Ollama-ImageList.git
+git clone https://github.com/craftingmod/ComfyUI-llama-multimodal.git
 ```
 
 ## Development

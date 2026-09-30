@@ -30,13 +30,13 @@ dev = ["av>=16.0.0", "pytest>=9.1.1", "pytest-xdist>=3.8.0", "ruff>=0.16.3"]
 testpaths = ["tests"]
 
 [project.urls]
-Repository = "https://github.com/craftingmod/ComfyUI-Ollama-ImageList"
+Repository = "https://github.com/craftingmod/ComfyUI-llama-multimodal"
 
 [tool.comfy]
 PublisherId = "alyac"
-DisplayName = "llama-multimodal"
+DisplayName = "ComfyUI-llama-multimodal"
 requires-comfyui = ">=0.19.3"
-Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-Ollama-ImageList@latest/docs/icon.svg"
+Icon = "https://cdn.jsdelivr.net/gh/craftingmod/ComfyUI-llama-multimodal@latest/docs/icon.svg"
 includes = ["dist", "locales", "subgraphs", "presets", "backend/_version.py"]
 
 [tool.comfy.version]

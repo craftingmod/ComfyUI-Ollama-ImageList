@@ -124,7 +124,7 @@ All notable changes to this project are documented in this file.
 ### Compatibility
 
 - The Registry package ID remains `ollama-image-list`.
-- Manual archives are named `ComfyUI-Ollama-ImageList-<version>.zip` with a `ComfyUI-Ollama-ImageList` top-level folder.
+- Manual archives are named `ComfyUI-llama-multimodal-<version>.zip` with a `ComfyUI-llama-multimodal` top-level folder.
 - `llama-cpp-python` remains an optional dependency and must be installed into the Python environment that starts ComfyUI.
 - Workflows created before the Runtime Preset output reorder may need those three links reconnected.
 
