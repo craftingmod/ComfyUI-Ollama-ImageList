@@ -519,6 +519,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     option_values = {
         field.name: field.options["default"] for field in options_schema.inputs
     }
+    assert option_values["temperature"] == 0.8
     option_values.update(
         use_num_ctx=True,
         num_ctx=8192,
@@ -531,12 +532,12 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     options_dict, options_json = options_class.execute(**option_values)
     assert json.loads(options_json) == {
         "num_ctx": 8192,
-        "temperature": 0.8,
+        "temperature": 0.2,
         "stop": ["END"],
     }
     assert options_dict == {
         "num_ctx": 8192,
-        "temperature": 0.8,
+        "temperature": 0.2,
         "stop": ["END"],
     }
 
@@ -816,9 +817,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "repeat_penalty": 1.1,
     }
 
-    hardware_class, hardware_schema = registered[
-        "LlamaCppMtmd_HardwareRuntimeProfile"
-    ]
+    hardware_class, hardware_schema = registered["LlamaCppMtmd_HardwareRuntimeProfile"]
     assert [field.name for field in hardware_schema.inputs] == [
         "gpu_layers",
         "type_k",
@@ -852,9 +851,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert custom_hardware_profile["type_k"] == "Q8_0"
     assert custom_hardware_profile["type_v"] == "Q4_0"
 
-    prefill_class, prefill_schema = registered[
-        "LlamaCppMtmd_PrefillProfile"
-    ]
+    prefill_class, prefill_schema = registered["LlamaCppMtmd_PrefillProfile"]
     assert [field.name for field in prefill_schema.inputs] == [
         "profile",
         "n_batch",
@@ -910,9 +907,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "image_max_tokens": 4096,
     }
 
-    reasoning_class, reasoning_schema = registered[
-        "LlamaCppMtmd_ReasoningConfig"
-    ]
+    reasoning_class, reasoning_schema = registered["LlamaCppMtmd_ReasoningConfig"]
     assert [field.name for field in reasoning_schema.inputs] == [
         "reasoning_mode",
         "reasoning_effort",
@@ -1170,9 +1165,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert create_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
-    _, create_runtime_session_schema = registered[
-        "LlamaCppMtmd_CreateRuntimeSession"
-    ]
+    _, create_runtime_session_schema = registered["LlamaCppMtmd_CreateRuntimeSession"]
     assert create_runtime_session_schema.node_id == (
         "LlamaCppMtmd_CreateRuntimeSession"
     )
@@ -1225,9 +1218,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert connect_session_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION"
     )
-    _, create_question_input_schema = registered[
-        "LlamaCppMtmd_CreateQuestionFromInput"
-    ]
+    _, create_question_input_schema = registered["LlamaCppMtmd_CreateQuestionFromInput"]
     assert create_question_input_schema.is_input_list is True
     assert [field.name for field in create_question_input_schema.inputs] == [
         "question",
@@ -1345,6 +1336,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert llama_schema.is_input_list is True
     assert llama_schema.not_idempotent is True
     llama_inputs = {field.name: field for field in llama_schema.inputs}
+    assert llama_inputs["temperature"].options["default"] == 0.8
     assert llama_inputs["model_path"].data_type == "combo"
     assert llama_inputs["model_path"].options["options"] == [
         "external/model-a.gguf",
@@ -1853,9 +1845,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
             "[no GGUF models found]", label="model GGUF", required=True
         )
 
-    diagnostics_class, diagnostics_schema = registered[
-        "LlamaCppMtmd_MediaDiagnostics"
-    ]
+    diagnostics_class, diagnostics_schema = registered["LlamaCppMtmd_MediaDiagnostics"]
     assert diagnostics_schema.inputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MEDIA_DIAGNOSTICS"
     )

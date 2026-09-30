@@ -30,10 +30,6 @@ from ..llama_cpp_runtime import (
     _resolve_llama_executable,
     start_owned_llama_server,
 )
-from .llama_cpp_prefill import (
-    LlamaCppPrefillProfileType,
-    normalize_prefill_profile,
-)
 from .llama_cpp_compact import (
     BASE_CATEGORY,
     DEFAULT_COMPACT_HARDWARE_PROFILE,
@@ -54,6 +50,10 @@ from .llama_cpp_generate import (
     NO_MMPROJ_OPTION,
     _gguf_options,
     _resolve_gguf_selection,
+)
+from .llama_cpp_prefill import (
+    LlamaCppPrefillProfileType,
+    normalize_prefill_profile,
 )
 
 LlamaCppSessionType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_SESSION")

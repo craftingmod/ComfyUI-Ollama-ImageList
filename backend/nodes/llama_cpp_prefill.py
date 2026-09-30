@@ -66,9 +66,7 @@ def normalize_prefill_profile(value: Any) -> dict[str, int]:
             )
         normalized[name] = candidate
     if normalized["n_ubatch"] > normalized["n_batch"]:
-        raise InputNormalizationError(
-            "prefill_profile.n_ubatch cannot exceed n_batch."
-        )
+        raise InputNormalizationError("prefill_profile.n_ubatch cannot exceed n_batch.")
     if (
         normalized["image_min_tokens"] > 0
         and normalized["image_max_tokens"] > 0
@@ -105,9 +103,7 @@ class LlamaCppPrefillProfileNode(io.ComfyNode):
                     step=1,
                     tooltip="0 uses llama.cpp's default physical batch size.",
                 ),
-                io.Int.Input(
-                    "image_min_tokens", default=0, min=0, max=65_536, step=1
-                ),
+                io.Int.Input("image_min_tokens", default=0, min=0, max=65_536, step=1),
                 io.Int.Input(
                     "image_max_tokens",
                     default=0,
@@ -147,9 +143,7 @@ class LlamaCppPrefillProfileNode(io.ComfyNode):
                 raise InputNormalizationError(
                     f"Unknown Llama.cpp Prefill Profile: {profile}"
                 ) from exc
-        return io.NodeOutput(
-            normalize_prefill_profile(value)
-        )
+        return io.NodeOutput(normalize_prefill_profile(value))
 
 
 __all__ = [

@@ -102,11 +102,7 @@ export function updateCompactModelProfileWidgets(node: ComfyNodeLike): void {
 }
 
 export function updatePrefillProfileWidgets(node: ComfyNodeLike): void {
-  setWidgetsDisabled(
-    node,
-    PREFILL_CUSTOM_WIDGETS,
-    getWidget(node, "profile")?.value !== "Custom",
-  )
+  setWidgetsDisabled(node, PREFILL_CUSTOM_WIDGETS, getWidget(node, "profile")?.value !== "Custom")
 }
 
 export function updateCompactHardwareProfileWidgets(node: ComfyNodeLike): void {

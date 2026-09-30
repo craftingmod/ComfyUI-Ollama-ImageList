@@ -60,9 +60,7 @@ def _kv_cache_type_id(name: str, value: str) -> int:
     try:
         return _KV_CACHE_TYPE_IDS[value]
     except (KeyError, TypeError) as exc:
-        raise InputNormalizationError(
-            f"{name} must be FP16, Q8_0, or Q4_0."
-        ) from exc
+        raise InputNormalizationError(f"{name} must be FP16, Q8_0, or Q4_0.") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -1541,7 +1539,7 @@ def run_chat(
     image_min_tokens: int = 1024,
     override_image_max_tokens: bool = False,
     image_max_tokens: int = 1120,
-    temperature: float = 0.2,
+    temperature: float = 0.8,
     top_p: float = 0.95,
     top_k: int = 40,
     min_p: float = 0.05,

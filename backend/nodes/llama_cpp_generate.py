@@ -96,7 +96,7 @@ def _resolve_sampling_values(
     sampling,
 ) -> dict[str, float | int]:
     values: dict[str, float | int] = {
-        "temperature": float(unwrap_optional_scalar("temperature", temperature, 0.2)),
+        "temperature": float(unwrap_optional_scalar("temperature", temperature, 0.8)),
         "top_p": float(unwrap_optional_scalar("top_p", top_p, 0.95)),
         "top_k": int(unwrap_optional_scalar("top_k", top_k, 40)),
         "min_p": float(unwrap_optional_scalar("min_p", min_p, 0.05)),
@@ -277,7 +277,7 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                 ),
                 io.Float.Input(
                     "temperature",
-                    default=0.2,
+                    default=0.8,
                     min=0.0,
                     max=5.0,
                     step=0.01,

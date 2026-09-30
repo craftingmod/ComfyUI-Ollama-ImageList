@@ -28,10 +28,6 @@ from ..core import (
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
-from .llama_cpp_prefill import (
-    LlamaCppPrefillProfileType,
-    normalize_prefill_profile,
-)
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_generate import (
     NO_DRAFT_OPTION,
@@ -41,6 +37,10 @@ from .llama_cpp_generate import (
     _resolve_gguf_selection,
 )
 from .llama_cpp_ngram_speculative import normalize_ngram_speculative
+from .llama_cpp_prefill import (
+    LlamaCppPrefillProfileType,
+    normalize_prefill_profile,
+)
 
 LlamaCppModelProfileType = io.Custom("OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE")
 LlamaCppHardwareRuntimeProfileType = io.Custom(
@@ -429,7 +429,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
                 ),
                 io.Float.Input(
                     "temperature",
-                    default=0.2,
+                    default=0.8,
                     min=0.0,
                     max=5.0,
                     step=0.01,
@@ -1069,9 +1069,7 @@ def build_compact_session_kwargs(
         compact_model_profile = normalize_compact_model_profile(
             unwrap_required_scalar("model_profile", model_profile)
         )
-        profile_reasoning_mode = compact_model_profile.pop(
-            "recommended_reasoning_mode"
-        )
+        profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
     selected_template = unwrap_optional_scalar(
         "custom_chat_template", custom_chat_template, ""
     )

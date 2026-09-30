@@ -1,6 +1,5 @@
 from .clip_generate import ClipImageListGenerateNode
 from .jinja_chat_template import JinjaChatTemplatePresetNode
-from .llama_cpp_prefill import LlamaCppPrefillProfileNode
 from .llama_cpp_compact import (
     LlamaCppHardwareRuntimeProfileNode,
     LlamaCppModelProfileNode,
@@ -17,6 +16,7 @@ from .llama_cpp_decision import (
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsNode
 from .llama_cpp_generate import LlamaCppImageListGenerateNode
 from .llama_cpp_ngram_speculative import LlamaCppNGramSpeculativePresetNode
+from .llama_cpp_prefill import LlamaCppPrefillProfileNode
 from .llama_cpp_runtime import LlamaCppGemma4RuntimePresetNode
 from .llama_cpp_sampling import LlamaCppSamplingPresetNode
 from .llama_cpp_session import (
