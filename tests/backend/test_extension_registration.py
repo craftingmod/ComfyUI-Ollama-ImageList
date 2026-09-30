@@ -2729,7 +2729,9 @@ def test_prompt_sequential_reuses_one_bundle_and_validates_prompts(monkeypatch):
 def test_v061_legacy_nodes_keep_contract_outputs_and_deprecation(monkeypatch):
     install_comfy_api_stub(monkeypatch)
     for module_name in tuple(sys.modules):
-        if module_name == "backend.extension" or module_name.startswith("backend.nodes"):
+        if module_name == "backend.extension" or module_name.startswith(
+            "backend.nodes"
+        ):
             monkeypatch.delitem(sys.modules, module_name)
 
     extension_module = importlib.import_module("backend.extension")
@@ -2784,9 +2786,7 @@ def test_v061_legacy_nodes_keep_contract_outputs_and_deprecation(monkeypatch):
         "qwen3_asr",
     ]
     assert model_schema.inputs[2].options["default"] == 0.2
-    profile = model_class.execute(
-        "General", "auto", 0.2, 0.95, 40, 0.05, 1.0, 0.0
-    )[0]
+    profile = model_class.execute("General", "auto", 0.2, 0.95, 40, 0.05, 1.0, 0.0)[0]
     assert profile == {
         "handler": "auto",
         "recommended_reasoning_mode": "auto",
@@ -2797,12 +2797,18 @@ def test_v061_legacy_nodes_keep_contract_outputs_and_deprecation(monkeypatch):
         "presence_penalty": 0.0,
         "repeat_penalty": 1.0,
     }
-    assert model_class.execute(
-        "Muse Glimmer", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
-    )[0]["handler"] == "auto"
-    assert model_class.execute(
-        "Qwen 3.5 Non-thinking", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
-    )[0]["handler"] == "auto"
+    assert (
+        model_class.execute("Muse Glimmer", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0)[
+            0
+        ]["handler"]
+        == "auto"
+    )
+    assert (
+        model_class.execute(
+            "Qwen 3.5 Non-thinking", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
+        )[0]["handler"]
+        == "auto"
+    )
     qwen35_profile = model_class.execute(
         "Qwen 3.5 Thinking", "generic", 0.2, 0.95, 40, 0.05, 1.0, 0.0
     )[0]

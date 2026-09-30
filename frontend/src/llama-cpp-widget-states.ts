@@ -95,10 +95,7 @@ function initializeNode(node: ComfyNodeLike, className: string): void {
     initializeDeferred(node, "profile", updateCompactHardwareProfileWidgets)
   } else if (className === PREFILL_PROFILE_CLASS) {
     initializeDeferred(node, "profile", updatePrefillProfileWidgets)
-  } else if (
-    className === REASONING_CONFIG_CLASS ||
-    className === LEGACY_REASONING_CONFIG_CLASS
-  ) {
+  } else if (className === REASONING_CONFIG_CLASS || className === LEGACY_REASONING_CONFIG_CLASS) {
     initializeDeferred(node, "reasoning_mode", updateReasoningConfigWidgets)
   } else if (className === NATIVE_SPECULATIVE_CONFIG_CLASS) {
     initializeDeferred(node, "preset", updateNativeSpeculativeConfigWidgets)

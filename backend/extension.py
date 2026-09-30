@@ -16,6 +16,7 @@ from .llama_cpp_session_cleanup import close_tracked_sessions
 from .nodes import (
     ClipImageListGenerateNode,
     JinjaChatTemplatePresetNode,
+    LegacyMuseGlimmerResponseParserNode,
     LlamaCppConnectSessionNode,
     LlamaCppCreateQuestionFromInputNode,
     LlamaCppCreateRuntimeSessionNode,
@@ -43,7 +44,6 @@ from .nodes import (
     LlamaCppSessionPromptSequentialGenerateNode,
     LlamaCppSessionSequentialGenerateNode,
     LlamaCppUnloadSessionNode,
-    LegacyMuseGlimmerResponseParserNode,
     MiniMaxSystemPromptPresetNode,
     MuseGlimmerResponseParserNode,
     OllamaImageListConnectivityNode,
