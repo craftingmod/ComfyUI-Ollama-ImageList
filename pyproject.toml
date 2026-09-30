@@ -1,10 +1,21 @@
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
 [project]
 name = "ollama-image-list"
 description = "Analyze ComfyUI image, audio, and video lists with Ollama, llama.cpp GGUF, or native generative CLIP backends"
-version = "0.8.2"
+dynamic = ["version"]
 requires-python = ">=3.12"
 readme = "README.md"
 license = { file = "LICENSE" }
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+strict = true
 
 [project.optional-dependencies]
 llama = ["makoto-decision"]

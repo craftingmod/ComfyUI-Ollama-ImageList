@@ -10,8 +10,9 @@ import {
   projectDir,
   validateComfyUIPath,
 } from "./local-comfyui.ts"
+import { getProjectVersion } from "./project-version.ts"
 
-type ProjectConfig = { project?: { name?: unknown; version?: unknown } }
+type ProjectConfig = { project?: { name?: unknown } }
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
@@ -28,7 +29,7 @@ async function main(): Promise<void> {
     await fs.readFile(Path.join(projectDir, "pyproject.toml"), "utf8"),
   ) as ProjectConfig
   const projectName = requireString(pyproject.project?.name, "project.name")
-  const version = requireString(pyproject.project?.version, "project.version")
+  const version = await getProjectVersion(projectDir)
   const customNodesPath = Path.join(comfyuiPath, "custom_nodes")
   const destinationPath = Path.join(customNodesPath, projectName)
   await assertSafeDeployTarget(customNodesPath, destinationPath)

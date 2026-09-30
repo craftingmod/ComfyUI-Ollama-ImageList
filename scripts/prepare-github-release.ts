@@ -4,7 +4,7 @@ import Path from "node:path"
 import { $ } from "bun"
 
 type ProjectConfig = {
-  project?: { name?: unknown; version?: unknown }
+  project?: { name?: unknown }
 }
 
 export type GitHubReleaseInfo = {
@@ -26,11 +26,11 @@ export function githubReleaseInfo(
 ): GitHubReleaseInfo {
   const pyproject = Bun.TOML.parse(pyprojectSource) as ProjectConfig
   const projectName = requireString(pyproject.project?.name, "project.name")
-  const version = requireString(pyproject.project?.version, "project.version")
-  const expectedTag = `v${version}`
-
-  if (githubRefName !== expectedTag) {
-    throw new Error(`Tag ${githubRefName} does not match project version ${expectedTag}.`)
+  const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.exec(
+    githubRefName,
+  )?.[1]
+  if (!version) {
+    throw new Error(`Expected release tag vMAJOR.MINOR.PATCH, got ${githubRefName}.`)
   }
 
   return {

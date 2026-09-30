@@ -3,9 +3,10 @@ import Path from "node:path"
 
 import { $ } from "bun"
 import { zipSync } from "fflate"
+import { getProjectVersion } from "./project-version.ts"
 
 type ComfyConfig = {
-  project?: { name?: unknown; version?: unknown }
+  project?: { name?: unknown }
   tool?: { comfy?: { includes?: unknown } }
 }
 
@@ -88,7 +89,7 @@ const pyproject = Bun.TOML.parse(
   await fs.readFile(Path.join(projectDir, "pyproject.toml"), "utf8"),
 ) as ComfyConfig
 const projectName = requireString(pyproject.project?.name, "project.name")
-const version = requireString(pyproject.project?.version, "project.version")
+const version = await getProjectVersion(projectDir)
 const includesValue = pyproject.tool?.comfy?.includes ?? []
 if (!Array.isArray(includesValue) || includesValue.some((value) => typeof value !== "string")) {
   throw new Error("Expected tool.comfy.includes to be an array of strings in pyproject.toml")
