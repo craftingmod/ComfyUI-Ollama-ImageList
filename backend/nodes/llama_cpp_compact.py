@@ -28,6 +28,10 @@ from ..core import (
     unwrap_optional_scalar,
     unwrap_required_scalar,
 )
+from .llama_cpp_prefill import (
+    LlamaCppPrefillProfileType,
+    normalize_prefill_profile,
+)
 from .llama_cpp_diagnostics import LlamaCppMediaDiagnosticsType
 from .llama_cpp_generate import (
     NO_DRAFT_OPTION,
@@ -65,13 +69,13 @@ _BASE_MODEL_PROFILE: dict[str, Any] = {
 }
 
 _BASE_HARDWARE_PROFILE: dict[str, Any] = {
-    "n_batch": 512,
-    "n_ubatch": 0,
     "gpu_layers": "all",
     "main_gpu": 0,
     "n_threads": 0,
     "flash_attention": "auto",
     "use_mmap": True,
+    "type_k": "FP16",
+    "type_v": "FP16",
 }
 
 
@@ -97,25 +101,9 @@ def _load_model_profiles() -> dict[str, dict[str, Any]]:
 
 COMPACT_MODEL_PROFILES = _load_model_profiles()
 
-COMPACT_HARDWARE_PROFILES: dict[str, dict[str, Any]] = {
-    "GPU Full Offload": dict(_BASE_HARDWARE_PROFILE),
-    "GPU Vision 512": {
-        **_BASE_HARDWARE_PROFILE,
-        "n_ubatch": 512,
-    },
-    "Qwen Vision 1024": {
-        **_BASE_HARDWARE_PROFILE,
-        "n_batch": 1024,
-        "n_ubatch": 1024,
-    },
-    "Automatic Offload": {
-        **_BASE_HARDWARE_PROFILE,
-        "gpu_layers": "auto",
-    },
-    "CPU": {
-        **_BASE_HARDWARE_PROFILE,
-        "gpu_layers": "cpu",
-    },
+DEFAULT_COMPACT_HARDWARE_PROFILE: dict[str, Any] = {
+    **_BASE_HARDWARE_PROFILE,
+    "gpu_layers": "auto",
 }
 
 NATIVE_DRAFT_PRESETS: dict[str, dict[str, Any]] = {
@@ -205,15 +193,20 @@ def normalize_compact_hardware_profile(value: Any) -> dict[str, Any]:
         raise InputNormalizationError(
             "hardware_profile must be a Llama.cpp Compact Hardware Profile object."
         )
-    missing = [name for name in _BASE_HARDWARE_PROFILE if name not in value]
+    missing = [
+        name
+        for name in _BASE_HARDWARE_PROFILE
+        if name not in value and name not in {"type_k", "type_v"}
+    ]
     if missing:
         raise InputNormalizationError(
             f"hardware_profile is missing required field(s): {', '.join(missing)}."
         )
-    normalized = {name: value[name] for name in _BASE_HARDWARE_PROFILE}
+    normalized = {
+        name: value.get(name, _BASE_HARDWARE_PROFILE[name])
+        for name in _BASE_HARDWARE_PROFILE
+    }
     integer_ranges = {
-        "n_batch": (0, 65_536),
-        "n_ubatch": (0, 65_536),
         "main_gpu": (0, 31),
         "n_threads": (0, 1_024),
     }
@@ -227,13 +220,25 @@ def normalize_compact_hardware_profile(value: Any) -> dict[str, Any]:
             raise InputNormalizationError(
                 f"hardware_profile.{name} must be between {minimum} and {maximum}."
             )
-    if normalized["n_ubatch"] > normalized["n_batch"]:
-        raise InputNormalizationError(
-            "hardware_profile.n_ubatch cannot exceed hardware_profile.n_batch."
-        )
     if normalized["gpu_layers"] not in {"all", "auto", "cpu"}:
         raise InputNormalizationError(
             "hardware_profile.gpu_layers must be all, auto, or cpu."
+        )
+    if not isinstance(normalized["type_k"], str) or normalized["type_k"] not in {
+        "FP16",
+        "Q8_0",
+        "Q4_0",
+    }:
+        raise InputNormalizationError(
+            "hardware_profile.type_k must be FP16, Q8_0, or Q4_0."
+        )
+    if not isinstance(normalized["type_v"], str) or normalized["type_v"] not in {
+        "FP16",
+        "Q8_0",
+        "Q4_0",
+    }:
+        raise InputNormalizationError(
+            "hardware_profile.type_v must be FP16, Q8_0, or Q4_0."
         )
     if normalized["flash_attention"] not in {"auto", "enabled", "disabled"}:
         raise InputNormalizationError(
@@ -397,18 +402,12 @@ class LlamaCppModelProfileNode(io.ComfyNode):
             display_name="[llama.cpp] Model Profile",
             category=PROFILE_CATEGORY,
             description=(
-                "Bundles model-dependent handler and sampling defaults into one typed "
-                "connection."
+                "Bundles model-specific handler presets and sampling defaults into "
+                "one typed connection."
             ),
             inputs=[
                 io.Combo.Input(
                     "profile", options=[*names, "Custom"], default="General"
-                ),
-                io.Combo.Input(
-                    "custom_handler",
-                    options=list(HANDLER_NAMES),
-                    default="auto",
-                    advanced=True,
                 ),
                 io.Float.Input(
                     "temperature",
@@ -465,7 +464,6 @@ class LlamaCppModelProfileNode(io.ComfyNode):
     def execute(
         cls,
         profile: str,
-        custom_handler: str,
         temperature: float,
         top_p: float,
         top_k: int,
@@ -475,7 +473,7 @@ class LlamaCppModelProfileNode(io.ComfyNode):
     ) -> io.NodeOutput:
         if profile == "Custom":
             value = {
-                "handler": custom_handler,
+                "handler": "auto",
                 "recommended_reasoning_mode": "auto",
                 "temperature": temperature,
                 "top_p": top_p,
@@ -503,31 +501,30 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
             display_name="[llama.cpp] Hardware Runtime Profile",
             category=PROFILE_CATEGORY,
             description=(
-                "Bundles hardware-dependent batch, offload, CPU, attention, and mmap "
-                "settings. n_ubatch=0 uses the backend default."
+                "Bundles K/V cache type, offload, CPU, attention, and mmap settings."
             ),
             inputs=[
-                io.Combo.Input(
-                    "profile",
-                    options=["Custom"],
-                    default="Custom",
-                ),
-                io.Int.Input(
-                    "n_batch", default=512, min=0, max=65_536, step=1
-                ),
-                io.Int.Input(
-                    "n_ubatch",
-                    default=0,
-                    min=0,
-                    max=65_536,
-                    step=1,
-                    tooltip="0 uses the llama.cpp backend default.",
-                ),
                 io.Combo.Input(
                     "gpu_layers",
                     options=["all", "auto", "cpu"],
                     default="auto",
                     advanced=True,
+                ),
+                io.Combo.Input(
+                    "type_k",
+                    display_name="K cache type",
+                    options=["FP16", "Q8_0", "Q4_0"],
+                    default="FP16",
+                    advanced=True,
+                    tooltip="Data type for the key (K) cache.",
+                ),
+                io.Combo.Input(
+                    "type_v",
+                    display_name="V cache type",
+                    options=["FP16", "Q8_0", "Q4_0"],
+                    default="FP16",
+                    advanced=True,
+                    tooltip="Data type for the value (V) cache.",
                 ),
                 io.Int.Input(
                     "main_gpu", default=0, min=0, max=31, step=1, advanced=True
@@ -553,20 +550,18 @@ class LlamaCppHardwareRuntimeProfileNode(io.ComfyNode):
     @classmethod
     def execute(
         cls,
-        profile: str,
-        n_batch: int,
-        n_ubatch: int,
         gpu_layers: str,
+        type_k: str,
+        type_v: str,
         main_gpu: int,
         n_threads: int,
         flash_attention: str,
         use_mmap: bool,
     ) -> io.NodeOutput:
-        # Keep the widget slot for workflow layout; its value never selects a preset.
         value = {
-            "n_batch": n_batch,
-            "n_ubatch": n_ubatch,
             "gpu_layers": gpu_layers,
+            "type_k": type_k,
+            "type_v": type_v,
             "main_gpu": main_gpu,
             "n_threads": n_threads,
             "flash_attention": flash_attention,
@@ -976,21 +971,14 @@ def _compact_common_inputs(*, include_video_with_audio: bool = True) -> list[Any
                 "Disconnected uses Automatic Offload."
             ),
         ),
+        LlamaCppPrefillProfileType.Input(
+            "prefill_profile",
+            tooltip="Required output from [llama.cpp] Prefill Profile.",
+        ),
         io.String.Input("system", default="", multiline=True, dynamic_prompts=False),
         io.String.Input("prompt", default="", multiline=True, dynamic_prompts=False),
         io.Int.Input("n_ctx", default=8_192, min=512, max=1_048_576, step=512),
         io.Int.Input("max_tokens", default=512, min=1, max=131_072, step=1),
-        io.Int.Input(
-            "image_max_tokens",
-            default=0,
-            min=0,
-            max=65_536,
-            step=1,
-            tooltip=(
-                "0 uses the mmproj/handler default. A positive value overrides the "
-                "per-image or per-video-frame token ceiling."
-            ),
-        ),
         io.Int.Input("seed", default=-1, min=-1, max=0xFFFFFFFF, step=1),
         io.String.Input("stop", default="", advanced=True),
         io.Image.Input("images", optional=True),
@@ -1005,16 +993,6 @@ def _compact_common_inputs(*, include_video_with_audio: bool = True) -> list[Any
             tooltip="VIDEO items may contain their own AUDIO components.",
         ),
         io.Boolean.Input("verbose", default=False, advanced=True),
-        io.Int.Input(
-            "image_min_tokens",
-            default=0,
-            min=0,
-            max=65_536,
-            step=1,
-            tooltip=(
-                "0 keeps the projector default. Qwen-VL grounding tasks may require 1024."
-            ),
-        ),
     ]
     if include_video_with_audio:
         inputs.insert(
@@ -1035,13 +1013,12 @@ def build_compact_session_kwargs(
     *,
     model_path: Any,
     mmproj_path: Any,
-    model_profile: Any,
+    model_profile: Any = None,
     hardware_profile: Any = None,
+    prefill_profile: Any = None,
     reasoning: Any = None,
     speculative: Any = None,
     n_ctx: Any,
-    image_min_tokens: Any,
-    image_max_tokens: Any,
     verbose: Any,
     custom_chat_template: Any = "",
 ) -> dict[str, Any]:
@@ -1068,25 +1045,36 @@ def build_compact_session_kwargs(
         reasoning_config = normalize_reasoning_config(
             unwrap_required_scalar("reasoning", reasoning)
         )
-    compact_model_profile = normalize_compact_model_profile(
-        unwrap_required_scalar("model_profile", model_profile)
-    )
-    profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
+    compact_model_profile = {}
+    profile_reasoning_mode = None
+    if model_profile is not None:
+        compact_model_profile = normalize_compact_model_profile(
+            unwrap_required_scalar("model_profile", model_profile)
+        )
+        profile_reasoning_mode = compact_model_profile.pop(
+            "recommended_reasoning_mode"
+        )
     selected_template = unwrap_optional_scalar(
         "custom_chat_template", custom_chat_template, ""
     )
     if not isinstance(selected_template, str):
         raise InputNormalizationError("custom_chat_template must be a string.")
-    compact_model_profile["custom_chat_template"] = selected_template
+    capacity = (
+        normalize_prefill_profile(
+            unwrap_required_scalar("prefill_profile", prefill_profile)
+        )
+        if prefill_profile is not None
+        else None
+    )
     compact_hardware_profile = normalize_compact_hardware_profile(
-        COMPACT_HARDWARE_PROFILES["Automatic Offload"]
+        DEFAULT_COMPACT_HARDWARE_PROFILE
         if hardware_profile is None
         else unwrap_required_scalar("hardware_profile", hardware_profile)
     )
-    n_ubatch = compact_hardware_profile.pop("n_ubatch")
     reasoning_mode = reasoning_config["reasoning_mode"]
     if (
-        profile_reasoning_mode != "auto"
+        profile_reasoning_mode is not None
+        and profile_reasoning_mode != "auto"
         and reasoning_mode != "auto"
         and reasoning_mode != profile_reasoning_mode
     ):
@@ -1096,15 +1084,26 @@ def build_compact_session_kwargs(
             "[llama.cpp] Thinking / Reasoning Profile requests "
             f"reasoning_mode={reasoning_mode}."
         )
-    if reasoning_mode == "auto" and profile_reasoning_mode != "auto":
+    if (
+        reasoning_mode == "auto"
+        and profile_reasoning_mode is not None
+        and profile_reasoning_mode != "auto"
+    ):
         reasoning_mode = profile_reasoning_mode
     thinking_value = None if reasoning_mode == "auto" else reasoning_mode == "on"
-    image_token_floor = int(
-        unwrap_optional_scalar("image_min_tokens", image_min_tokens, 0)
-    )
-    image_token_limit = int(
-        unwrap_optional_scalar("image_max_tokens", image_max_tokens, 0)
-    )
+    prefill_configuration = {}
+    if capacity is not None:
+        image_token_floor = capacity["image_min_tokens"]
+        image_token_limit = capacity["image_max_tokens"]
+        prefill_configuration = {
+            "n_batch": capacity["n_batch"],
+            "override_image_min_tokens": image_token_floor > 0,
+            "image_min_tokens": image_token_floor if image_token_floor > 0 else 1_024,
+            "override_image_max_tokens": image_token_limit > 0,
+            "image_max_tokens": image_token_limit if image_token_limit > 0 else 1_120,
+            "override_n_ubatch": capacity["n_ubatch"] > 0,
+            "n_ubatch": capacity["n_ubatch"] if capacity["n_ubatch"] > 0 else 512,
+        }
     extra: dict[str, Any] = {}
     if speculative_config["kind"] == "ngram":
         extra["ngram_speculative"] = speculative_config["config"]
@@ -1145,19 +1144,15 @@ def build_compact_session_kwargs(
             required=False,
         ),
         "n_ctx": int(unwrap_optional_scalar("n_ctx", n_ctx, 8_192)),
-        "override_image_min_tokens": image_token_floor > 0,
-        "image_min_tokens": image_token_floor if image_token_floor > 0 else 1_024,
-        "override_image_max_tokens": image_token_limit > 0,
-        "image_max_tokens": image_token_limit if image_token_limit > 0 else 1_120,
-        "override_n_ubatch": n_ubatch > 0,
-        "n_ubatch": n_ubatch if n_ubatch > 0 else 512,
         "thinking": thinking_value,
         "reasoning_strength": reasoning_config["reasoning_effort"],
         "reasoning_budget": reasoning_config["max_reasoning_tokens"],
         "preserve_thinking": reasoning_config["preserve_thinking"],
         "verbose": bool(unwrap_optional_scalar("verbose", verbose, False)),
         **compact_model_profile,
+        "custom_chat_template": selected_template,
         **compact_hardware_profile,
+        **prefill_configuration,
         **extra,
     }
 
@@ -1168,12 +1163,11 @@ def _execute_compact(
     mmproj_path: Any,
     model_profile: Any,
     hardware_profile: Any,
+    prefill_profile: Any,
     system: Any,
     prompt: Any,
     n_ctx: Any,
     max_tokens: Any,
-    image_min_tokens: Any,
-    image_max_tokens: Any,
     seed: Any,
     stop: Any,
     images: Any,
@@ -1218,18 +1212,16 @@ def _execute_compact(
         unwrap_required_scalar("model_profile", model_profile)
     )
     profile_reasoning_mode = compact_model_profile.pop("recommended_reasoning_mode")
+    capacity = normalize_prefill_profile(
+        unwrap_required_scalar("prefill_profile", prefill_profile)
+    )
     compact_hardware_profile = normalize_compact_hardware_profile(
-        COMPACT_HARDWARE_PROFILES["Automatic Offload"]
+        DEFAULT_COMPACT_HARDWARE_PROFILE
         if hardware_profile is None
         else unwrap_required_scalar("hardware_profile", hardware_profile)
     )
-    n_ubatch = compact_hardware_profile.pop("n_ubatch")
-    image_token_floor = int(
-        unwrap_optional_scalar("image_min_tokens", image_min_tokens, 0)
-    )
-    image_token_limit = int(
-        unwrap_optional_scalar("image_max_tokens", image_max_tokens, 0)
-    )
+    image_token_floor = capacity["image_min_tokens"]
+    image_token_limit = capacity["image_max_tokens"]
     output_token_limit = int(unwrap_optional_scalar("max_tokens", max_tokens, 512))
     reasoning_token_limit = reasoning_config["max_reasoning_tokens"]
     if reasoning_token_limit > output_token_limit:
@@ -1332,13 +1324,14 @@ def _execute_compact(
             else str(unwrap_required_scalar("prompt", prompt))
         ),
         n_ctx=int(unwrap_optional_scalar("n_ctx", n_ctx, 8_192)),
+        n_batch=capacity["n_batch"],
         max_tokens=output_token_limit,
         override_image_min_tokens=image_token_floor > 0,
         image_min_tokens=image_token_floor if image_token_floor > 0 else 1_024,
         override_image_max_tokens=image_token_limit > 0,
         image_max_tokens=image_token_limit if image_token_limit > 0 else 1_120,
-        override_n_ubatch=n_ubatch > 0,
-        n_ubatch=n_ubatch if n_ubatch > 0 else 512,
+        override_n_ubatch=capacity["n_ubatch"] > 0,
+        n_ubatch=capacity["n_ubatch"] if capacity["n_ubatch"] > 0 else 512,
         thinking=thinking_value,
         reasoning_strength=reasoning_config["reasoning_effort"],
         reasoning_budget=reasoning_token_limit,
@@ -1411,7 +1404,6 @@ class _LlamaCppGenerateNodeBase(io.ComfyNode):
         prompt,
         n_ctx,
         max_tokens,
-        image_max_tokens,
         seed,
         stop,
         verbose,
@@ -1420,21 +1412,20 @@ class _LlamaCppGenerateNodeBase(io.ComfyNode):
         video=None,
         video_with_audio=False,
         hardware_profile=None,
+        prefill_profile=None,
         reasoning=None,
         speculative=None,
-        image_min_tokens=0,
     ) -> io.NodeOutput:
         return _execute_compact(
             model_path=model_path,
             mmproj_path=mmproj_path,
             model_profile=model_profile,
             hardware_profile=hardware_profile,
+            prefill_profile=prefill_profile,
             system=system,
             prompt=prompt,
             n_ctx=n_ctx,
             max_tokens=max_tokens,
-            image_min_tokens=image_min_tokens,
-            image_max_tokens=image_max_tokens,
             seed=seed,
             stop=stop,
             images=images,
@@ -1459,7 +1450,8 @@ class LlamaCppProfiledGenerateNode(_LlamaCppGenerateNodeBase):
             is_deprecated=True,
             description=(
                 "Runs one multimodal llama.cpp completion using separate Compact model "
-                "and hardware profiles plus optional reasoning and speculative configs."
+                "and hardware profiles plus a shared Prefill Profile and "
+                "optional reasoning and speculative configs."
             ),
             is_input_list=True,
             not_idempotent=True,
@@ -1491,7 +1483,7 @@ class LlamaCppSequentialGenerateNode(_LlamaCppGenerateNodeBase):
 
 
 __all__ = [
-    "COMPACT_HARDWARE_PROFILES",
+    "DEFAULT_COMPACT_HARDWARE_PROFILE",
     "COMPACT_MODEL_PROFILES",
     "LlamaCppHardwareRuntimeProfileNode",
     "LlamaCppHardwareRuntimeProfileType",

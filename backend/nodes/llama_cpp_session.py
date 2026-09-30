@@ -13,7 +13,7 @@ try:
 except ImportError:  # pragma: no cover - compatibility with newer ComfyUI builds
     from comfy_api.latest import io
 
-from ..backends.llama_cpp import LlamaCppSession, _resolve_file
+from ..backends.llama_cpp import HANDLER_NAMES, LlamaCppSession, _resolve_file
 from ..backends.llama_cpp_server import (
     LlamaCppServerSession,
     OwnedLlamaCppServerSession,
@@ -30,9 +30,13 @@ from ..llama_cpp_runtime import (
     _resolve_llama_executable,
     start_owned_llama_server,
 )
+from .llama_cpp_prefill import (
+    LlamaCppPrefillProfileType,
+    normalize_prefill_profile,
+)
 from .llama_cpp_compact import (
     BASE_CATEGORY,
-    COMPACT_HARDWARE_PROFILES,
+    DEFAULT_COMPACT_HARDWARE_PROFILE,
     LlamaCppHardwareRuntimeProfileType,
     LlamaCppModelProfileType,
     LlamaCppReasoningConfigType,
@@ -111,14 +115,13 @@ def _runtime_server_arguments(
     *,
     model_path: Any,
     mmproj_path: Any,
-    model_profile: Any,
+    model_profile: Any = None,
     hardware_profile: Any = None,
+    prefill_profile: Any = None,
     reasoning: Any = None,
     speculative: Any = None,
     custom_chat_template: Any = None,
     n_ctx: Any,
-    image_min_tokens: Any,
-    image_max_tokens: Any,
     verbose: Any,
     reasoning_preserve_supported: bool,
 ) -> tuple[list[str], str | None, str]:
@@ -144,11 +147,14 @@ def _runtime_server_arguments(
     if model is None:
         raise InputNormalizationError("model GGUF is required.")
 
-    profile = normalize_compact_model_profile(
-        unwrap_required_scalar("model_profile", model_profile)
-    )
-    profile_reasoning_mode = profile.pop("recommended_reasoning_mode")
-    profile.pop("handler")
+    profile = None
+    profile_reasoning_mode = None
+    if model_profile is not None:
+        profile = normalize_compact_model_profile(
+            unwrap_required_scalar("model_profile", model_profile)
+        )
+        profile_reasoning_mode = profile.pop("recommended_reasoning_mode")
+        profile.pop("handler")
     selected_chat_template = unwrap_optional_scalar(
         "custom_chat_template", custom_chat_template, ""
     )
@@ -156,9 +162,16 @@ def _runtime_server_arguments(
         raise InputNormalizationError("custom_chat_template must be a string.")
 
     hardware = normalize_compact_hardware_profile(
-        COMPACT_HARDWARE_PROFILES["Automatic Offload"]
+        DEFAULT_COMPACT_HARDWARE_PROFILE
         if hardware_profile is None
         else unwrap_required_scalar("hardware_profile", hardware_profile)
+    )
+    capacity = (
+        normalize_prefill_profile(
+            unwrap_required_scalar("prefill_profile", prefill_profile)
+        )
+        if prefill_profile is not None
+        else None
     )
     reasoning_config = normalize_reasoning_config(
         {
@@ -172,7 +185,8 @@ def _runtime_server_arguments(
     )
     reasoning_mode = reasoning_config["reasoning_mode"]
     if (
-        profile_reasoning_mode != "auto"
+        profile_reasoning_mode is not None
+        and profile_reasoning_mode != "auto"
         and reasoning_mode != "auto"
         and reasoning_mode != profile_reasoning_mode
     ):
@@ -181,7 +195,7 @@ def _runtime_server_arguments(
             f"{profile_reasoning_mode}, but [llama.cpp] Thinking / Reasoning Profile "
             f"requests reasoning_mode={reasoning_mode}."
         )
-    if reasoning_mode == "auto":
+    if reasoning_mode == "auto" and profile_reasoning_mode is not None:
         reasoning_mode = profile_reasoning_mode
 
     speculative_config = normalize_compact_speculative(
@@ -194,22 +208,6 @@ def _runtime_server_arguments(
         raise InputNormalizationError(
             "n_ctx must be an integer between 512 and 1048576."
         )
-    token_limits = []
-    for name, value in (
-        ("image_min_tokens", image_min_tokens),
-        ("image_max_tokens", image_max_tokens),
-    ):
-        resolved = unwrap_optional_scalar(name, value, 0)
-        if type(resolved) is not int or not 0 <= resolved <= 65_536:
-            raise InputNormalizationError(
-                f"{name} must be an integer between 0 and 65536."
-            )
-        token_limits.append(resolved)
-    image_min, image_max = token_limits
-    if image_min > 0 and image_max > 0 and image_min > image_max:
-        raise InputNormalizationError(
-            "image_min_tokens cannot exceed image_max_tokens."
-        )
     verbose_value = unwrap_optional_scalar("verbose", verbose, False)
     if not isinstance(verbose_value, bool):
         raise InputNormalizationError("verbose must be a boolean.")
@@ -217,18 +215,29 @@ def _runtime_server_arguments(
     arguments = ["--model", model, "--ctx-size", str(resolved_ctx)]
     if mmproj:
         arguments.extend(("--mmproj", mmproj))
-    for name, option in (
-        ("temperature", "--temp"),
-        ("top_p", "--top-p"),
-        ("top_k", "--top-k"),
-        ("min_p", "--min-p"),
-        ("presence_penalty", "--presence-penalty"),
-        ("repeat_penalty", "--repeat-penalty"),
-    ):
-        arguments.extend((option, str(profile[name])))
-    arguments.extend(("--batch-size", str(hardware["n_batch"])))
-    if hardware["n_ubatch"] > 0:
-        arguments.extend(("--ubatch-size", str(hardware["n_ubatch"])))
+    if profile is not None:
+        for name, option in (
+            ("temperature", "--temp"),
+            ("top_p", "--top-p"),
+            ("top_k", "--top-k"),
+            ("min_p", "--min-p"),
+            ("presence_penalty", "--presence-penalty"),
+            ("repeat_penalty", "--repeat-penalty"),
+        ):
+            arguments.extend((option, str(profile[name])))
+    if capacity is not None:
+        arguments.extend(("--batch-size", str(capacity["n_batch"])))
+        if capacity["n_ubatch"] > 0:
+            arguments.extend(("--ubatch-size", str(capacity["n_ubatch"])))
+    kv_cache_types = {"FP16": "f16", "Q8_0": "q8_0", "Q4_0": "q4_0"}
+    arguments.extend(
+        (
+            "--cache-type-k",
+            kv_cache_types[hardware["type_k"]],
+            "--cache-type-v",
+            kv_cache_types[hardware["type_v"]],
+        )
+    )
     gpu_layers = {"all": "all", "auto": "auto", "cpu": "0"}[hardware["gpu_layers"]]
     arguments.extend(
         (
@@ -263,17 +272,16 @@ def _runtime_server_arguments(
             if reasoning_config["preserve_thinking"]
             else "--no-reasoning-preserve"
         )
-    for name, value in (
-        ("image_min_tokens", image_min),
-        ("image_max_tokens", image_max),
-    ):
-        if value > 0:
-            option = (
-                "--image-min-tokens"
-                if name == "image_min_tokens"
-                else "--image-max-tokens"
-            )
-            arguments.extend((option, str(value)))
+    if capacity is not None:
+        for name in ("image_min_tokens", "image_max_tokens"):
+            value = capacity[name]
+            if value > 0:
+                option = (
+                    "--image-min-tokens"
+                    if name == "image_min_tokens"
+                    else "--image-max-tokens"
+                )
+                arguments.extend((option, str(value)))
 
     if speculative_config["kind"] == "native":
         config = speculative_config["config"]
@@ -440,7 +448,16 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
                 io.Combo.Input(
                     "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
                 ),
-                LlamaCppModelProfileType.Input("model_profile"),
+                LlamaCppModelProfileType.Input("model_profile", optional=True),
+                io.Combo.Input(
+                    "custom_handler",
+                    options=list(HANDLER_NAMES),
+                    default="auto",
+                    tooltip=(
+                        "A specific handler overrides Model Profile; auto keeps the "
+                        "profile's handler."
+                    ),
+                ),
                 io.String.Input(
                     "custom_chat_template",
                     optional=True,
@@ -455,9 +472,8 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
                 ),
                 LlamaCppReasoningConfigType.Input("reasoning", optional=True),
                 LlamaCppSpeculativeConfigType.Input("speculative", optional=True),
+                LlamaCppPrefillProfileType.Input("prefill_profile", optional=True),
                 io.Int.Input("n_ctx", default=8_192, min=512, max=1_048_576, step=512),
-                io.Int.Input("image_min_tokens", default=0, min=0, max=65_536),
-                io.Int.Input("image_max_tokens", default=0, min=0, max=65_536),
                 io.Boolean.Input("verbose", default=False, advanced=True),
             ],
             outputs=[LlamaCppSessionType.Output("session", display_name="session")],
@@ -469,7 +485,17 @@ class LlamaCppCreateSessionNode(io.ComfyNode):
 
     @classmethod
     def execute(cls, **values: Any) -> io.NodeOutput:
-        return io.NodeOutput(LlamaCppSession(**build_compact_session_kwargs(**values)))
+        custom_handler = unwrap_required_scalar(
+            "custom_handler", values.pop("custom_handler", "auto")
+        )
+        if custom_handler not in HANDLER_NAMES:
+            raise InputNormalizationError(
+                f"custom_handler must be one of {', '.join(HANDLER_NAMES)}."
+            )
+        configuration = build_compact_session_kwargs(**values)
+        if custom_handler != "auto":
+            configuration["handler"] = custom_handler
+        return io.NodeOutput(LlamaCppSession(**configuration))
 
 
 class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
@@ -495,7 +521,7 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
                 io.Combo.Input(
                     "mmproj_path", options=mmproj_options, default=NO_MMPROJ_OPTION
                 ),
-                LlamaCppModelProfileType.Input("model_profile"),
+                LlamaCppModelProfileType.Input("model_profile", optional=True),
                 io.String.Input(
                     "custom_chat_template",
                     optional=True,
@@ -511,9 +537,8 @@ class LlamaCppCreateRuntimeSessionNode(io.ComfyNode):
                 ),
                 LlamaCppReasoningConfigType.Input("reasoning", optional=True),
                 LlamaCppSpeculativeConfigType.Input("speculative", optional=True),
+                LlamaCppPrefillProfileType.Input("prefill_profile", optional=True),
                 io.Int.Input("n_ctx", default=8_192, min=512, max=1_048_576, step=512),
-                io.Int.Input("image_min_tokens", default=0, min=0, max=65_536),
-                io.Int.Input("image_max_tokens", default=0, min=0, max=65_536),
                 io.Boolean.Input("verbose", default=False, advanced=True),
             ],
             outputs=[LlamaCppSessionType.Output("session", display_name="session")],

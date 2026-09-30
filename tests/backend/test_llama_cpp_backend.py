@@ -377,6 +377,33 @@ def test_text_only_generate_omits_selected_mmproj_but_forwards_thinking(tmp_path
     assert result.media_diagnostics["mmproj"] is None
 
 
+@pytest.mark.parametrize(
+    ("type_k", "type_v", "expected_type_k", "expected_type_v"),
+    [
+        ("FP16", "FP16", 1, 1),
+        ("Q8_0", "Q4_0", 8, 2),
+        ("Q4_0", "Q8_0", 2, 8),
+    ],
+)
+def test_kv_cache_types_map_to_native_integer_ids(
+    tmp_path, type_k, type_v, expected_type_k, expected_type_v
+):
+    model, _ = gguf_files(tmp_path)
+
+    run_chat(
+        model_path=str(model),
+        system="",
+        prompt="hello",
+        media=normalize_media(),
+        type_k=type_k,
+        type_v=type_v,
+        bindings=make_bindings(),
+    )
+
+    assert FakeLlama.instances[0].kwargs["type_k"] == expected_type_k
+    assert FakeLlama.instances[0].kwargs["type_v"] == expected_type_v
+
+
 def test_text_only_auto_reasoning_leaves_template_arguments_untouched(tmp_path):
     model, _ = gguf_files(tmp_path)
     FakeLlama.metadata = {"tokenizer.chat_template": "{{ enable_thinking }}"}
@@ -1717,7 +1744,7 @@ def test_image_token_override_rejects_unsafe_physical_batch(tmp_path):
         run_chat(
             model_path=str(model),
             mmproj_path=str(mmproj),
-            handler="auto",
+            handler="gemma4",
             system="",
             prompt="describe",
             media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
@@ -1728,6 +1755,30 @@ def test_image_token_override_rejects_unsafe_physical_batch(tmp_path):
         )
 
     assert FakeLlama.instances == []
+
+
+@pytest.mark.parametrize("handler", ["auto", "qwen3_vl"])
+def test_non_gemma_image_max_tokens_can_exceed_physical_batch(tmp_path, handler):
+    model, mmproj = gguf_files(tmp_path)
+
+    run_chat(
+        model_path=str(model),
+        mmproj_path=str(mmproj),
+        handler=handler,
+        system="",
+        prompt="describe",
+        media=normalize_images(solid_image(1, 1, 1, 3, 0.5)),
+        n_batch=2048,
+        override_n_ubatch=True,
+        n_ubatch=1024,
+        override_image_max_tokens=True,
+        image_max_tokens=2048,
+        bindings=make_bindings(qwen3_vl=FakeHandler),
+    )
+
+    assert FakeLlama.instances[0].kwargs["n_ubatch"] == 1024
+    if handler == "qwen3_vl":
+        assert FakeHandler.instances[0].kwargs["image_max_tokens"] == 2048
 
 
 def test_image_min_token_override_rejects_unsafe_physical_batch(tmp_path):

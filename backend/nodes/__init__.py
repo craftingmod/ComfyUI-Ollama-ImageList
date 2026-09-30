@@ -1,5 +1,6 @@
 from .clip_generate import ClipImageListGenerateNode
 from .jinja_chat_template import JinjaChatTemplatePresetNode
+from .llama_cpp_prefill import LlamaCppPrefillProfileNode
 from .llama_cpp_compact import (
     LlamaCppHardwareRuntimeProfileNode,
     LlamaCppModelProfileNode,
@@ -36,6 +37,7 @@ from .ollama_options import OllamaImageListOptionsNode
 __all__ = [
     "ClipImageListGenerateNode",
     "JinjaChatTemplatePresetNode",
+    "LlamaCppPrefillProfileNode",
     "LlamaCppHardwareRuntimeProfileNode",
     "LlamaCppCreateSessionNode",
     "LlamaCppCreateRuntimeSessionNode",

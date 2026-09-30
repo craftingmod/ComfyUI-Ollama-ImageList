@@ -87,7 +87,7 @@ When ComfyUI exits unexpectedly, the lifetime pipe closes and the supervisor shu
 
 `[llama.cpp] Create Native Session`, `[llama.cpp] Create Runtime Session`, `[llama.cpp] Connect Session`, and `[llama.cpp] Unload Session` are in `llama_cpp/session`; `[llama.cpp] Generate (Session)` and `[llama.cpp] Generate (Sequential)` are in `llama_cpp/generate`.
 
-**[llama.cpp] Create Native Session** takes its handler from the connected Model Profile and owns the optional `custom_chat_template` setting. A Generate (Session) Model Profile can override sampling and reasoning per request, but its handler is ignored because the session model and handler are initialized at creation.
+**[llama.cpp] Create Native Session** takes its handler from the connected Model Profile by default; its `custom_handler` input can override that choice. It also owns the optional `custom_chat_template` setting. A Generate (Session) Model Profile can override sampling and reasoning per request, but its handler is ignored because the session model and handler are initialized at creation.
 
 **[llama.cpp] Generate (Session)** and **[llama.cpp] Decide (Session)** also accept an optional `model_profile`. On Native Sessions, Generate uses it for per-request sampling and reasoning; the handler remains the one selected when the session was created. Server-backed sessions apply the profile's sampling values and explicit `on`/`off` reasoning mode per request; the server handler and custom Jinja template remain fixed at server startup.
 
@@ -101,7 +101,7 @@ The node resolves the executable the same way as the Internal runtime: a `llama`
 
 The node accepts the same model, projector, and typed profiles as **[llama.cpp] Create Native Session**. The model and optional projector are resolved GGUF paths and become `--model` and `--mmproj`; `n_ctx` becomes `--ctx-size`. A disconnected `hardware_profile` uses **Automatic Offload**, allowing llama.cpp to choose the GPU layer count to fit available device memory. The profile's handler is accepted but ignored because the server handles chat templates. Profile sampling values (`temperature`, `top_p`, `top_k`, `min_p`, `presence_penalty`, and `repeat_penalty`) seed the session defaults; a connected `model_profile` on Generate or Decide overrides those values per request. The node's optional `custom_chat_template` input overrides the GGUF metadata template when connected; when disconnected, the GGUF template is used. A non-empty selected template is written to a temporary Jinja file and passed using `--jinja --chat-template-file`; the file is removed after the server exits and the template cannot be replaced per request. `recommended_reasoning_mode` supplies the default when reasoning is disconnected or `auto`; an explicitly conflicting mode fails before launch.
 
-Hardware settings map to server options as follows: `n_batch` to `--batch-size`, positive `n_ubatch` to `--ubatch-size`, `gpu_layers` to `--gpu-layers` (`cpu` becomes `0`), `main_gpu` to `--main-gpu`, positive `n_threads` to `--threads`, and `flash_attention` to `--flash-attn` (`enabled`/`disabled` become `on`/`off`). `use_mmap` maps to `--load-mode mmap` or `--load-mode none`. Zero `n_ubatch` and `n_threads` omit those options. Positive `image_min_tokens` and `image_max_tokens` map to `--image-min-tokens` and `--image-max-tokens`; zero omits the option, and when both are positive, minimum may not exceed maximum. `reasoning_mode` and non-`auto` `reasoning_effort` map to `--reasoning` and `--reasoning-effort`. A positive `max_reasoning_tokens` maps to `--reasoning-budget`; zero omits the option. With reasoning off, effort and budget are omitted. `preserve_thinking` is passed only when the selected executable advertises its corresponding option; otherwise that field is ignored.
+Prefill Profile maps `n_batch` to `--batch-size`, positive `n_ubatch` to `--ubatch-size`, and positive `image_min_tokens` / `image_max_tokens` to `--image-min-tokens` / `--image-max-tokens`. Zero `n_ubatch` and zero image-token limits omit those options; when both image limits are positive, minimum may not exceed maximum. `n_ctx` remains a direct input and maps to `--ctx-size`. Hardware Runtime Profile maps `gpu_layers` to `--gpu-layers` (`cpu` becomes `0`), `type_k` and `type_v` to `--cache-type-k` and `--cache-type-v`, `main_gpu` to `--main-gpu`, positive `n_threads` to `--threads`, and `flash_attention` to `--flash-attn` (`enabled`/`disabled` become `on`/`off`). `use_mmap` maps to `--load-mode mmap` or `--load-mode none`. Zero `n_threads` omits that option. `reasoning_mode` and non-`auto` `reasoning_effort` map to `--reasoning` and `--reasoning-effort`. A positive `max_reasoning_tokens` maps to `--reasoning-budget`; zero omits the option. With reasoning off, effort and budget are omitted. `preserve_thinking` is passed only when the selected executable advertises its corresponding option; otherwise that field is ignored.
 
 Native speculative settings map to `--spec-type` (`draft-mtp`, `draft-dflash`, or `draft-dspark`), `--spec-draft-model`, `--spec-draft-n-max`, `--spec-draft-p-min`, `--spec-draft-ngl`, and the `--spec-draft-backend-sampling` / `--no-spec-draft-backend-sampling` pair. External MTP requires a draft GGUF, while internal MTP does not. N-gram `k` uses `ngram-map-k` with `--spec-ngram-map-k-size-n`, `--spec-ngram-map-k-size-m`, and `--spec-ngram-map-k-min-hits`; `k4v` uses `ngram-map-k4v` with `--spec-ngram-map-k4v-size-n`, `--spec-ngram-map-k4v-size-m`, and `--spec-ngram-map-k4v-min-hits`. Those options receive `ngram_size`, `num_pred_tokens`, and `ngram_min_hits`. `ngram_max_entries_per_key` is accepted but ignored. Off omits speculative options. The session's sampling, hardware, reasoning, and speculative settings remain fixed; Generate's existing request inputs such as `max_tokens`, `seed`, and `stop` still apply per request. `verbose` enables `--verbose`. See the [llama.cpp server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) for the server option reference.
 
@@ -209,11 +209,12 @@ ignoring the limit. Reasoning tokens share the `max_tokens` output allowance, so
 | `use_mmap` | `true` | Memory-maps the GGUF while the model is loaded. |
 | `verbose` | `false` | Controls model, timing, and handler diagnostics from both model and handler construction. |
 
-If an image token floor or ceiling is explicitly overridden for an IMAGE or VIDEO request, the effective limit cannot exceed `n_ctx`, `n_batch`, or the effective `n_ubatch`. When both are set, `image_min_tokens` cannot exceed `image_max_tokens`. Invalid combinations fail before loading the model rather than reaching a native assertion.
+For an IMAGE or VIDEO request, explicit image-token limits cannot exceed `n_ctx` or `n_batch`, and `image_min_tokens` cannot exceed `image_max_tokens` when both are set. The native path also requires `image_min_tokens` to fit the effective `n_ubatch`; the extra `image_max_tokens` to `n_ubatch` check applies only when the selected Model Profile handler is `gemma4`. Invalid combinations fail before loading the model rather than reaching a native assertion.
 
 ## Profile nodes
 
 `[llama.cpp] Model Profile`, `[llama.cpp] Hardware Runtime Profile`,
+`[llama.cpp] Prefill Profile`,
 `[llama.cpp] Thinking / Reasoning Profile`, and `[llama.cpp] Native Speculative Profile`
 live under `llama_cpp / profile` and provide typed inputs to Compact Generate.
 
@@ -226,6 +227,7 @@ tuning behind separate typed connections:
 ```text
 [llama.cpp] Model Profile -------------------------+-> [llama.cpp] Generate
 [llama.cpp] Hardware Runtime Profile (optional) ---/
+[llama.cpp] Prefill Profile ----------------------/
 [llama.cpp] Thinking / Reasoning Profile ---------/
 [llama.cpp] N-gram Speculative Config -----------\
 [llama.cpp] Native Speculative Profile ----------+-> speculative (choose one)
@@ -253,9 +255,9 @@ Model Profile choices come from the `name` field in `presets/model/*.json`; the 
 are `General`, `Gemma 4 Vision`, `Muse Glimmer`, `Qwen 3.5+ Thinking`, `Qwen 3.5+ Non-thinking`,
 and `Qwen 3 VL`. Add a JSON object there with `name`, `handler`,
 `recommended_reasoning_mode`, and the sampling fields from `temperature` through
-`presence_penalty`, then restart ComfyUI. Selecting `Custom` enables the Advanced handler and
-six sampling inputs; switching back to a named profile preserves those custom widget values
-without applying them. The built-in values are:
+`presence_penalty`, then restart ComfyUI. Selecting `Custom` enables six Advanced sampling
+inputs and uses the `auto` handler; switching back to a named profile preserves those custom
+widget values without applying them. The built-in values are:
 
 | Profile | temperature | top_p | top_k | min_p | presence_penalty | repeat_penalty | reasoning mode |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
@@ -269,12 +271,30 @@ without applying them. The built-in values are:
 The Qwen 3 VL card does not prescribe `min_p`; its profile uses `0.0` so no additional
 minimum-probability filter is imposed. `presence_penalty` is forwarded directly to
 the targeted JamePeng llama-cpp-python fork as its API spelling `present_penalty`.
-Hardware Runtime Profile is fixed to `Custom`. It exposes `n_batch` and `n_ubatch` as regular
-inputs; GPU offload, main GPU, CPU threads, flash attention, and mmap remain under Advanced.
-Its defaults match Automatic Offload (`n_batch=512`, `n_ubatch=0`, automatic GPU layer selection,
-main GPU 0, automatic CPU threads and flash attention, mmap enabled). When disconnected, Compact
-Generate still uses Automatic Offload. `n_batch=0` is accepted and passed through to llama.cpp;
-`n_ubatch=0` means that no explicit override is sent.
+
+`[llama.cpp] Hardware Runtime Profile` controls GPU offload, K/V cache types, main GPU,
+CPU threads, flash attention, and mmap. Its default K/V types are `FP16`; each can be
+set independently to `FP16`, `Q8_0`, or `Q4_0`. A disconnected hardware profile uses
+automatic GPU layer selection, main GPU 0, automatic CPU threads and flash attention,
+and mmap enabled.
+
+`[llama.cpp] Prefill Profile` carries `n_batch`, `n_ubatch`, `image_min_tokens`, and
+`image_max_tokens` into Compact Generate and Create Session nodes. `Custom` is selected
+by default and keeps the existing values: `n_batch=512`, `n_ubatch=0`, and zero image-token
+limits. Named choices ignore the numeric widgets:
+
+| Profile | n_batch | n_ubatch | image_min_tokens | image_max_tokens |
+| --- | ---: | ---: | ---: | ---: |
+| Gemma4 Medium | 1024 | 768 | 280 | 560 |
+| Gemma4 High | 1536 | 1280 | 560 | 1120 |
+| Qwen3.8 Medium | 2048 | 1024 | 1024 | 2048 |
+| Qwen3.8 High | 4096 | 1024 | 1024 | 4096 |
+
+`n_batch=0` is accepted and passed through to llama.cpp; `n_ubatch=0` and zero image-token
+limits omit their respective overrides. Context size remains a direct `n_ctx` input on
+Generate and Create Session nodes. Native Generate still requires explicit image-token
+limits to fit `n_ctx` and `n_batch`. Its extra `image_max_tokens` to effective `n_ubatch`
+check applies only when the selected Model Profile handler is `gemma4`.
 
 Thinking / Reasoning Profile has exactly `reasoning_mode`, `reasoning_effort`, and
 `max_reasoning_tokens`. `auto` or a disconnected socket leaves chat-template reasoning
@@ -284,11 +304,12 @@ loading. `off` explicitly disables reasoning; `on` applies effort and a positive
 budget. `max_reasoning_tokens=0` omits the separate reasoning limit, but reasoning and the
 final answer still share Generate's `max_tokens` allowance.
 
-Compact Generate keeps `n_ctx`, `max_tokens`, `image_min_tokens`, and `image_max_tokens`
-visible because these are request budgets. A value of `0` for either image-token setting
-leaves that mmproj/handler default untouched; a positive value enables the explicit override.
-For Qwen-VL grounding tasks, set `image_min_tokens=1024`. Explicit image-token limits must
-fit within `n_ctx`, `n_batch`, and the effective `n_ubatch`. Reasoning effort, context,
+Compact Generate keeps `n_ctx` and `max_tokens` visible. Connect a Prefill Profile to set
+batch sizes and image-token limits. A zero image-token limit leaves the mmproj/handler
+default untouched; a positive value enables the explicit override. For Qwen-VL grounding
+tasks, set `image_min_tokens=1024`. For native Generate, explicit image-token limits must
+fit within `n_ctx` and `n_batch`; the `image_max_tokens` limit must also fit the effective
+`n_ubatch` for the `gemma4` handler. Reasoning effort, context,
 and output length remain user-selected even when a Qwen 3.5+ profile supplies its mode.
 
 Native Speculative Profile choices are `Off`, `External MTP`, `Internal MTP`, `DFlash`,
@@ -454,7 +475,7 @@ Connect Media Diagnostics first. Check the handler's Vision/Audio/Video capabili
 
 ### Native batch assertion or image token error
 
-Use a Gemma 4 Runtime Preset or ensure that explicit `image_min_tokens` and `image_max_tokens` values are no larger than `n_batch` and the effective `n_ubatch`. Increase `n_ctx` when the total media tokens plus requested output exceed the context window; increasing context alone does not repair a mismatched model, projector, or template.
+Ensure that explicit image-token limits fit within `n_ctx` and `n_batch`. The native path requires `image_min_tokens` to fit the effective `n_ubatch`; it applies the same check to `image_max_tokens` only when the selected Model Profile handler is `gemma4`. Increase `n_ctx` when the total media tokens plus requested output exceed the context window; increasing context alone does not repair a mismatched model, projector, or template.
 
 ### VIDEO fails before generation
 

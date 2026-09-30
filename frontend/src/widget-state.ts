@@ -35,13 +35,18 @@ export const COMPACT_HARDWARE_WIDGETS = [
   "use_mmap",
 ]
 export const COMPACT_MODEL_CUSTOM_WIDGETS = [
-  "custom_handler",
   "temperature",
   "top_p",
   "top_k",
   "min_p",
   "repeat_penalty",
   "presence_penalty",
+]
+export const PREFILL_CUSTOM_WIDGETS = [
+  "n_batch",
+  "n_ubatch",
+  "image_min_tokens",
+  "image_max_tokens",
 ]
 
 export function isInputConnected(node: ComfyNodeLike, name: string): boolean {
@@ -92,6 +97,14 @@ export function updateCompactModelProfileWidgets(node: ComfyNodeLike): void {
   setWidgetsDisabled(
     node,
     COMPACT_MODEL_CUSTOM_WIDGETS,
+    getWidget(node, "profile")?.value !== "Custom",
+  )
+}
+
+export function updatePrefillProfileWidgets(node: ComfyNodeLike): void {
+  setWidgetsDisabled(
+    node,
+    PREFILL_CUSTOM_WIDGETS,
     getWidget(node, "profile")?.value !== "Custom",
   )
 }

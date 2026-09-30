@@ -218,6 +218,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppNGramSpeculativePreset",
         "OllamaImageList_LlamaCppModelProfile",
         "OllamaImageList_LlamaCppHardwareRuntimeProfile",
+        "OllamaImageList_LlamaCppPrefillProfile",
         "OllamaImageList_LlamaCppReasoningConfig",
         "OllamaImageList_LlamaCppNGramSpeculativeConfig",
         "OllamaImageList_LlamaCppNativeSpeculativeConfig",
@@ -247,6 +248,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "[llama.cpp] N-gram Speculative Preset",
         "[llama.cpp] Model Profile",
         "[llama.cpp] Hardware Runtime Profile",
+        "[llama.cpp] Prefill Profile",
         "[llama.cpp] Thinking / Reasoning Profile",
         "[llama.cpp] N-gram Speculative Config",
         "[llama.cpp] Native Speculative Profile",
@@ -274,6 +276,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "llama_cpp/legacy",
         "llama_cpp/legacy",
         "llama_cpp/legacy",
+        "llama_cpp/profile",
         "llama_cpp/profile",
         "llama_cpp/profile",
         "llama_cpp/profile",
@@ -730,7 +733,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     ]
     assert [field.name for field in compact_profile_schema.inputs] == [
         "profile",
-        "custom_handler",
         "temperature",
         "top_p",
         "top_k",
@@ -801,10 +803,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     assert qwen3_vl_profile["min_p"] == 0.0
     assert qwen3_vl_profile["presence_penalty"] == 1.5
     custom_model_profile = compact_profile_class.execute(
-        "Custom", "qwen3_vl", 0.7, 0.8, 20, 0.1, 1.1, 1.25
+        "Custom", 0.7, 0.8, 20, 0.1, 1.1, 1.25
     )[0]
     assert custom_model_profile == {
-        "handler": "qwen3_vl",
+        "handler": "auto",
         "recommended_reasoning_mode": "auto",
         "temperature": 0.7,
         "top_p": 0.8,
@@ -818,38 +820,95 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OllamaImageList_LlamaCppHardwareRuntimeProfile"
     ]
     assert [field.name for field in hardware_schema.inputs] == [
-        "profile",
-        "n_batch",
-        "n_ubatch",
         "gpu_layers",
+        "type_k",
+        "type_v",
         "main_gpu",
         "n_threads",
         "flash_attention",
         "use_mmap",
     ]
-    assert hardware_schema.inputs[0].options["options"] == ["Custom"]
-    assert hardware_schema.inputs[0].options["default"] == "Custom"
-    assert hardware_schema.inputs[3].options["default"] == "auto"
+    assert hardware_schema.inputs[0].options["default"] == "auto"
+    assert hardware_schema.inputs[1].options["options"] == ["FP16", "Q8_0", "Q4_0"]
+    assert hardware_schema.inputs[2].options["options"] == ["FP16", "Q8_0", "Q4_0"]
     assert hardware_schema.outputs[0].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
     )
     manual_hardware_profile = hardware_class.execute(
-        "GPU Full Offload", 1, 1, "cpu", 3, 8, "disabled", False
+        "cpu", "FP16", "FP16", 3, 8, "disabled", False
     )[0]
     assert manual_hardware_profile == {
-        "n_batch": 1,
-        "n_ubatch": 1,
         "gpu_layers": "cpu",
+        "type_k": "FP16",
+        "type_v": "FP16",
         "main_gpu": 3,
         "n_threads": 8,
         "flash_attention": "disabled",
         "use_mmap": False,
     }
     custom_hardware_profile = hardware_class.execute(
-        "Custom", 2048, 1024, "auto", 1, 12, "enabled", False
+        "auto", "Q8_0", "Q4_0", 1, 12, "enabled", False
     )[0]
-    assert custom_hardware_profile["n_batch"] == 2048
-    assert custom_hardware_profile["n_ubatch"] == 1024
+    assert custom_hardware_profile["type_k"] == "Q8_0"
+    assert custom_hardware_profile["type_v"] == "Q4_0"
+
+    prefill_class, prefill_schema = registered[
+        "OllamaImageList_LlamaCppPrefillProfile"
+    ]
+    assert [field.name for field in prefill_schema.inputs] == [
+        "profile",
+        "n_batch",
+        "n_ubatch",
+        "image_min_tokens",
+        "image_max_tokens",
+    ]
+    assert prefill_schema.inputs[0].options["options"] == [
+        "Custom",
+        "Gemma4 Medium",
+        "Gemma4 High",
+        "Qwen3.8 Medium",
+        "Qwen3.8 High",
+    ]
+    assert prefill_schema.inputs[0].options["default"] == "Custom"
+    assert prefill_schema.inputs[1].options["default"] == 512
+    assert prefill_schema.inputs[2].options["default"] == 0
+    assert prefill_schema.outputs[0].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE"
+    )
+    assert prefill_class.execute("Custom", 512, 0, 0, 0)[0] == {
+        "n_batch": 512,
+        "n_ubatch": 0,
+        "image_min_tokens": 0,
+        "image_max_tokens": 0,
+    }
+    with pytest.raises(InputNormalizationError, match="n_ubatch cannot exceed n_batch"):
+        prefill_class.execute("Custom", 512, 513, 0, 0)
+    default_prefill_profile = prefill_class.execute("Custom", 512, 0, 0, 0)[0]
+    vision_prefill_profile = prefill_class.execute("Custom", 2048, 1024, 768, 768)[0]
+    assert prefill_class.execute("Gemma4 Medium", 0, 0, 0, 0)[0] == {
+        "n_batch": 1024,
+        "n_ubatch": 768,
+        "image_min_tokens": 280,
+        "image_max_tokens": 560,
+    }
+    assert prefill_class.execute("Gemma4 High", 0, 0, 0, 0)[0] == {
+        "n_batch": 1536,
+        "n_ubatch": 1280,
+        "image_min_tokens": 560,
+        "image_max_tokens": 1120,
+    }
+    assert prefill_class.execute("Qwen3.8 Medium", 0, 0, 0, 0)[0] == {
+        "n_batch": 2048,
+        "n_ubatch": 1024,
+        "image_min_tokens": 1024,
+        "image_max_tokens": 2048,
+    }
+    assert prefill_class.execute("Qwen3.8 High", 0, 0, 0, 0)[0] == {
+        "n_batch": 4096,
+        "n_ubatch": 1024,
+        "image_min_tokens": 1024,
+        "image_max_tokens": 4096,
+    }
 
     reasoning_class, reasoning_schema = registered[
         "OllamaImageList_LlamaCppReasoningConfig"
@@ -1054,11 +1113,11 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "hardware_profile",
         "reasoning",
         "speculative",
+        "prefill_profile",
         "system",
         "prompt",
         "n_ctx",
         "max_tokens",
-        "image_max_tokens",
         "seed",
         "stop",
         "images",
@@ -1066,7 +1125,6 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "video",
         "video_with_audio",
         "verbose",
-        "image_min_tokens",
     ]
     assert compact_inputs["model_profile"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_MODEL_PROFILE"
@@ -1075,8 +1133,10 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_HARDWARE_RUNTIME_PROFILE"
     )
     assert compact_inputs["hardware_profile"].options["optional"] is True
-    assert compact_inputs["image_min_tokens"].options["default"] == 0
-    assert compact_inputs["image_max_tokens"].options["default"] == 0
+    assert compact_inputs["prefill_profile"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE"
+    )
+    assert compact_inputs["n_ctx"].options["default"] == 8_192
     assert compact_inputs["reasoning"].data_type == (
         "OLLAMA_IMAGE_LIST_LLAMA_CPP_REASONING_CONFIG"
     )
@@ -1098,13 +1158,13 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "model_path",
         "mmproj_path",
         "model_profile",
+        "custom_handler",
         "custom_chat_template",
         "hardware_profile",
         "reasoning",
         "speculative",
+        "prefill_profile",
         "n_ctx",
-        "image_min_tokens",
-        "image_max_tokens",
         "verbose",
     ]
     assert create_session_schema.outputs[0].data_type == (
@@ -1127,15 +1187,18 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         "hardware_profile",
         "reasoning",
         "speculative",
+        "prefill_profile",
         "n_ctx",
-        "image_min_tokens",
-        "image_max_tokens",
         "verbose",
     ]
     runtime_session_inputs = {
         field.name: field for field in create_runtime_session_schema.inputs
     }
     assert runtime_session_inputs["hardware_profile"].options["optional"] is True
+    assert runtime_session_inputs["prefill_profile"].data_type == (
+        "OLLAMA_IMAGE_LIST_LLAMA_CPP_PREFILL_PROFILE"
+    )
+    assert runtime_session_inputs["n_ctx"].options["default"] == 8_192
     assert runtime_session_inputs["reasoning"].options["optional"] is True
     assert runtime_session_inputs["speculative"].options["optional"] is True
     assert [field.name for field in create_runtime_session_schema.outputs] == [
@@ -1510,6 +1573,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         mmproj_path=["[none]"],
         model_profile=[muse_profile],
         hardware_profile=[custom_hardware_profile],
+        prefill_profile=[vision_prefill_profile],
         reasoning=[muse_reasoning],
         speculative=[compact_ngram_config],
     )
@@ -1520,6 +1584,8 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     )
     assert captured_session_configuration["n_batch"] == 2048
     assert captured_session_configuration["n_ubatch"] == 1024
+    assert captured_session_configuration["image_min_tokens"] == 768
+    assert captured_session_configuration["image_max_tokens"] == 768
     assert captured_session_configuration["reasoning_budget"] == 1024
     assert captured_session_configuration["temperature"] == 1.0
     assert captured_session_configuration["ngram_speculative"] == ngram_configuration
@@ -1546,6 +1612,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
     default_session_values.pop("hardware_profile")
     default_session_values.pop("reasoning")
     default_session_values.pop("speculative")
+    default_session_values["prefill_profile"] = [default_prefill_profile]
     captured_session_configuration.clear()
     create_session_class.execute(**default_session_values)
     assert captured_session_configuration["n_batch"] == 512
@@ -1580,6 +1647,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         model_path=["external/model-a.gguf"],
         mmproj_path=["[none]"],
         model_profile=[muse_profile],
+        prefill_profile=[default_prefill_profile],
         max_tokens=[4096],
         reasoning=[muse_reasoning],
     )
@@ -1614,8 +1682,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         model_profile=[muse_profile],
         n_ctx=[32768],
         max_tokens=[4096],
-        image_min_tokens=[0],
-        image_max_tokens=[0],
+        prefill_profile=[default_prefill_profile],
         reasoning=[muse_reasoning],
         speculative=[compact_ngram_config],
     )
@@ -1723,8 +1790,7 @@ def test_extension_registers_v3_node_schemas_and_models_route(monkeypatch):
         mmproj_path=["[none]"],
         model_profile=[muse_profile],
         hardware_profile=[custom_hardware_profile],
-        image_min_tokens=[768],
-        image_max_tokens=[768],
+        prefill_profile=[vision_prefill_profile],
         speculative=[dflash_config],
     )
     monkeypatch.setattr(
@@ -2152,9 +2218,9 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
         "repeat_penalty": 1.17,
     }
     hardware_profile = {
-        "n_batch": 1024,
-        "n_ubatch": 512,
         "gpu_layers": "cpu",
+        "type_k": "Q8_0",
+        "type_v": "Q4_0",
         "main_gpu": 2,
         "n_threads": 7,
         "flash_attention": "disabled",
@@ -2166,6 +2232,14 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
         "model_profile": [model_profile],
         "custom_chat_template": ["{% custom template %}"],
         "hardware_profile": [hardware_profile],
+        "prefill_profile": [
+            {
+                "n_batch": 1024,
+                "n_ubatch": 512,
+                "image_min_tokens": 64,
+                "image_max_tokens": 128,
+            }
+        ],
         "reasoning": [
             {
                 "reasoning_mode": "on",
@@ -2175,8 +2249,6 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
             }
         ],
         "n_ctx": [4096],
-        "image_min_tokens": [64],
-        "image_max_tokens": [128],
         "verbose": [True],
         "reasoning_preserve_supported": True,
     }
@@ -2219,6 +2291,8 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
     assert option_value(arguments, "--repeat-penalty") == "1.17"
     assert option_value(arguments, "--batch-size") == "1024"
     assert option_value(arguments, "--ubatch-size") == "512"
+    assert option_value(arguments, "--cache-type-k") == "q8_0"
+    assert option_value(arguments, "--cache-type-v") == "q4_0"
     assert option_value(arguments, "--gpu-layers") == "0"
     assert option_value(arguments, "--main-gpu") == "2"
     assert option_value(arguments, "--flash-attn") == "off"
@@ -2252,8 +2326,14 @@ def test_runtime_session_server_arguments_convert_profiles_without_native_api(
                 "preserve_thinking": False,
             }
         ],
-        "image_min_tokens": [0],
-        "image_max_tokens": [0],
+        "prefill_profile": [
+            {
+                "n_batch": 512,
+                "n_ubatch": 0,
+                "image_min_tokens": 0,
+                "image_max_tokens": 0,
+            }
+        ],
         "verbose": [False],
         "reasoning_preserve_supported": False,
         "speculative": [{"kind": "off"}],
@@ -2391,9 +2471,15 @@ def test_runtime_session_custom_template_is_removed_on_close_and_start_failure(
         "hardware_profile": None,
         "reasoning": None,
         "speculative": None,
+        "prefill_profile": [
+            {
+                "n_batch": 512,
+                "n_ubatch": 0,
+                "image_min_tokens": 0,
+                "image_max_tokens": 0,
+            }
+        ],
         "n_ctx": [4096],
-        "image_min_tokens": [0],
-        "image_max_tokens": [0],
         "verbose": [False],
     }
     node_class = session_module.LlamaCppCreateRuntimeSessionNode

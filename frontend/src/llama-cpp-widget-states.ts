@@ -9,6 +9,7 @@ import {
   updateGenerateWidgets,
   updateNativeSpeculativeConfigWidgets,
   updateNgramPresetWidgets,
+  updatePrefillProfileWidgets,
   updateReasoningConfigWidgets,
   updateSpeculativeGenerateWidgets,
 } from "./widget-state.ts"
@@ -17,6 +18,7 @@ const NGRAM_PRESET_CLASS = "OllamaImageList_LlamaCppNGramSpeculativePreset"
 const COMPACT_NGRAM_CONFIG_CLASS = "OllamaImageList_LlamaCppNGramSpeculativeConfig"
 const COMPACT_MODEL_PROFILE_CLASS = "OllamaImageList_LlamaCppModelProfile"
 const COMPACT_HARDWARE_PROFILE_CLASS = "OllamaImageList_LlamaCppHardwareRuntimeProfile"
+const PREFILL_PROFILE_CLASS = "OllamaImageList_LlamaCppPrefillProfile"
 const REASONING_CONFIG_CLASS = "OllamaImageList_LlamaCppReasoningConfig"
 const NATIVE_SPECULATIVE_CONFIG_CLASS = "OllamaImageList_LlamaCppNativeSpeculativeConfig"
 const GENERATE_CLASS = "OllamaImageList_LlamaCppGenerate"
@@ -27,6 +29,7 @@ const HANDLED_CLASSES = new Set([
   COMPACT_NGRAM_CONFIG_CLASS,
   COMPACT_MODEL_PROFILE_CLASS,
   COMPACT_HARDWARE_PROFILE_CLASS,
+  PREFILL_PROFILE_CLASS,
   REASONING_CONFIG_CLASS,
   NATIVE_SPECULATIVE_CONFIG_CLASS,
   GENERATE_CLASS,
@@ -83,6 +86,8 @@ function initializeNode(node: ComfyNodeLike, className: string): void {
     initializeDeferred(node, "profile", updateCompactModelProfileWidgets)
   } else if (className === COMPACT_HARDWARE_PROFILE_CLASS) {
     initializeDeferred(node, "profile", updateCompactHardwareProfileWidgets)
+  } else if (className === PREFILL_PROFILE_CLASS) {
+    initializeDeferred(node, "profile", updatePrefillProfileWidgets)
   } else if (className === REASONING_CONFIG_CLASS) {
     initializeDeferred(node, "reasoning_mode", updateReasoningConfigWidgets)
   } else if (className === NATIVE_SPECULATIVE_CONFIG_CLASS) {

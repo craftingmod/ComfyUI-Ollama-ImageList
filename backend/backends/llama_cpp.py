@@ -34,6 +34,7 @@ _HANDLER_CLASSES = {
     "qwen35": "Qwen35ChatHandler",
 }
 _FLASH_ATTN_TYPES = {"auto": -1, "disabled": 0, "enabled": 1}
+_KV_CACHE_TYPE_IDS = {"FP16": 1, "Q8_0": 8, "Q4_0": 2}
 _SPECULATIVE_TYPES = {"draft-dflash", "draft-dspark"}
 _MTP_PROVIDERS = {"off", "external", "internal"}
 _DEFAULT_N_UBATCH = 512
@@ -53,6 +54,15 @@ def _fork_install_hint() -> str:
         f"Installation guide: {_VISION_INSTALL_GUIDE_URL}\n"
         f"Prebuilt wheels: {_JAMEPENG_RELEASES_URL}"
     )
+
+
+def _kv_cache_type_id(name: str, value: str) -> int:
+    try:
+        return _KV_CACHE_TYPE_IDS[value]
+    except (KeyError, TypeError) as exc:
+        raise InputNormalizationError(
+            f"{name} must be FP16, Q8_0, or Q4_0."
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,6 +540,8 @@ class LlamaCppSession:
             n_threads=int(configuration.get("n_threads", 0)),
             flash_attention=flash_attention,
             use_mmap=bool(configuration.get("use_mmap", True)),
+            type_k=str(configuration.get("type_k", "FP16")),
+            type_v=str(configuration.get("type_v", "FP16")),
             n_ubatch_override=n_ubatch_override,
             image_min_tokens_override=image_min_tokens_override,
             image_max_tokens_override=image_max_tokens_override,
@@ -1167,6 +1179,8 @@ def _native_model_kwargs(
     n_threads: int,
     flash_attention: str,
     use_mmap: bool,
+    type_k: str,
+    type_v: str,
     n_ubatch_override: int | None,
     image_min_tokens_override: int | None,
     image_max_tokens_override: int | None,
@@ -1184,6 +1198,8 @@ def _native_model_kwargs(
         "n_threads": None if int(n_threads) <= 0 else int(n_threads),
         "flash_attn_type": _FLASH_ATTN_TYPES[flash_attention],
         "use_mmap": bool(use_mmap),
+        "type_k": _kv_cache_type_id("type_k", type_k),
+        "type_v": _kv_cache_type_id("type_v", type_v),
         "verbose": bool(verbose),
     }
     if n_ubatch_override is not None:
@@ -1328,6 +1344,7 @@ def _reasoning_budget_arguments(
 
 def _validate_multimodal_batch_settings(
     *,
+    handler: str,
     media: MediaBundle,
     n_ctx: int,
     n_batch: int,
@@ -1370,7 +1387,9 @@ def _validate_multimodal_batch_settings(
     effective_n_ubatch = n_ubatch
     if effective_n_ubatch is None:
         effective_n_ubatch = min(n_ctx, n_batch, _DEFAULT_N_UBATCH)
-    if image_token_limit > effective_n_ubatch:
+    if image_token_limit > effective_n_ubatch and (
+        image_token_limit_name != "image_max_tokens" or handler == "gemma4"
+    ):
         raise InputNormalizationError(
             f"The effective n_ubatch must be at least {image_token_limit_name} for an image or video "
             "request. Enable the n_ubatch override and raise its value to avoid a native "
@@ -1511,6 +1530,8 @@ def run_chat(
     n_threads: int = 0,
     flash_attention: str = "auto",
     use_mmap: bool = True,
+    type_k: str = "FP16",
+    type_v: str = "FP16",
     max_tokens: int = 512,
     thinking: bool | None = False,
     reasoning_strength: str = "auto",
@@ -1616,6 +1637,7 @@ def run_chat(
         "image_max_tokens", override_image_max_tokens, image_max_tokens
     )
     _validate_multimodal_batch_settings(
+        handler=handler,
         media=media,
         n_ctx=int(n_ctx),
         n_batch=int(n_batch),
@@ -1668,6 +1690,8 @@ def run_chat(
                 n_threads=n_threads,
                 flash_attention=flash_attention,
                 use_mmap=use_mmap,
+                type_k=type_k,
+                type_v=type_v,
                 n_ubatch_override=n_ubatch_override,
                 image_min_tokens_override=image_min_tokens_override,
                 image_max_tokens_override=image_max_tokens_override,

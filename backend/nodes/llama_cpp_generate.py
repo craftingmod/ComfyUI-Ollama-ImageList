@@ -384,8 +384,8 @@ class LlamaCppImageListGenerateNode(io.ComfyNode):
                     advanced=True,
                     tooltip=(
                         "Per-image or per-video-frame token ceiling used only when its "
-                        "override is enabled. n_batch and effective n_ubatch must be at least "
-                        "this value."
+                        "override is enabled. n_batch must cover this value; the native "
+                        "effective n_ubatch check applies when the selected handler is gemma4."
                     ),
                 ),
                 io.Int.Input(
