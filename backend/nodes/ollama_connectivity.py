@@ -41,7 +41,7 @@ class OllamaImageListConnectivityNode(io.ComfyNode):
                 ),
             ],
             outputs=[
-                io.String.Output("url", display_name="URL"),
+                io.String.Output("url", display_name="url"),
                 io.String.Output("model", display_name="model"),
             ],
         )

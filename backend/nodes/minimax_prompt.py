@@ -84,7 +84,7 @@ class MiniMaxSystemPromptPresetNode(io.ComfyNode):
             outputs=[
                 io.String.Output(
                     "system_prompt",
-                    display_name="system prompt",
+                    display_name="system_prompt",
                     tooltip="Connect to a Generate node's system input.",
                 ),
             ],

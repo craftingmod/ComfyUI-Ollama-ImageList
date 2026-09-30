@@ -99,25 +99,25 @@ class LlamaCppMediaDiagnosticsNode(io.ComfyNode):
             outputs=[
                 io.Boolean.Output(
                     "all_media_evaluated",
-                    display_name="All Media Evaluated",
+                    display_name="all_media_evaluated",
                 ),
                 io.Boolean.Output(
                     "vision_available",
-                    display_name="Vision Available",
+                    display_name="vision_available",
                 ),
                 io.Boolean.Output(
                     "audio_available",
-                    display_name="Audio Available",
+                    display_name="audio_available",
                 ),
                 io.Boolean.Output(
                     "video_available",
-                    display_name="Video Available",
+                    display_name="video_available",
                 ),
-                io.Int.Output("audio_count", display_name="AUDIO_COUNT"),
-                io.Int.Output("image_count", display_name="IMAGE_COUNT"),
-                io.Int.Output("video_count", display_name="VIDEO_COUNT"),
-                io.String.Output("json", display_name="JSON"),
-                io.String.Output("formatted_text", display_name="FormattedText"),
+                io.Int.Output("audio_count", display_name="audio_count"),
+                io.Int.Output("image_count", display_name="image_count"),
+                io.Int.Output("video_count", display_name="video_count"),
+                io.String.Output("json", display_name="json"),
+                io.String.Output("formatted_text", display_name="formatted_text"),
             ],
         )
 

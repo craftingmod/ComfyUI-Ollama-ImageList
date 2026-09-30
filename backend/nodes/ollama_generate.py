@@ -138,9 +138,11 @@ class OllamaImageListGenerateNode(io.ComfyNode):
             outputs=[
                 io.String.Output("response", display_name="response"),
                 io.String.Output("thinking", display_name="thinking"),
-                io.String.Output("raw_json", display_name="raw JSON"),
+                io.String.Output("raw_json", display_name="raw_json"),
                 io.String.Output("metrics_json", display_name="metrics"),
-                io.String.Output("image_manifest_json", display_name="image manifest"),
+                io.String.Output(
+                    "image_manifest_json", display_name="image_manifest_json"
+                ),
             ],
         )
 

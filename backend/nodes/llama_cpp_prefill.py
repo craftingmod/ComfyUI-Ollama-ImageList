@@ -115,7 +115,7 @@ class LlamaCppPrefillProfileNode(io.ComfyNode):
             ],
             outputs=[
                 LlamaCppPrefillProfileType.Output(
-                    "prefill_profile", display_name="prefill profile"
+                    "prefill_profile", display_name="prefill_profile"
                 ),
             ],
         )

@@ -121,7 +121,7 @@ class LlamaCppDecideSessionNode(io.ComfyNode):
             outputs=[
                 io.String.Output("selected"),
                 io.String.Output(
-                    "probabilities_json", display_name="probabilities JSON"
+                    "probabilities_json", display_name="probabilities_json"
                 ),
                 LlamaCppSessionType.Output("session", display_name="session"),
             ],

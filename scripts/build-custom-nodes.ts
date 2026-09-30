@@ -3,6 +3,7 @@ import Path from "node:path"
 
 import { $ } from "bun"
 import { zipSync } from "fflate"
+
 import { getProjectVersion } from "./project-version.ts"
 
 type ComfyConfig = {

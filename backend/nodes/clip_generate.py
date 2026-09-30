@@ -293,7 +293,7 @@ class ClipImageListGenerateNode(io.ComfyNode):
                 io.DynamicCombo.Input(
                     "sampling_mode",
                     options=sampling_options,
-                    display_name="Sampling Mode",
+                    display_name="sampling_mode",
                 ),
                 io.Boolean.Input(
                     "thinking",

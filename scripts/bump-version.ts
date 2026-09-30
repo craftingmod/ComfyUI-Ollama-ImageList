@@ -1,6 +1,7 @@
 import Path from "node:path"
 
 import { $ } from "bun"
+
 import { getProjectVersion } from "./project-version.ts"
 
 const projectDir = Path.resolve(import.meta.dir, "../")
@@ -29,5 +30,7 @@ if (wasClean) {
   console.log(`Push tag using commands:\ngit push origin ${tagName}`)
 } else {
   console.log("Skipped creating a tag because the working tree is dirty.")
-  console.log(`Commit the intended changes, then run:\ngit tag ${tagName}\ngit push origin ${tagName}`)
+  console.log(
+    `Commit the intended changes, then run:\ngit tag ${tagName}\ngit push origin ${tagName}`,
+  )
 }

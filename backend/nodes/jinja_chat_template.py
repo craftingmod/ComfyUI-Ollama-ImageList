@@ -74,7 +74,7 @@ class JinjaChatTemplatePresetNode(io.ComfyNode):
             outputs=[
                 io.String.Output(
                     "chat_template",
-                    display_name="chat template",
+                    display_name="chat_template",
                     tooltip=(
                         "Connect to [llama.cpp] Create Native Session or Create Runtime "
                         "Session's custom_chat_template input."

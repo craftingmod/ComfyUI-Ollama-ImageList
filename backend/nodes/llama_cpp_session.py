@@ -98,14 +98,14 @@ def _session_generate_outputs(*, is_output_list: bool = False) -> list[Any]:
             "thinking", display_name="thinking", is_output_list=is_output_list
         ),
         io.String.Output(
-            "raw_json", display_name="raw JSON", is_output_list=is_output_list
+            "raw_json", display_name="raw_json", is_output_list=is_output_list
         ),
         io.String.Output(
             "metrics_json", display_name="metrics", is_output_list=is_output_list
         ),
         LlamaCppMediaDiagnosticsType.Output(
             "media_diagnostics",
-            display_name="media diagnostics",
+            display_name="media_diagnostics",
             is_output_list=is_output_list,
         ),
     ]
@@ -389,7 +389,7 @@ class LlamaCppConnectSessionNode(io.ComfyNode):
                 ),
                 io.String.Input(
                     "api_key",
-                    display_name="API Key",
+                    display_name="api_key",
                     default="",
                     tooltip="Optional API key for the configured llama.cpp server.",
                 ),
