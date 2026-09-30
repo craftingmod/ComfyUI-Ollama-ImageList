@@ -18,7 +18,6 @@
   "scripts": {
     "build": "bun typecheck && bun frontend/build.ts",
     "build:custom-node": "bun scripts/build-custom-nodes.ts",
-    "build:css-type": "bun scripts/create-modulecss-types.ts",
     "dev": "bun typecheck && bun frontend/dev.ts",
     "fmt": "oxfmt && bun fmt:backend",
     "fmt:check": "oxfmt --check && bun fmt:backend --check",

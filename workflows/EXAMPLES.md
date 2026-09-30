@@ -1,34 +1,40 @@
 # Examples
-This document contains example workflows for beginner.
 
-### Used model
-[unsloth/gemma-4-E4B-it-qat-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF) with Multimodal vision, MTP support
+Example workflows to help you get started.
 
-### Required steps
-If llama.cpp's `llama` executable exists on `PATH`, no additional step is needed.
+## Model
 
-If you dont' have any `llama` executable, you could download runtime from `Settings - llama-multimodal - Download llama.cpp`.
+These workflows use [unsloth/gemma-4-E4B-it-qat-GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF). The Text Generation and Vision examples also use an external MTP model.
+
+## Before running
+
+1. If `llama` is not on your `PATH`, download the runtime from Settings → llama-multimodal → Download llama.cpp.
+2. Place the model GGUF files in `ComfyUI/models/LLM`. The Vision and Choice examples also need the matching multimodal projector (`mmproj`).
+3. Open a workflow in ComfyUI and select your local files in `model_path` and `mmproj_path`. For Text Generation, leave `mmproj_path` set to `[none]`.
+4. For Text Generation and Vision, select the MTP file in `speculative_model`, or set `speculative_profile` to `Off` to run without it.
+
+Replace the example images and audio with your own files before running the media workflows. Supported media types depend on the selected model.
 
 ## Text Generation
 
-![text workflow](./llamacpp_text.avif)
+![Text workflow](./llamacpp_text.avif)
 
- * [Workflow](./llamacpp_text.json)
+[Download workflow](./llamacpp_text.json)
 
-Input text prompt to generate text.
+Generate text from a prompt. Edit `system` to set the instructions and `prompt` to enter your request. The response appears in the Result node.
 
 ## Vision
 
-![vision workflow](./llamacpp_vision.avif)
+![Vision workflow](./llamacpp_vision.avif)
 
- * [Workflow](./llamacpp_vision.json)
+[Download workflow](./llamacpp_vision.json)
 
-Input text prompt + media to generate vision text.
+Generate descriptions from multiple media inputs. This example sends two images and an audio clip through Sequential Generate and displays the responses in the Responses node.
 
 ## Choice (System-One)
 
-![choice workflow](./llamacpp_choice.avif)
+![Choice workflow](./llamacpp_choice.avif)
 
- * [Workflow](./llamacpp_choice.json)
+[Download workflow](./llamacpp_choice.json)
 
-Ask multiple questions to decide what answer should be positive.
+Compare candidate answers to questions about an image. This example asks whether the scene is day or night and whether water is present, then displays the selected answers and their probabilities.
