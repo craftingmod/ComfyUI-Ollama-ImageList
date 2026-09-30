@@ -1,0 +1,577 @@
+{
+  "revision": 0,
+  "last_node_id": "6",
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 6,
+      "type": "30295dc2-4416-4114-a67d-897ce10b9ed9",
+      "pos": [
+        -226.4217890859885,
+        1727.5332547845255
+      ],
+      "size": [
+        325.4031693449282,
+        221.99996826692256
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "question",
+          "name": "value",
+          "type": "STRING",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        },
+        {
+          "label": "answer1",
+          "name": "value_1",
+          "type": "STRING",
+          "widget": {
+            "name": "value_1"
+          },
+          "link": null
+        },
+        {
+          "label": "answer2",
+          "name": "value_2",
+          "type": "STRING",
+          "widget": {
+            "name": "value_2"
+          },
+          "link": null
+        },
+        {
+          "label": "answer3",
+          "name": "value_3",
+          "type": "STRING",
+          "widget": {
+            "name": "value_3"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "question",
+          "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION",
+          "links": null
+        }
+      ],
+      "title": "[llama.cpp] Create Question Preset",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.37.0",
+        "previewExposures": []
+      },
+      "widgets_values": [
+        "What is 2+2?",
+        "4",
+        "6",
+        "8"
+      ],
+      "widgets_values_named": {
+        "value": "What is 2+2?",
+        "value_1": "4",
+        "value_2": "6",
+        "value_3": "8"
+      }
+    }
+  ],
+  "links": [],
+  "version": 0.4,
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "30295dc2-4416-4114-a67d-897ce10b9ed9",
+        "version": 1,
+        "state": {
+          "lastGroupId": 0,
+          "lastNodeId": 7,
+          "lastLinkId": 11,
+          "lastRerouteId": 0
+        },
+        "revision": 0,
+        "config": {},
+        "name": "[llama.cpp] Create Question Preset",
+        "category": "llama_cpp",
+        "inputNode": {
+          "id": -10,
+          "bounding": [
+            -865.5410043856937,
+            1831.578400303113,
+            128,
+            128
+          ]
+        },
+        "outputNode": {
+          "id": -20,
+          "bounding": [
+            556.0624921874241,
+            1819.088966929999,
+            128,
+            68
+          ]
+        },
+        "inputs": [
+          {
+            "id": "41be722d-138a-4295-b193-4d3dd6664f60",
+            "name": "value",
+            "type": "STRING",
+            "linkIds": [
+              5
+            ],
+            "label": "question",
+            "pos": [
+              -761.5410043856937,
+              1855.578400303113
+            ]
+          },
+          {
+            "id": "bf947cc9-d068-4980-8d45-b6a5c746668e",
+            "name": "value_1",
+            "type": "STRING",
+            "linkIds": [
+              6
+            ],
+            "label": "answer1",
+            "pos": [
+              -761.5410043856937,
+              1875.578400303113
+            ]
+          },
+          {
+            "id": "43d1dbd8-88e3-453e-a306-de1437e86692",
+            "name": "value_2",
+            "type": "STRING",
+            "linkIds": [
+              7
+            ],
+            "label": "answer2",
+            "pos": [
+              -761.5410043856937,
+              1895.578400303113
+            ]
+          },
+          {
+            "id": "42ff3baa-fb11-40fd-b1b7-ba01164321b0",
+            "name": "value_3",
+            "type": "STRING",
+            "linkIds": [
+              11
+            ],
+            "label": "answer3",
+            "pos": [
+              -761.5410043856937,
+              1915.578400303113
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "873401bb-50c3-4097-97c8-cea2f7ee9b8a",
+            "name": "question",
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION",
+            "linkIds": [
+              8
+            ],
+            "pos": [
+              580.0624921874241,
+              1843.088966929999
+            ]
+          }
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": 1,
+            "type": "LlamaCppMtmd_CreateQuestionFromInput",
+            "pos": [
+              181.9864962057001,
+              1738.306658525369
+            ],
+            "size": [
+              299.8638671875,
+              46
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "question",
+                "name": "question",
+                "type": "STRING",
+                "link": 1
+              },
+              {
+                "localized_name": "answer",
+                "name": "answer",
+                "type": "STRING",
+                "link": 4
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "question",
+                "name": "question",
+                "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION",
+                "links": [
+                  8
+                ]
+              }
+            ],
+            "title": "Build Question",
+            "properties": {
+              "cnr_id": "ollama-image-list",
+              "ver": "a509f5602a7ed6606c96486f4ff13f7b156c1b8c",
+              "Node name for S&R": "LlamaCppMtmd_CreateQuestionFromInput"
+            }
+          },
+          {
+            "id": 2,
+            "type": "PrimitiveStringMultiline",
+            "pos": [
+              -622.8458289133829,
+              1623.0654313579505
+            ],
+            "size": [
+              400,
+              200
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "value",
+                "name": "value",
+                "type": "STRING",
+                "widget": {
+                  "name": "value"
+                },
+                "link": 5
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "STRING",
+                "name": "STRING",
+                "type": "STRING",
+                "links": [
+                  1
+                ]
+              }
+            ],
+            "title": "Question",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0",
+              "Node name for S&R": "PrimitiveStringMultiline"
+            },
+            "widgets_values": [
+              "What is 2+2?"
+            ],
+            "widgets_values_named": {
+              "value": "What is 2+2?"
+            }
+          },
+          {
+            "id": 3,
+            "type": "PrimitiveString",
+            "pos": [
+              -618.1910842182514,
+              1874.8778581086337
+            ],
+            "size": [
+              397.5453407589266,
+              93.99996663892695
+            ],
+            "flags": {},
+            "order": 3,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "value",
+                "name": "value",
+                "type": "STRING",
+                "widget": {
+                  "name": "value"
+                },
+                "link": 6
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "STRING",
+                "name": "STRING",
+                "type": "STRING",
+                "links": [
+                  2
+                ]
+              }
+            ],
+            "title": "Answer1",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0",
+              "Node name for S&R": "PrimitiveString"
+            },
+            "widgets_values": [
+              "4"
+            ],
+            "widgets_values_named": {
+              "value": "4"
+            }
+          },
+          {
+            "id": 4,
+            "type": "PrimitiveString",
+            "pos": [
+              -616.1638746857946,
+              2020.6459784060546
+            ],
+            "size": [
+              397.5453407589266,
+              93.99996663892695
+            ],
+            "flags": {},
+            "order": 4,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "value",
+                "name": "value",
+                "type": "STRING",
+                "widget": {
+                  "name": "value"
+                },
+                "link": 7
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "STRING",
+                "name": "STRING",
+                "type": "STRING",
+                "links": [
+                  3
+                ]
+              }
+            ],
+            "title": "Answer2",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0",
+              "Node name for S&R": "PrimitiveString"
+            },
+            "widgets_values": [
+              "6"
+            ],
+            "widgets_values_named": {
+              "value": "6"
+            }
+          },
+          {
+            "id": 5,
+            "type": "CreateList",
+            "pos": [
+              -130.9347695437501,
+              1938.9218965749178
+            ],
+            "size": [
+              140,
+              86
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "input0",
+                "name": "inputs.input0",
+                "type": "*",
+                "link": 2
+              },
+              {
+                "localized_name": "input1",
+                "name": "inputs.input1",
+                "shape": 7,
+                "type": "*",
+                "link": 3
+              },
+              {
+                "localized_name": "input2",
+                "name": "inputs.input2",
+                "shape": 7,
+                "type": "*",
+                "link": 9
+              },
+              {
+                "localized_name": "input3",
+                "name": "inputs.input3",
+                "shape": 7,
+                "type": "*",
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "list",
+                "name": "list",
+                "shape": 6,
+                "type": "*",
+                "links": [
+                  4
+                ]
+              }
+            ],
+            "title": "Answer list",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0",
+              "Node name for S&R": "CreateList"
+            }
+          },
+          {
+            "id": 7,
+            "type": "PrimitiveString",
+            "pos": [
+              -616.9596275354636,
+              2161.337507937722
+            ],
+            "size": [
+              397.5453407589266,
+              93.99996663892695
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "value",
+                "name": "value",
+                "type": "STRING",
+                "widget": {
+                  "name": "value"
+                },
+                "link": 11
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "STRING",
+                "name": "STRING",
+                "type": "STRING",
+                "links": [
+                  9
+                ]
+              }
+            ],
+            "title": "Answer3",
+            "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0",
+              "Node name for S&R": "PrimitiveString"
+            },
+            "widgets_values": [
+              "8"
+            ],
+            "widgets_values_named": {
+              "value": "8"
+            }
+          }
+        ],
+        "groups": [],
+        "links": [
+          {
+            "id": 1,
+            "origin_id": 2,
+            "origin_slot": 0,
+            "target_id": 1,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 4,
+            "origin_id": 5,
+            "origin_slot": 0,
+            "target_id": 1,
+            "target_slot": 1,
+            "type": "STRING"
+          },
+          {
+            "id": 5,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": 2,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 6,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": 3,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 7,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": 4,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 8,
+            "origin_id": 1,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 0,
+            "type": "OLLAMA_IMAGE_LIST_LLAMA_CPP_QUESTION"
+          },
+          {
+            "id": 2,
+            "origin_id": 3,
+            "origin_slot": 0,
+            "target_id": 5,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 3,
+            "origin_id": 4,
+            "origin_slot": 0,
+            "target_id": 5,
+            "target_slot": 1,
+            "type": "STRING"
+          },
+          {
+            "id": 9,
+            "origin_id": 7,
+            "origin_slot": 0,
+            "target_id": 5,
+            "target_slot": 2,
+            "type": "STRING"
+          },
+          {
+            "id": 11,
+            "origin_id": -10,
+            "origin_slot": 3,
+            "target_id": 7,
+            "target_slot": 0,
+            "type": "STRING"
+          }
+        ],
+        "extra": {}
+      }
+    ]
+  },
+  "extra": {}
+}
