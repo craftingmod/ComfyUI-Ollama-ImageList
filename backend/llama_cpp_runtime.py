@@ -250,6 +250,8 @@ def start_owned_llama_server(
         "localhost",
         "--models-max",
         "1",
+        "--parallel",
+        "1",
         *server_args,
     ]
     environment = _llama_child_environment(Path(executable), internal=internal)
@@ -1006,6 +1008,8 @@ def _start_locked(*, repair_model_dir: bool = True) -> None:
             "--models-dir",
             str(models_dir),
             "--models-max",
+            "1",
+            "--parallel",
             "1",
             "--ctx-size",
             str(_ctx_size),

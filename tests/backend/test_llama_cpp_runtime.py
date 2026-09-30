@@ -450,6 +450,8 @@ def test_owned_server_startup_failure_closes_only_its_supervisor(monkeypatch):
         "localhost",
         "--models-max",
         "1",
+        "--parallel",
+        "1",
         *server_args,
     ]
     assert options["stdin"] == subprocess.PIPE
