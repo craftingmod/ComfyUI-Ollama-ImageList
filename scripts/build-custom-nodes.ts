@@ -4,24 +4,16 @@ import Path from "node:path"
 import { $ } from "bun"
 import { zipSync } from "fflate"
 
-import { getProjectVersion, registryVersionSource } from "./project-version.ts"
+import { getProjectVersion, projectArchiveName, registryVersionSource } from "./project-version.ts"
 
 type ComfyConfig = {
-  project?: { name?: unknown }
-  tool?: { comfy?: { includes?: unknown } }
+  tool?: { comfy?: { DisplayName?: unknown; includes?: unknown } }
 }
 
 const projectDir = Path.resolve(import.meta.dir, "../")
 const outputDir = Path.join(projectDir, "build")
 
 $.cwd(projectDir)
-
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`Expected ${field} to be a non-empty string in pyproject.toml`)
-  }
-  return value.trim()
-}
 
 function normalizeArchivePath(filePath: string): string {
   const normalized = filePath.replaceAll("\\", "/").replace(/^\.\//, "")
@@ -89,8 +81,8 @@ async function gitFiles(): Promise<Set<string>> {
 const pyproject = Bun.TOML.parse(
   await fs.readFile(Path.join(projectDir, "pyproject.toml"), "utf8"),
 ) as ComfyConfig
-const projectName = requireString(pyproject.project?.name, "project.name")
 const version = await getProjectVersion(projectDir)
+const archiveName = projectArchiveName(pyproject.tool?.comfy?.DisplayName, version)
 await fs.writeFile(Path.join(projectDir, "backend", "_version.py"), registryVersionSource(version))
 const includesValue = pyproject.tool?.comfy?.includes ?? []
 if (!Array.isArray(includesValue) || includesValue.some((value) => typeof value !== "string")) {
@@ -125,7 +117,7 @@ const zip = zipSync(archiveFiles, {
   level: 9,
   mtime: new Date("1980-01-01T00:00:00.000Z"),
 })
-const outputPath = Path.join(outputDir, `${projectName}-${version}.zip`)
+const outputPath = Path.join(outputDir, archiveName)
 await fs.mkdir(outputDir, { recursive: true })
 await Bun.write(outputPath, zip)
 

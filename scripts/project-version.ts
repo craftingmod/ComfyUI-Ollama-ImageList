@@ -10,10 +10,25 @@ export async function getProjectVersion(projectDir: string): Promise<string> {
 }
 
 export function registryVersionSource(version: string): string {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(`Registry publishing requires a stable X.Y.Z version, got ${version}.`)
+  if (!/^\d+\.\d+\.\d+(?:[.+-][0-9A-Za-z]+)*$/.test(version)) {
+    throw new Error(`Expected an X.Y.Z version with an optional suffix, got ${version}.`)
   }
   return `__version__ = "${version}"\n`
+}
+
+export function projectArchiveName(displayName: unknown, version: string): string {
+  if (typeof displayName !== "string" || !displayName.trim()) {
+    throw new Error("Expected tool.comfy.DisplayName to be a non-empty string in pyproject.toml")
+  }
+  const name = displayName.trim()
+  if (
+    /[<>:"/\\|?*]/.test(name) ||
+    name.split("").some((character) => character.charCodeAt(0) < 32)
+  ) {
+    throw new Error("tool.comfy.DisplayName contains invalid filename characters")
+  }
+  registryVersionSource(version)
+  return `${name}-${version}.zip`
 }
 
 if (import.meta.main) {

@@ -3,8 +3,11 @@ import Path from "node:path"
 
 import { $ } from "bun"
 
+import { projectArchiveName } from "./project-version.ts"
+
 type ProjectConfig = {
   project?: { name?: unknown }
+  tool?: { comfy?: { DisplayName?: unknown } }
 }
 
 export type GitHubReleaseInfo = {
@@ -26,15 +29,13 @@ export function githubReleaseInfo(
 ): GitHubReleaseInfo {
   const pyproject = Bun.TOML.parse(pyprojectSource) as ProjectConfig
   const projectName = requireString(pyproject.project?.name, "project.name")
-  const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/.exec(
-    githubRefName,
-  )?.[1]
+  const version = /^v(\d+\.\d+\.\d+(?:[.+-][0-9A-Za-z]+)*)$/.exec(githubRefName)?.[1]
   if (!version) {
-    throw new Error(`Expected release tag vMAJOR.MINOR.PATCH, got ${githubRefName}.`)
+    throw new Error(`Expected release tag vX.Y.Z with an optional suffix, got ${githubRefName}.`)
   }
 
   return {
-    archivePath: `build/${projectName}-${version}.zip`,
+    archivePath: `build/${projectArchiveName(pyproject.tool?.comfy?.DisplayName, version)}`,
     projectName,
     version,
   }

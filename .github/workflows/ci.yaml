@@ -49,3 +49,10 @@ jobs:
 
       - name: Build Registry package
         run: bun run build:custom-node
+
+      - name: Upload custom node ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/*.zip
+          archive: false
+          if-no-files-found: error
